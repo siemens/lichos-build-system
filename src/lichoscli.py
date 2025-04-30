@@ -20,30 +20,34 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-CI_PKG = '00ci'
-CI_DEFAULT_PIPELINE_NAME = "gbp"
-CI_TEMPLATE = '{name}.yml@{group}/{pkg}'
-
 import argparse
 import logging
 import os
 import re
+import shutil
 import sys
-import yaml
-import requests
-import urllib3
 import urllib.parse
 import json
 import subprocess
 import configparser
 import random
+import tempfile
 from datetime import datetime
-from git import Repo
-from tabulate import tabulate
+from io import BytesIO
 from time import sleep
+from zipfile import ZipFile
 from collections import namedtuple
-
 from pprint import pprint
+
+import requests
+import yaml
+import git
+from tabulate import tabulate
+import textwrap
+
+CI_PKG = '00ci'
+CI_DEFAULT_PIPELINE_NAME = "gbp"
+CI_TEMPLATE = '{name}.yml@{group}/{pkg}'
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +69,7 @@ def assert_package(func):
 
     return wrapper
 
-class Tool(object):
+class Tool:
     citemplate = CI_TEMPLATE
     ci_pkg = CI_PKG
 
@@ -74,13 +78,28 @@ class Tool(object):
     token = None
     namespace_id = None
 
-    def configure(self, host, group) -> bool:
-        self.host = host
-        self.group = group
+    def configure(self, args) -> bool:
+        self.host = args.host
+        self.group = args.project
         self.package = None
 
         glabcfgfn = None
         glabcfg = None
+
+        env_group = os.environ.get('CI_PROJECT_NAMESPACE', None)
+        env_token = os.environ.get('PKG_TRIGGER_TOKEN', None)
+        env_repository_url = os.environ.get('CI_REPOSITORY_URL', None)
+
+        if env_group and env_token and env_repository_url:
+            self.group = env_group
+            self.token = env_token
+            repository_url = env_repository_url
+            if repository_url:
+                match = re.search(r'@([^/]+)/', repository_url)
+                if match:
+                    self.host = match.group(1)
+            return True
+        
         home = os.path.expanduser('~')
         for p in ('', 'snap/glab/current'):
             glabcfgfn = os.path.join(home, p, ".config/glab-cli/config.yml")
@@ -106,10 +125,10 @@ class Tool(object):
                         r = re.match(r'git@(?P<host>[^:]+):(?P<group>.*)/(?P<package>[^/]+)$', u)
                         if r is not None:
                             if not self.host:
-                                self.host= r.group('host')
+                                self.host = r['host']
                                 logger.debug("found host %s in %s", self.host, fn)
                             if not self.group:
-                                self.group =r.group('group')
+                                self.group = r['group']
                                 logger.debug("found group %s in %s", self.group, fn)
                             if 'package' in args:
                                 pkg = r.group('package')
@@ -127,10 +146,6 @@ class Tool(object):
             logger.error("please specify host and project")
             return False
 
-        if not self.group:
-            logger.error("please specify project")
-            return False
-
         if not self.host:
             logger.error("please specify host")
             return False
@@ -140,24 +155,54 @@ class Tool(object):
             logger.error("missing token in %s", glabcfgfn)
             return False
 
+        if not self.group:
+            logger.error("please specify --project")
+            if self.host:
+                print("Available projects:")
+                j = self._get('/search?scope=projects&fields=path_with_namespace&search=pkg/00ci')
+                if j:
+                    for i in j:
+                        p = os.path.split(i['path_with_namespace'])[:-1]
+                        print("  " + "/".join(p))
+
+            return False
+
         return True
 
-    def _get_response(self, path):
-        response = requests.get(
+    def _head(self, path):
+        response = requests.head(
             self.url(path),
-            headers={"Authorization": f"Bearer {self.token}"},
+            headers={"Authorization": "Bearer {}".format(self.token)},
             allow_redirects=False
         )
         return response
 
-    def _get(self, path, all_pages=True):
+    def _get_response(self, path):
         response = requests.get(
             self.url(path),
-            headers={"Authorization": f"Bearer {self.token}"},
-            allow_redirects=False
+            headers={"Authorization": "Bearer {}".format(self.token)},
+            allow_redirects=False,
+            timeout=100,
         )
+        return response
+
+    def _get(self, path, all_pages=True, quiet=False):
+        response = requests.get(
+            self.url(path),
+            headers={"Authorization": "Bearer {}".format(self.token)},
+            allow_redirects=False,
+            timeout=100,
+        )
+        if response.status_code == 301:
+            new_url = response.headers.get('Location')
+            new_api_path = new_url.split(self.GITLAB_API, 1)[1]
+            # redirect to new url
+            logger.debug("redirect to %s", new_api_path)
+            return self._get(new_api_path, all_pages)
+
         if response.status_code != 200:
-            logger.error("failed GET %s", path)
+            if not quiet:
+                logger.error("failed GET %s", path)
             return None
 
         j = response.json()
@@ -168,16 +213,17 @@ class Tool(object):
                 url = l['next']['url']
                 response = requests.get(
                     url,
-                    headers={"Authorization": f"Bearer {self.token}", },
+                    headers={"Authorization": "Bearer {}".format(self.token), },
                     allow_redirects=False
                 )
                 if response.status_code != 200:
-                    logger.warning("failed GET %s", url)
+                    if not quiet:
+                        logger.warning("failed GET %s", url)
                     break
 
-                if (isinstance(j, dict)):
+                if isinstance(j, dict):
                     j |= response.json()
-                elif (isinstance(j, list)):
+                elif isinstance(j, list):
                     j += response.json()
                 else:
                     logger.warning("unknown type %s", type(j))
@@ -189,7 +235,7 @@ class Tool(object):
     def _put(self, path, data):
         response = requests.put(
             self.url(path),
-            headers={"Authorization": f"Bearer {self.token}"},
+            headers={"Authorization": "Bearer {}".format(self.token)},
             data=data,
             allow_redirects=False
         )
@@ -202,7 +248,7 @@ class Tool(object):
     def _post(self, path, data=None):
         response = requests.post(
             self.url(path),
-            headers={"Authorization": f"Bearer {self.token}"},
+            headers={"Authorization": "Bearer {}".format(self.token)},
             data=data,
             allow_redirects=False
         )
@@ -215,7 +261,7 @@ class Tool(object):
     def _delete(self, path):
         response = requests.delete(
             self.url(path),
-            headers={"Authorization": f"Bearer {self.token}"},
+            headers={"Authorization": "Bearer {}".format(self.token)},
             allow_redirects=False
         )
         if response.status_code > 299:
@@ -258,20 +304,27 @@ class Tool(object):
         for f in args.file:
             pprint(f)
 
+    def _refresh_packages(self):
+        j = None
+        for h in ('groups', 'users'):
+            u = '{}/{}/projects?include_subgroups=true'.format(h, urllib.parse.quote(self.group, safe=''))
+            r = self._head(u)
+            if r.status_code == 404 and '/' not in self.group:
+                continue
+            if r.status_code == 200:
+                j = self._get(u)
+                break
+
+        if j is not None:
+            for p in j:
+                if self.namespace_id is None and 'namespace' in p:
+                    self.namespace_id = p['namespace']['id']
+                self._packages[p['path']] = p
+        logger.debug("{} namespace id {}".format(self.group, self.namespace_id))
+
     def packages(self) -> dict:
         if not self._packages:
-            r = self._get_response('groups/{}/projects'.format(urllib.parse.quote(self.group, safe='')))
-            if r.status_code == 404 and '/' not in self.group:
-                r = self._get_response('users/{}/projects'.format(urllib.parse.quote(self.group, safe='')))
-
-            j = r.json()
-            if j is not None:
-                for p in j:
-                    if self.namespace_id is None and 'namespace' in p:
-                        self.namespace_id = p['namespace']['id']
-                    self._packages[p['path']] = p
-            logger.debug("{} namespace id {}".format(self.group, self.namespace_id))
-
+            self._refresh_packages()
         return self._packages
 
     def pkg(self, name):
@@ -333,13 +386,7 @@ class Tool(object):
                     t.append([i, pkg[i]])
             print(tabulate(t, headers='firstrow'))
 
-            r = self._get('projects/{}/variables'.format(pkg['id']))
-            if r:
-                t = [['type', 'key', 'value', 'hidden', 'protected', 'masked', 'raw', 'scope', 'description']]
-                for v in r:
-                    t.append([v[k] if k != 'value' or v['masked'] == False else '***' for k in ('variable_type', 'key', 'value', 'hidden', 'protected', 'masked', 'raw', 'environment_scope', 'description')])
-                print("\nVariables:")
-                print(tabulate(t, headers='firstrow'))
+        self._load_variables_remote(pkg, print_always=True)
 
     def _find_job_by_name(self, project, pipeline, name):
         r = self._get('projects/{}/pipelines/{}/jobs'.format(project, pipeline))
@@ -406,6 +453,47 @@ class Tool(object):
                 return 1
 
         print("Job {} {}".format(job['id'], job['status']))
+    
+    def _get_job_artifacts(self, branch_name: str, package: str, job_name: str, pipeline_status: str = None) -> tempfile.TemporaryDirectory|None:
+        pkg = self.pkg(package)
+        if not branch_name:
+            branch_name = pkg['default_branch']
+
+        if pipeline_status:
+            pipeline_status_str = "&status={}".format(pipeline_status)
+        else:
+            pipeline_status_str = ""
+
+        r = self._get("projects/{}/pipelines?ref={}&per_page=1{}".format(pkg['id'], branch_name, pipeline_status_str), all_pages=False)
+        if r is None:
+            return None
+        if len(r) == 0:
+            return None
+        r = r[0]
+
+        pipeline_jobs = self._get("projects/{}/pipelines/{}/jobs".format(pkg['id'], r['id']))
+        if not pipeline_jobs:
+            return None
+        for job in pipeline_jobs:
+            if job['name'] != job_name:
+                continue
+            response = requests.get(
+                self.url("projects/{}/jobs/{}/artifacts".format(pkg['id'], job['id'])),
+                headers={"Authorization": "Bearer {}".format(self.token)},
+                allow_redirects=False,
+                timeout=100,
+                )
+            if response.status_code != 200:
+                logger.error("failed to get artifacts for job %s in %s", job['name'], package)
+                return None
+
+            tempdir = tempfile.TemporaryDirectory()
+
+            with ZipFile(BytesIO(response.content)) as z:
+                z.extractall(tempdir.name)
+
+            return tempdir
+        return None
 
     def do_status(self, args):
         if not args.package and self.package:
@@ -413,10 +501,13 @@ class Tool(object):
         if args.package and args.package != self.ci_pkg:
             return self._status_package(args)
         return self._status_all(args)
+    
+    def _get_pkg_pipeline_status(self, args, pkg):
+        return self._get('projects/{}/pipelines?ref={}&per_page=1'.format(pkg['id'], args.branch or pkg['default_branch']), all_pages=False)
 
     def _status_package(self, args):
         pkg = self.pkg(args.package)
-        r = self._get('projects/{}/pipelines?ref={}&per_page=1'.format(pkg['id'], args.branch if args.branch else pkg['default_branch']), all_pages=False)
+        r = self._get_pkg_pipeline_status(args, pkg)
         if r is None:
             return 1
         if len(r) == 0:
@@ -435,36 +526,52 @@ class Tool(object):
 
         # XXX: can't list artifacts here due to missing API
         # https://gitlab.com/gitlab-org/gitlab/-/issues/31448
-        r = self._get('projects/{}/pipelines/{}/jobs'.format(pkg['id'], r['id']))
-        if not r:
+        pipeline_jobs = self._get('projects/{}/pipelines/{}/jobs'.format(pkg['id'], r['id']))
+        if not pipeline_jobs:
             return 1
 
         print()
-        t = [['Id', 'Name', 'Stage', 'Status']]
-        for job in r:
+        t = [['Id', 'Name', 'Stage', 'Status', 'Started']]
+        for job in pipeline_jobs:
             t.append([job[k] for k in ('id', 'name', 'stage', 'status')])
+            s = job.get('started_at', None)
+            if s:
+                s = datetime.fromisoformat(s)
+                f = job.get('finished_at', None)
+                if f:
+                    f = datetime.fromisoformat(f)
+                    t[-1].append("{:%Y-%m-%d %H:%M:%S} - {}s".format(s, int((f - s).total_seconds())))
+                else:
+                    t[-1].append("{:%Y-%m-%d %H:%M:%S}".format(s))
+            else:
+                t[-1].append("-")
         print(tabulate(t, headers='firstrow'))
 
     def _status_all(self, args):
-        t = [['Name', 'Type', 'Enabled', 'Status' ]]
+        t = [['Name', 'Type', 'Enabled', 'Status', 'Pipeline']]
         for pn in sorted(self.packages().keys()):
             p = self.pkg(pn)
-            status = None
+            status = "-"
+            d = "-"
             ci = self.pretty_format_enabled(p['ci_config_path'])
             on = self.pretty_format_enabled(p['builds_access_level'])
-            r = self._get('projects/{}/pipelines?ref={}&per_page=1'.format(p['id'], args.branch if args.branch else p['default_branch']), all_pages=False)
-            if r is not None and len(r):
-                status = r[0]['status']
-            r = [p['path'], ci, on, status]
+            r = self._get_pkg_pipeline_status(args, p)
             if 'forked_from_project' in p:
                 logger.warning("%s forked from %s", pn, p['forked_from_project']['path_with_namespace'])
-            t.append(r)
+            if r is not None and len(r):
+                status = r[0]['status']
+                u = r[0].get('updated_at', None)
+                if u:
+                    d = "{:%Y-%m-%d %H:%M:%S}".format(datetime.fromisoformat(u))
+
+            t.append([p['path'], ci, on, status, d])
+
         print(tabulate(t, headers='firstrow'))
 
     @assert_package
     def do_enable(self, args):
         pkg = self.pkg(args.package)
-        if args.type and re.match(r'^[a-z][a-z0-9]+$', args.type) is None:
+        if args.type is None or re.match(r'^[a-z][a-z0-9]+$', args.type) is None:
             logger.error("Pipeline name must be all lowercase letters and digits")
             return False
         cipath = self.pipeline(args.type, args.branch)
@@ -476,27 +583,54 @@ class Tool(object):
         pkg = self.pkg(args.package)
         r = self._put('projects/{}'.format(pkg['id']), data={'builds_access_level': 'disabled'})
 
-    @assert_package
     def do_trigger(self, args):
-        pkg = self.pkg(args.package)
-        r = self._post('projects/{}/pipeline?ref={}'.format(pkg['id'], args.branch if args.branch else pkg['default_branch']))
-        if r is None:
-            return 1
-        if args.dump:
-            print(json.dumps(r, indent=2))
-        else:
-            t = [['Setting', 'Value']]
-            for i in ('sha', 'ref', 'status', 'web_url'):
-                t.append([i, r[i]])
-            print(tabulate(t, headers='firstrow'))
+        if not args.package and self.package:
+            args.package = self.package
+        if args.all:
+            return self._trigger_all(args)
 
+        if args.package and args.package != self.ci_pkg:
+            return self._trigger_package(args.package, args.branch)
+
+        logger.error("Please specify package or --all to trigger all")
+        return False
+
+    def _trigger_all(self, args):
+        packages = sorted(self.packages().keys())
+        #random.shuffle(packages)
+        for pn in packages:
+            if pn == CI_PKG:
+                continue
+            self._trigger_package(pn, args.branch)
+
+        return True
+
+    def _trigger_package(self, name, branch):
+        pkg = self.pkg(name)
+        if branch is None:
+            branch = pkg['default_branch']
+        logger.info("triggering %s in %s", name, branch)
+        r = self._post('projects/{}/pipeline?ref={}'.format(pkg['id'], branch))
+        if r is None:
+            return False
         return True
 
     @assert_package
     def do_clone(self, args):
         pkg = self.pkg(args.package)
         repo_url = pkg['ssh_url_to_repo']
-        repo = Repo.clone_from(repo_url, args.package)
+
+        if hasattr(args, 'branch') and args.branch:
+            try:
+                repo = git.Repo.clone_from(repo_url, args.package, branch=args.branch)
+            except git.exc.GitCommandError as e:
+                logger.warning("Failed to checkout %s: %s", args.branch, e)
+                logger.warning("Checkout default branch and create local branch %s", args.branch)
+                repo = git.Repo.clone_from(repo_url, args.package)
+                repo.git.checkout('-b', args.branch)
+        else:
+            repo = git.Repo.clone_from(repo_url, args.package)
+        
         if 'forked_from_project' in pkg:
             purl = pkg['forked_from_project']['ssh_url_to_repo']
             logger.debug("Adding parent %s", purl)
@@ -508,8 +642,7 @@ class Tool(object):
             logger.debug("Found upstream metadata %s", fn)
             with open(fn, 'r') as fh:
                 y = yaml.safe_load(fh)
-                u = y.get('Repository', None)
-                if u:
+                if u := y.get('Repository', None):
                     logger.debug("Adding upstream %s", u)
                     upstream = repo.create_remote("upstream", u)
                     upstream.fetch()
@@ -517,17 +650,17 @@ class Tool(object):
         return True
 
     def _pdiff_local(self, args):
-        repo = Repo('.')
+        repo = git.Repo('.')
         assert not repo.bare
         if repo is None:
             logger.error("failed to init git repo")
-        if not 'parent' in repo.remotes:
+        if 'parent' not in repo.remotes:
             logger.error('Missing parent repo')
             return False
         parent = repo.remotes.parent
         refname = repo.head.reference
 
-        if not str(refname) in repo.remotes.parent.refs:
+        if str(refname) not in parent.refs:
             pbr = [str(r).split('/', 2)[1] for r in repo.remotes.parent.refs]
             logger.warning("parent repo does not have %s branch, trying %s", refname, pbr[0])
             pref = repo.remotes.parent.refs[pbr[0]]
@@ -559,38 +692,53 @@ class Tool(object):
 
         pkg = self.pkg(args.package)
 
-        r = subprocess.run(('xdg-open', pkg['web_url']))
-        return r.returncode
+        url = pkg['web_url']
+        branch = args.branch
+        if branch is None:
+            try:
+                repo = git.Repo('.')
+                branch = str(repo.head.reference)
+            except git.exc.InvalidGitRepositoryError:
+                logger.error("invalid repo: %s", args.package)
+                return 1
 
-    def _load_variables_remote(self, pkg):
+        if branch:
+            r = self._head('projects/{}/repository/branches/{}'.format(pkg['id'], urllib.parse.quote(branch, safe='')))
+            if r.status_code == 204:
+                url += "/-/tree/{}".format(branch)
+            else:
+                logger.warning("branch %s does not exist on server side, showing default branch", branch)
+
+        r = subprocess.run(('xdg-open', url))
+        return r.returncode
+    
+    def _process_variables(self, kind=None, package={}, vars={}, print_always=False):
+        r = self._get('groups/{}/variables' if kind == "group" else 'projects/{}/variables'.format(package['namespace']['id'] if kind == "group" else package['id']), quiet=True)
+        
+        if r:
+            t = [['type', 'key', 'value', 'hidden', 'protected', 'masked', 'raw', 'scope', 'description']]
+
+            for v in r:
+                vars[v['key']] = v['value']
+                if print_always:
+                    t.append([v[k] if k != 'value' or v['masked'] == False else '***' for k in ('variable_type', 'key', 'value', 'hidden', 'protected', 'masked', 'raw', 'environment_scope', 'description')])
+
+            if len(t) > 1 and print_always:
+                print("Group Variables" if kind == "group" else "Variables")
+                print(tabulate(t, headers='firstrow'))
+
+        return vars
+
+    def _load_variables_remote(self, pkg, print_always=False):
         variables = {}
 
         kind = pkg['namespace']['kind']
         if kind == 'group':
-            r = self._get('groups/{}/variables'.format(pkg['namespace']['id']))
-            if r:
-                t = [['type', 'key', 'value', 'hidden', 'protected', 'masked', 'raw', 'scope', 'description']]
-                for v in r:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        t.append([v[k] if k != 'value' or v['masked'] == False else '***' for k in ('variable_type', 'key', 'value', 'hidden', 'protected', 'masked', 'raw', 'environment_scope', 'description')])
-                    variables[v['key']] = v['value']
-                if logger.isEnabledFor(logging.DEBUG):
-                    print("\nGroup Variables:")
-                    print(tabulate(t, headers='firstrow'))
+            variables = self._process_variables(kind=kind, package=pkg, vars=variables, print_always=print_always or logger.isEnabledFor(logging.DEBUG))
         else:
             logger.error("Don't know how to handle '{}' variables".format(kind))
 
-
-        r = self._get('projects/{}/variables'.format(pkg['id']))
-        if r:
-            t = [['type', 'key', 'value', 'hidden', 'protected', 'masked', 'raw', 'scope', 'description']]
-            for v in r:
-                if logger.isEnabledFor(logging.DEBUG):
-                    t.append([v[k] if k != 'value' or v['masked'] == False else '***' for k in ('variable_type', 'key', 'value', 'hidden', 'protected', 'masked', 'raw', 'environment_scope', 'description')])
-                variables[v['key']] = v['value']
-            if logger.isEnabledFor(logging.DEBUG):
-                print(tabulate(t, headers='firstrow'))
-                print("\nVariables:")
+        variables = self._process_variables(kind=None, package=pkg, vars=variables, print_always=print_always or logger.isEnabledFor(logging.DEBUG))
 
         return variables
 
@@ -636,13 +784,58 @@ class Tool(object):
             return 2
 
         repo_url = pkg['ssh_url_to_repo']
-        repo = Repo.clone_from(repo_url, args.package)
-        repo.index.commit("Initialize package")
+        repo = git.Repo.clone_from(repo_url, args.package)
+        author = repo.index.commit("Initialize package").author
         repo.remotes.origin.push()
 
         logger.info("%s/%s with branch %s created".format(self.group, args.package, args.branch))
 
+        if args.type == "gbp":
+            self.create_debian_package_template(args, author)         
+
         return 0
+    
+    def create_debian_package_template(self, args, author):
+        debian_directory = os.path.join(args.package, 'debian')
+        debian_source_directory = os.path.join(debian_directory, 'source')
+        debian_control = os.path.join(debian_directory, 'control')
+        debian_rules = os.path.join(debian_directory, 'rules')
+        debian_format = os.path.join(debian_source_directory, 'format')
+
+        os.makedirs(debian_source_directory, exist_ok=True)
+        
+        with open(debian_rules, "w") as rules_file:
+            rules_file.write(textwrap.dedent("""\
+                #!/usr/bin/make -f
+
+                %:
+                \tdh $@
+                """))
+
+        with open(debian_control, "w") as control_file:
+            control_file.write(textwrap.dedent("""\
+                Source: {package}
+                Maintainer: {author_name} <{author_email}>
+                Build-Depends:
+                    debhelper-compat (= 13)
+                Standards-Version: 4.6.2
+
+                Package: {package}
+                Architecture: any
+                Multi-Arch: foreign
+                Depends:
+                    ${{shlibs:Depends}},
+                    ${{misc:Depends}},
+                Description: <add your package description here>
+                """).format(
+                    package=args.package,
+                    author_name=author.name,
+                    author_email=author.email
+                ))
+        with open(debian_format, "w") as format_file:
+            format_file.write("3.0 (native)\n")
+
+        logger.info("Created debian package template, please adjust the rules and control file as needed")
 
     @assert_package
     def do_build(self, args):
@@ -655,79 +848,37 @@ class Tool(object):
             # just to make sure nobody hardcodes it :)
             ci_project_dir = '/'+''.join(random.sample(ci_project_dir[1:], k=len(ci_project_dir[1:])))
 
-        repo = Repo('.')
+        try:
+            repo = git.Repo('.')
+        except git.exc.InvalidGitRepositoryError:
+            repo = None
         if repo is None:
-            logger.error("invalid repo")
+            logger.error("invalid repo: %s", args.package)
             return 1
 
         branch = str(repo.head.reference)
 
         pkg = self.pkg(args.package)
-
-
-        if args.pipeline:
-            data = open(args.pipeline, 'r')
-        else:
-            ci = pkg['ci_config_path']
-            if ci == '':
-                 ci = self.pipeline()
-
-            if ci == '.gitlab-ci.yml':
-                p = 'projects/{}/repository/files/{}/raw'.format(pkg['id'], ci)
-            else:
-                parsed = parse_ci_config_path(ci)
-                if parsed is None:
-                    logger.error("Invalid pipeline definition")
-                    return False
-                if parsed.group != self.group:
-                    logger.error("Cant fetch pipeline from different group (%s) yet", parsed.group)
-                    return False
-                p = 'projects/{}/repository/files/{}.yml/raw'.format(self.pkg(parsed.pkg)['id'], parsed.name)
-                if parsed.branch:
-                    p += "?ref="+parsed.branch
-
-            r = self._get_response(p)
-            if r.status_code != 200:
-                logger.error("failed to fetch pipeline definition")
-                return False
-            data = r.text
-
-        ci = yaml.safe_load(data)
-        ci.setdefault('default', {})
-
-        if not args.target:
-            targets = []
-            for t in ci.keys():
-                if 'extends' not in ci[t]:
-                    continue
-                if '.build-package' in ci[t]['extends']:
-                    targets.append(t)
-            logger.error("missing target. Valid targets: %s", ', '.join(targets))
-            return -1
-
-        image = None
-        if 'image' in ci['.build-package']:
-            image = ci['.build-package']['image']
-        elif 'image' in ci[args.target]:
-            image = ci[args.target]['image']
-        elif 'image' in ci['default']:
-            image = ci['default']['image']
-        elif 'image' in ci:
-            logger.warning("image at top level gitlab-ci.yml is deprecated:\n"
-                    + "https://docs.gitlab.com/ci/yaml/#globally-defined-image-services-cache-before_script-after_script")
-            image = ci['image']
-
-        if image is None:
-            raise Exception("no image configured")
-
         env = self._load_variables_remote(pkg)
 
-        if 'variables' in ci:
-            env |= ci['variables']
-        if 'variables' in ci['.build-package']:
-            env |= ci['.build-package']['variables']
-        if 'variables' in ci[args.target]:
-            env |= ci[args.target]['variables']
+        tmpdir = self._get_job_artifacts(args.branch, args.package, 'calculate-env')
+        if not tmpdir:
+            logger.error("failed to load pipeline artifacts for %s: make sure to run the pipeline once", args.package)
+            return 1
+        try:
+            with open(os.path.join(tmpdir.name, 'variables.env'), 'r', encoding='utf-8') as f:
+                variables = f.read()
+                env |= dict(line.split('=', 1) for line in variables.splitlines() if '=' in line)
+        finally:
+            tmpdir.cleanup()
+
+        arch_map = {
+                'x86_64': 'amd64',
+                'aarch64': 'arm64',
+                }
+
+        platform = "linux/{}".format(arch_map.get(args.architecture, args.architecture))
+        env['ARCHITECTURE'] = arch_map.get(args.architecture, args.architecture)
 
         env['CI_PROJECT_DIR'] = ci_project_dir
         env['CI_COMMIT_BRANCH'] = branch
@@ -735,67 +886,116 @@ class Tool(object):
         env['CI_COMMIT_REF_SLUG'] = re.sub(r'[^a-z0-9]', '-', branch.lower()).strip('-')[:63]
         env['CI_PROJECT_NAMESPACE'] = self.group
 
-        def _expandvar(m):
-            k = m.group(1)
-            return env[k] if k in env else ''
+        # expand all variables
+        for key, value in env.items():
+            env[key] = re.sub(r'\${([A-Z_][A-Z0-9_]*)}', lambda m: env.get(m.group(1), ''), value)
 
-        image = re.sub(r'\${([A-Z]+)}', _expandvar, image)
+        env_file = tempfile.NamedTemporaryFile(prefix='.gitlab_env.', dir='.', mode='w', delete=False)
+        for k in env:
+            logger.debug("%s=%s", k, env[k])
+            env_file.write('{0}={1}\n'.format(k, env[k]))
+        env_file.close()
 
-        if 'DOCKER-AARCH64' in ci[args.target]['tags']:
-            platform = "linux/arm64"
-        elif 'DOCKER' in ci[args.target]['tags']:
-            platform = "linux/amd64"
-        else:
-            logger.error("unknown target platform")
-            return 1
-
-        script = []
-        if args.script:
-            script = [ args.script ]
-        else:
-            if 'before_script' in ci:
-                logger.warning("before_script at top level gitlab-ci.yml is deprecated:\n"
-                        + "https://docs.gitlab.com/ci/yaml/#globally-defined-image-services-cache-before_script-after_script")
-                script += ci['before_script']
-            for s in ('before_script', 'script'):
-                if s in ci['.build-package']:
-                    script += ci['.build-package'][s]
-                elif s in ci['default']:
-                    script += ci['default'][s]
-
-        env_file = "_gitlab_env"
-        with open(env_file, 'w') as fh:
-            for k in env.keys():
-                fh.write('{0}={1}\n'.format(k, env[k]))
-
-        fn = "_gitlab_script"
-        with open(fn, 'w') as fh:
-            fh.write("#!/bin/bash -xe\n")
-            fh.write('mount\nls -al /\n')
-            fh.write('\n'.join(['\n.'.join(x) if isinstance(x, list) else x for x in script]) + '\n')
-        os.chmod(fn, 0o755)
-
-        cmd = ["docker", "run", '--env-file', env_file, "--rm", "-v", "{}:{}".format(os.getcwd(), ci_project_dir),
+        cmd = ["docker", "run", '--env-file', env_file.name, "--rm",
+                "-v", "{}:{}".format(os.getcwd(), ci_project_dir),
                 "--platform", platform, '-w', ci_project_dir]
 
+        image = env['IMAGE']
+        script = env['REPO_SETUP_CMD'] + " ; " + env['BUILD_CMD']
+
         if args.shell:
-            print("+++ run {} to build the package".format(os.path.join(ci_project_dir, fn)))
+            print("+++ run to build the package:")
+            print(script)
+            print("+++")
             cmd += ['-it', image, args.shell]
         else:
-            cmd += [image, os.path.join(ci_project_dir, fn)]
+            cmd += [image, '/usr/bin/bash', '-c', script]
 
         logger.info("updating %s", image)
-        r = subprocess.run(('docker', 'pull', image))
-        r.check_returncode()
+        r = subprocess.run(('docker', 'pull', image), check=False)
+        if r.returncode:
+            os.unlink(env_file.name)
+            return r.returncode
+
+        r = subprocess.run(('ls', '-al', env_file.name), check=False)
 
         logger.info(cmd)
-        r = subprocess.run(cmd)
+        r = subprocess.run(cmd, check=False)
+
+        os.unlink(env_file.name)
 
         return r.returncode
 
+    def do_workspace(self, args):
+        if args.action == 'enter':
+            workspace_branch = args.workspace_branch
+
+            if hasattr(args, 'package'):
+                try:
+                    repo = git.Repo('.')
+                except git.exc.InvalidGitRepositoryError:
+                    repo = None
+                if repo is None:
+                    logger.error("invalid repo: %s", args.package)
+                    return 1
+
+                default_branch = self.pkg(os.path.basename(repo.working_dir))['default_branch']
+
+                if args.workspace_branch not in repo.branches:
+                    logger.error("Branch \"%s\" not found in %s. Using default branch \"%s\"", args.workspace_branch, repo.working_dir, default_branch)
+                    workspace_branch = default_branch
+
+            os.environ['LICHOS_BRANCH'] = workspace_branch
+
+            subprocess.run([os.environ.get('SHELL', '/bin/sh')])
+
+    @assert_package
+    def do_getartifacts(self, args):
+        pkg = self.pkg(args.package)
+        branch_name = args.branch
+        job_name = args.job_name
+        artifacts_dir = 'artifacts'
+
+        if not branch_name:
+            branch_name = pkg['default_branch']
+
+        if job_name:
+            if os.path.exists(artifacts_dir):
+                shutil.rmtree(artifacts_dir)
+
+            tempdir = self._get_job_artifacts(branch_name, args.package, job_name)
+
+            if tempdir:
+                os.makedirs(artifacts_dir, exist_ok=True)
+                for fn in os.listdir(tempdir.name):
+                    shutil.move(os.path.join(tempdir.name, fn), os.path.join(artifacts_dir, fn))
+                return 0
+            else:
+                logger.error("Failed to get artifacts for job %s", job_name)
+                return 1
+        
+        pipelines = self._get("projects/{}/pipelines?ref={}&per_page=1&status=success".format(pkg['id'], branch_name), all_pages=False)
+        jobs = self._get("projects/{}/pipelines/{}/jobs".format(pkg['id'], pipelines[0]['id']))
+
+        links = []
+        for job in jobs:
+            if "build" in job['name'] or "create" in job['name']:
+                links.append("{}: {}/artifacts/browse".format(job['name'], job['web_url']))
+        
+        if links:
+            print("Artifacts links:")
+            for link in links:
+                print(link)
+        else:
+            logger.warning("No artifacts found")
+
+        return 0
+
+
+    GITLAB_API = "/api/v4/"
 
     def url(self, path):
-        return 'https://{}//api/v4/{}'.format(self.host, path)
+        return f'https://{self.host}{self.GITLAB_API}{path}'
 
 
 def main(args):
@@ -803,8 +1003,12 @@ def main(args):
     # do some work here
     logger.info("main")
 
+    workspace_branch = os.environ.get('LICHOS_BRANCH', None)
+    if workspace_branch:
+        args.branch = workspace_branch
+
     tool = Tool()
-    if not tool.configure(args.host, args.project):
+    if not tool.configure(args):
         return 1
 
     f = getattr(tool, 'do_{}'.format(args.command.replace('-', '_')), None)
@@ -816,7 +1020,7 @@ def main(args):
     if r is None:
         return 0
     if isinstance(r, bool):
-        return r == False
+        return not r
     if isinstance(r, int):
         return r
 
@@ -850,6 +1054,9 @@ if __name__ == '__main__':
     sp.add_argument("package", nargs='?', help="package name")
     sp.add_argument("--wait", action="store_true", help="wait for job to start")
 
+    sp = subparsers.add_parser("ctree", help="check repo tree")
+    sp.add_argument("--buildlist", action="store_true", help="print build list")
+
     sp = subparsers.add_parser("enable", help="enable package build")
     sp.add_argument("package", nargs='?', help="some package name")
     sp.add_argument("type", nargs='?', help="build type name")
@@ -859,6 +1066,7 @@ if __name__ == '__main__':
 
     sp = subparsers.add_parser("trigger", help="trigger package build")
     sp.add_argument("package", nargs='?', help="some package name")
+    sp.add_argument("--all", action="store_true", help="trigger all packages")
 
     sp = subparsers.add_parser("clone", help="clone a package")
     sp.add_argument("package", help="package name")
@@ -872,32 +1080,39 @@ if __name__ == '__main__':
 
     sp = subparsers.add_parser("build", help="build package")
     sp.add_argument("package", nargs='?', help="some package name")
-    sp.add_argument("target", nargs='?', help="target")
-    sp.add_argument("--pipeline", help="force different pipeline (local)")
+    sp.add_argument("--architecture", nargs='?', default=os.uname().machine, help="architecture to build for")
     sp.add_argument("--script", help="force different script")
     sp.add_argument("--shell", nargs='?', default=argparse.SUPPRESS,  help="launch shell instead of executing build command")
 
     sp = subparsers.add_parser("browse", help="open browser")
     sp.add_argument("package", nargs='?', help="some package name")
 
+    sp = subparsers.add_parser("workspace", help="set workspace branch")
+    sp.add_argument("action", help="action to perform - enter | exit")
+    sp.add_argument("workspace_branch", nargs='?', help="branch name")
+    
+    sp = subparsers.add_parser("getartifacts", help="download pipeline artifacts")
+    sp.add_argument("package", nargs='?', help="some package name")
+    sp.add_argument("job_name", nargs='?', help="pipeline job name")
+
 #    sp = subparsers.add_parser("cat", help="cat stuff")
 #    sp.add_argument("file", nargs='*', help="some file name")
 
-    args = parser.parse_args()
+    parsed_args = parser.parse_args()
 
-    if not getattr(args, 'command', None):
+    if not getattr(parsed_args, 'command', None):
         parser.print_help()
         sys.exit(1)
 
-    if args.debug:
+    if parsed_args.debug:
         level = logging.DEBUG
-    elif args.verbose:
+    elif parsed_args.verbose:
         level = logging.INFO
     else:
         level = None
 
     logging.basicConfig(level=level, format='[%(levelname).1s] %(message)s')
 
-    sys.exit(main(args))
+    sys.exit(main(parsed_args))
 
 # vim: sw=4 et

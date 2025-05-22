@@ -93,12 +93,10 @@ class Tool:
         if env_group and env_token and env_repository_url:
             self.group = env_group
             self.token = env_token
-            repository_url = env_repository_url
-            if repository_url:
-                match = re.search(r'@([^/]+)/', repository_url)
-                if match:
-                    self.host = match.group(1)
-            return True
+            match = re.search(r'@([^/]+)/', env_repository_url)
+            if match:
+                self.host = match.group(1)
+                return True
         
         home = os.path.expanduser('~')
         for p in ('', 'snap/glab/current'):
@@ -305,13 +303,16 @@ class Tool:
             pprint(f)
 
     def _refresh_packages(self):
+        self._packages = {}
         j = None
         for h in ('groups', 'users'):
+            logger.debug("getting header for %s/%s/projects", h, self.group)
             u = '{}/{}/projects?include_subgroups=true'.format(h, urllib.parse.quote(self.group, safe=''))
             r = self._head(u)
             if r.status_code == 404 and '/' not in self.group:
                 continue
             if r.status_code == 200:
+                logger.debug("getting %s/%s/projects", h, self.group)
                 j = self._get(u)
                 break
 
@@ -461,9 +462,11 @@ class Tool:
 
         if pipeline_status:
             pipeline_status_str = "&status={}".format(pipeline_status)
+            logger.debug("getting pipelines for package %s branch %s with status %s", package, branch_name, pipeline_status)
         else:
             pipeline_status_str = ""
-
+            logger.debug("getting pipelines for package %s branch %s", package, branch_name)
+            
         r = self._get("projects/{}/pipelines?ref={}&per_page=1{}".format(pkg['id'], branch_name, pipeline_status_str), all_pages=False)
         if r is None:
             return None
@@ -471,12 +474,14 @@ class Tool:
             return None
         r = r[0]
 
+        logger.debug("getting jobs for pipeline %s", r['id'])
         pipeline_jobs = self._get("projects/{}/pipelines/{}/jobs".format(pkg['id'], r['id']))
         if not pipeline_jobs:
             return None
         for job in pipeline_jobs:
             if job['name'] != job_name:
                 continue
+            logger.debug("getting artifacts for job %s", job['name'])
             response = requests.get(
                 self.url("projects/{}/jobs/{}/artifacts".format(pkg['id'], job['id'])),
                 headers={"Authorization": "Bearer {}".format(self.token)},
@@ -503,6 +508,7 @@ class Tool:
         return self._status_all(args)
     
     def _get_pkg_pipeline_status(self, args, pkg):
+        logger.debug("getting pipeline status for package %s branch %s", pkg['path'], args.branch or pkg['default_branch'])
         return self._get('projects/{}/pipelines?ref={}&per_page=1'.format(pkg['id'], args.branch or pkg['default_branch']), all_pages=False)
 
     def _status_package(self, args):
@@ -713,7 +719,10 @@ class Tool:
         return r.returncode
     
     def _process_variables(self, kind=None, package={}, vars={}, print_always=False):
-        r = self._get('groups/{}/variables' if kind == "group" else 'projects/{}/variables'.format(package['namespace']['id'] if kind == "group" else package['id']), quiet=True)
+        if kind == 'group':
+            r = self._get('groups/{}/variables'.format(package['namespace']['id']), quiet=True)
+        else:
+            r = self._get('projects/{}/variables'.format(package['id']), quiet=True)
         
         if r:
             t = [['type', 'key', 'value', 'hidden', 'protected', 'masked', 'raw', 'scope', 'description']]
@@ -877,17 +886,29 @@ class Tool:
                 'aarch64': 'arm64',
                 }
 
-        platform = "linux/{}".format(arch_map.get(args.architecture, args.architecture))
-        env['ARCHITECTURE'] = arch_map.get(args.architecture, args.architecture)
-
         env['CI_PROJECT_DIR'] = ci_project_dir
         env['CI_COMMIT_BRANCH'] = branch
         env['CI_COMMIT_REF_NAME'] = branch
         env['CI_COMMIT_REF_SLUG'] = re.sub(r'[^a-z0-9]', '-', branch.lower()).strip('-')[:63]
         env['CI_PROJECT_NAMESPACE'] = self.group
 
+        if args.profile:
+            env['DEB_BUILD_PROFILES'] = args.profile
+        
+        architecture = arch_map.get(args.architecture, args.architecture)
+        env['ARCHITECTURE'] = architecture
+        platform = "linux/{}".format(architecture)
+
+        if args.enable_cross:
+             build_arch = arch_map.get(os.uname().machine)
+             env['ARCHITECTURE'] = build_arch
+             env['DEB_HOST_ARCH'] = architecture
+             platform = "linux/{}".format(build_arch)
+        
         # expand all variables
         for key, value in env.items():
+            if value is None: # skip protected variables
+                continue
             env[key] = re.sub(r'\${([A-Z_][A-Z0-9_]*)}', lambda m: env.get(m.group(1), ''), value)
 
         env_file = tempfile.NamedTemporaryFile(prefix='.gitlab_env.', dir='.', mode='w', delete=False)
@@ -1083,7 +1104,8 @@ if __name__ == '__main__':
     sp.add_argument("--architecture", nargs='?', default=os.uname().machine, help="architecture to build for")
     sp.add_argument("--script", help="force different script")
     sp.add_argument("--shell", nargs='?', default=argparse.SUPPRESS,  help="launch shell instead of executing build command")
-
+    sp.add_argument("--enable-cross", action="store_true", help="option to enable cross compilation setup")
+    sp.add_argument("--profile", nargs='?', help="debian profile to build")
     sp = subparsers.add_parser("browse", help="open browser")
     sp.add_argument("package", nargs='?', help="some package name")
 

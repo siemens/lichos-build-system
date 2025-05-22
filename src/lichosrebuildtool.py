@@ -83,7 +83,7 @@ class RebuildTool(Tool):
     def _get_latest_successful_pipeline_id(self, args: argparse.Namespace, pkg: dict) -> Union[int, None]:
         if not args.branch:
             branch_name = pkg['default_branch']
-
+        logger.debug("Get latest successful pipeline id for %s", pkg['name'])
         r = self._get("projects/{}/pipelines?ref={}&per_page=1&status=success".format(pkg['id'], branch_name), all_pages=False)
         if r is None:
             return None
@@ -91,43 +91,14 @@ class RebuildTool(Tool):
             return None
         return r[0]['id']
     
-    def _collect_all_pipeline_ids(self, args: argparse.Namespace) -> dict:
-        pipline_ids = {}
-        for pn in sorted(self.packages().keys()):
-                p = self.pkg(pn)
-                id = self._get_latest_successful_pipeline_id(args, p)
-                if id is None:
-                    continue
-                pipline_ids[p['name']] = id
-        return pipline_ids
-    
     def _prepare_packages_summaries(self, args: argparse.Namespace):
         # Because the repository structure can change between runs, let’s get it before each run.
         self._refresh_packages()
-        # if it does not exist, create it
-        if self.all_summaries is None:
-            self.all_summaries = {}
-            for pn in sorted(self.packages().keys()):
-                p = self.pkg(pn)
-                self.all_summaries |= self._ctree_package(args, p['path'])
-            self.last_successful_pipeline_ids = self._collect_all_pipeline_ids(args)
-            self._save_state_files()
-        elif self.last_successful_pipeline_ids is not None:
-            # if it does not exist, there is no need to check for new pipelines
-            return
-        else:
-            # get latest successful pipeline ids
-            latest_successful_pipeline_ids = self._collect_all_pipeline_ids(args)
-
-            # compare last and latest successful pipeline ids
-            for p in latest_successful_pipeline_ids:
-                # if the pipeline id is unknown or the id is different from the last id, get the new package summary
-                if p not in self.last_successful_pipeline_ids or latest_successful_pipeline_ids[p] != self.last_successful_pipeline_ids[p]:
-                    pkg = self.pkg(p)
-                    self.all_summaries |= self._ctree_package(args, pkg['path'])
-            
-            self.last_successful_pipeline_ids = latest_successful_pipeline_ids
-            self._save_state_files()
+        self.all_summaries = {}
+        for pn in sorted(self.packages().keys()):
+            p = self.pkg(pn)
+            self.all_summaries |= self._ctree_package(args, p['path'])
+        self._save_state_files()
 
     def _ctree(self, all_summaries: dict) -> Tuple[List[str], List[Tuple[str, str, str, str]], dict]:
         rebuild_list = []
@@ -163,29 +134,35 @@ class RebuildTool(Tool):
         return rebuild_list, mismatch_list, all_summaries
                             
     def _ctree_package(self, args: argparse.Namespace, package: str) -> dict:
+        logger.debug("ctree_package: %s", package)
         tempdir = self._get_job_artifacts(args.branch, package, 'publish', 'success')
         if not tempdir:
             return {}
 
         summary = {}
-        for fn in os.listdir(os.path.join(tempdir.name, 'DEBS')):
-            if not fn.endswith('.buildinfo'):
+        for root, dirs, files in os.walk(tempdir.name):
+            # Only process files in DEBS or gpb subfolders
+            rel = os.path.relpath(root, tempdir.name)
+            if not (rel.startswith('DEBS') or rel.startswith('gbp') or rel.startswith('image')):
                 continue
-            with open(os.path.join(tempdir.name, 'DEBS', fn), 'r') as f:
-                binfo = _read_buildinfo(f.read())
-                bsummary = {'source': binfo['source'].split(' ')[0], 'bdeps': []}
-                for dep in binfo.get('installed-build-depends', '').split(','):
-                    package, _, version = dep.partition('(')
-                    if package.strip():
-                        bsummary['bdeps'].append((package.strip().partition(':')[0], version.strip(' =)')))
-                bsummary['binary'] = binfo['binary'].split()
-                bsummary['version'] = binfo['version']
-                archs = set(binfo['architecture'].split())
-                archs.discard('source')
-                # only take all if it's alone
-                archs.discard('all')
-                bsummary['arch'] = archs.pop() if archs else 'all'
-                summary["{}.{}".format(bsummary['source'], bsummary['arch'])] = bsummary
+            for fn in files:
+                if not fn.endswith('.buildinfo'):
+                    continue
+                with open(os.path.join(root, fn), 'r') as f:
+                    binfo = _read_buildinfo(f.read())
+                    bsummary = {'source': binfo['source'].split(' ')[0], 'bdeps': []}
+                    for dep in binfo.get('installed-build-depends', '').split(','):
+                        package, _, version = dep.partition('(')
+                        if package.strip():
+                            bsummary['bdeps'].append((package.strip().partition(':')[0], version.strip(' =)')))
+                    bsummary['binary'] = binfo['binary'].split()
+                    bsummary['version'] = binfo['version']
+                    archs = set(binfo['architecture'].split())
+                    archs.discard('source')
+                    # only take all if it's alone
+                    archs.discard('all')
+                    bsummary['arch'] = archs.pop() if archs else 'all'
+                    summary["{}.{}".format(bsummary['source'], bsummary['arch'])] = bsummary
         return summary
 
     def do_ctree(self, args: argparse.Namespace) -> bool:
@@ -220,6 +197,7 @@ class RebuildTool(Tool):
         logger.debug("Package build paths: %s", package_build_paths)
 
         final_build_list = self._merge_path_lists(package_build_paths)
+        logger.debug("Final build list: %s", final_build_list)
         return final_build_list
         
     def _extract_sources(self, summaries: dict) -> dict:
@@ -275,7 +253,7 @@ class RebuildTool(Tool):
             path = current_path + [key]
             
             for term in search_terms:
-                if term in str(key):
+                if term == str(key):
                     results.append(path[::-1])
                     break
             
@@ -337,7 +315,7 @@ class RebuildTool(Tool):
         current_package_build_status = self._get_current_package_build_status(args)
         with open("current_package_build_status.json", "w") as f:
             json.dump(current_package_build_status, f, indent=2)
-        buildlist = self._buildlist(rebuild_list, all_summaries_extended, current_package_build_status)
+        buildlist = self._buildlist(rebuild_list, all_summaries_extended)
         print("Build list: {}".format(buildlist))
         return True
 
@@ -398,6 +376,7 @@ class RebuildTool(Tool):
                 continue
             r = r[0]
             package_build_status[p['name']] = r['status']
+        logger.debug("Package build status: %s", json.dumps(package_build_status, indent=2))
         return package_build_status
     
     def do_scheduler(self, args: argparse.Namespace) -> bool:

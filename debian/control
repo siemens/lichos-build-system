@@ -4,9 +4,19 @@ Priority: optional
 Maintainer: Siemens eMobility Packaging Team <packages-emobility.infra@siemens.com>
 Build-Depends: 
  debhelper-compat (= 13),
+ dh-python,
  python3,
+ python3-setuptools,
+ python3-all,
  python3-pytest,
- python3-coverage
+ python3-coverage,
+ python3-gitlab,
+ python3-rich,
+ python3-git,
+ python3-requests,
+ python3-tabulate,
+ python3-yaml,
+ pybuild-plugin-pyproject
 Standards-Version: 4.6.0
 Homepage: https://gitlab.example.com/ludwig.nussel/lichoscli
 #Vcs-Browser: https://salsa.debian.org/debian/lichoscli
@@ -14,12 +24,14 @@ Homepage: https://gitlab.example.com/ludwig.nussel/lichoscli
 Rules-Requires-Root: no
 
 Package: lichoscli
-Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends},
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends},
  python3,
  python3-git,
  python3-requests,
  python3-tabulate,
- python3-yaml
+ python3-yaml, 
+ python3-gitlab, 
+ python3-rich
 Description: Manage LiChOS package builds
- Tool to manage package builds
+ Command-line tool to manage LiChOS package builds and related tasks.

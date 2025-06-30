@@ -4,6 +4,68 @@ When called from within a git checkout the tool automatically detects the
 package to operate on. It's also possible to make the tool operate on project
 level when the 00ci package is checked out.
 
+## Project Structure
+
+The project is organized as follows:
+
+- **lichoscli/** - Main package directory
+  - **__main__.py** - Entry point for the CLI
+  - **cli.py** - Command line interface definition
+  - **client.py** - GitLab client implementation
+  - **pkg.py** - Package handling functionality
+  - **utils.py** - Utility functions
+  - **commands/** - Directory containing all CLI commands
+    - **base.py** - Base command classes and command registration system
+    - **[command_name].py** - Individual command implementations
+
+- **tests/** - Test directory
+  - **commands/** - Unit tests for commands
+  - **integration/** - Integration tests
+
+## Adding New Commands
+
+To add a new command to the lichoscli tool, follow these steps:
+
+1. Create a new file in the `lichoscli/commands/` directory (e.g., `mycommand.py`)
+2. Define your command class that inherits from `Command`:
+
+```python
+from lichoscli.commands.base import Command
+
+class MyCommand(Command):
+    """description of your command""""
+
+    @classmethod
+    def add_arguments(cls, parser):
+        # Define command-line arguments
+        parser.add_argument("--option", help="description of the option")
+        
+    def execute(self):
+        # Implement the command logic here
+        # Access arguments via self.args
+        # Access package group handler via self.pkg_group_handler
+        
+        # Return 0 for success, non-zero for errors
+        return 0
+```
+
+3. Your command will be **automatically discovered and registered** through the dynamic import mechanism in `__init__.py`. 
+
+   > **Note:** The command class must follow the naming convention of ending with `Command` (e.g., `MyCommand`) to be automatically imported.
+
+4. Create a test file in `tests/commands/test_mycommand.py` to test your command
+5. Consider adding an integration test in `tests/integration/test_mycommand_command.py`
+
+### Command Auto-Discovery
+
+The CLI uses a dynamic command loading mechanism that:
+
+1. Automatically detects all Python files in the `lichoscli/commands/` directory (excluding files that start with `_` or `test_`)
+2. Imports each module and finds classes ending with `Command` (other than the base `Command` class)
+3. Makes these command classes available to the application
+
+This removes the need to manually update the `__init__.py` file whenever you add a new command.
+
 ## Setup
 
 `lichoscli` uses the same configuration file as the [GitLab CLI
@@ -142,3 +204,4 @@ The default branch, protection and pipeline will be set
        $ lichoscli --branch 'foo/main' create bar
 
 See --help for more commands
+

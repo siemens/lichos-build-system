@@ -1,3 +1,17 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+# VS Code
+.vscode/
+build/
+# Custom
 artifacts
-**/__pycache__/
-.vscode
+.pybuild/
+.debhelper/
+debian/lichoscli
+changelog
+debhelper*
+files
+lichoscli.*
+.coverage
+build-test-package
+gbp/

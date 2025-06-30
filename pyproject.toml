@@ -1,0 +1,88 @@
+[tool.flake8]
+ignore = ["E501"]
+
+[project]
+name = "lichoscli"
+version = "0.1.0"
+description = "Manage LiChOS package builds"
+readme = "README.md"
+authors = [
+    {name = "Ludwig Nussel", email = "ludwig.nussel@siemens.com"},
+    {name = "Sami Alzein", email = "sami.alzein@siemens.com"},
+    {name = "Siemens eMobility Packaging Team", email = "packages-emobility.infra@siemens.com"},
+]
+maintainers = [
+    {name = "Siemens eMobility Packaging Team", email = "packages-emobility.infra@siemens.com"},
+]
+license = {text = "MIT"}
+keywords = ["packaging", "build", "debian", "lichOS"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: System :: Software Distribution",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "GitPython",
+    "python-gitlab",
+    "pyyaml",
+    "rich",
+    "tabulate",
+    "requests",
+]
+
+[project.urls]
+Homepage = "https://github.com/samastek/lichoscli"
+Repository = "https://github.com/samastek/lichoscli"
+Documentation = "https://github.com/samastek/lichoscli"
+Issues = "https://github.com/samastek/lichoscli/issues"
+
+[project.scripts]
+lichoscli = "lichoscli.cli:main"
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["lichoscli", "lichoscli.commands"]
+
+[tool.setuptools.package-dir]
+lichoscli = "lichoscli"
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-cov",
+    "unittest-mock"
+]
+dev = [
+    "pylint",
+    "black",
+    "isort"
+]
+
+[tool.pytest.ini_options]
+pythonpath = "src"
+testpaths = ["tests"]
+
+[tool.pylint.'MESSAGES CONTROL']
+disable = ["C0116", "C0115", "C0301", "C0114"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+
+[tool.isort]
+profile = "black"
+line_length = 88

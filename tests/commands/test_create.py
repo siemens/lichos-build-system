@@ -110,7 +110,7 @@ class TestCreateCommand(unittest.TestCase):
         )
         self.assertIsNone(result)
 
-    @patch("lichoscli.utils.GitUtils.delete_main_from_branch_name")
+    @patch("lichoscli.commands.create.GitUtils.delete_main_from_branch_name")
     def test_protect_branch_success(self, mock_delete_main):
         mock_package = Mock()
         mock_package.protectedbranches.create.return_value = True
@@ -122,7 +122,7 @@ class TestCreateCommand(unittest.TestCase):
             {"name": "formatted-branch"}
         )
 
-    @patch("lichoscli.utils.GitUtils.delete_main_from_branch_name")
+    @patch("lichoscli.commands.create.GitUtils.delete_main_from_branch_name")
     def test_protect_branch_failure(self, mock_delete_main):
         mock_package = Mock()
         mock_package.protectedbranches.create.side_effect = Exception("Failed")
@@ -131,7 +131,7 @@ class TestCreateCommand(unittest.TestCase):
         result = CreateCommand.protect_branch(mock_package, "main")
         self.assertFalse(result)
 
-    @patch("git.Repo")
+    @patch("lichoscli.commands.create.Repo.clone_from")
     def test_initialize_package_repository(self, mock_git):
         mock_package = Mock()
         mock_package.ssh_url_to_repo = "git@example.com:test/repo.git"
@@ -141,13 +141,13 @@ class TestCreateCommand(unittest.TestCase):
         mock_commit = Mock()
         mock_commit.author = mock_author
         mock_repo.index.commit.return_value = mock_commit
-        mock_git.clone_from.return_value = mock_repo
+        mock_git.return_value = mock_repo
 
         result = CreateCommand.initialize_package_repository(
             mock_package, "test-package"
         )
         self.assertEqual(result, mock_author)
-        mock_git.clone_from.assert_called_once_with(
+        mock_git.assert_called_once_with(
             "git@example.com:test/repo.git", "test-package"
         )
 

@@ -39,7 +39,7 @@ class GetartifactsCommand(Command):
                 return 0
 
         latest_pipline = self.pkg_group_handler.get_latest_pipeline(
-            self.package_name, self.branch
+            pkg, self.branch
         )
 
         if latest_pipline is None:

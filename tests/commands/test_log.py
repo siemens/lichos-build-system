@@ -142,14 +142,9 @@ class TestLogCommand(unittest.TestCase):
     @patch("rich.console.Console.print")
     def test_execute_successful_with_log(self, mock_console_print):
         """Test execute method successfully displays log output."""
-        # Mock the job trace retrieval
-        mock_job_trace = b"Sample log output\nwith multiple lines\n"
-
-        mock_project = Mock()
-        mock_project.jobs = Mock()
-        mock_project.jobs.get.return_value.trace.return_value = mock_job_trace
-
-        self.pkg_handler.gitlab.projects.get.return_value = mock_project
+        # Mock the extract_log_from_job method to return decoded string
+        log_text = "Sample log output\nwith multiple lines\n"
+        self.pkg_handler.extract_log_from_job.return_value = log_text
 
         with patch.object(
             self.command, "_wait_for_job_start", return_value=self.mock_job
@@ -161,20 +156,15 @@ class TestLogCommand(unittest.TestCase):
         self.pkg_handler.get_job_by_name.assert_called_once_with(
             self.mock_package, "test-job"
         )
-        mock_project.jobs.get.assert_called_once_with(self.mock_job.id)
+        self.pkg_handler.extract_log_from_job.assert_called_once_with(
+            self.mock_package, "test-job"
+        )
         mock_console_print.assert_called_once()
 
     @patch("rich.console.Console.print")
     def test_execute_with_empty_log(self, mock_console_print):
         """Test execute method with empty log output."""
-        # Mock the job trace retrieval with empty log
-        mock_job_trace = b""
-
-        mock_project = Mock()
-        mock_project.jobs = Mock()
-        mock_project.jobs.get.return_value.trace.return_value = mock_job_trace
-
-        self.pkg_handler.gitlab.projects.get.return_value = mock_project
+        self.pkg_handler.extract_log_from_job.return_value = ""
 
         with patch.object(
             self.command, "_wait_for_job_start", return_value=self.mock_job
@@ -212,6 +202,20 @@ class TestLogCommand(unittest.TestCase):
         self.assertEqual(result, 1)
         # Verify appropriate error was logged - but the code doesn't actually log anything when job is not found
         # so we're just checking the return value
+
+    def test_execute_extract_log_failed(self):
+        """Test execute method when extract_log_from_job fails."""
+        self.pkg_handler.extract_log_from_job.return_value = None
+
+        with patch.object(
+            self.command, "_wait_for_job_start", return_value=self.mock_job
+        ):
+            result = self.command.execute()
+
+        self.assertEqual(result, 1)
+        self.mock_logger.error.assert_called_with(
+            "Failed to extract log from job %s", "test-job"
+        )
 
     def test_execute_job_waiting_failed(self):
         """Test execute method when waiting for job fails."""

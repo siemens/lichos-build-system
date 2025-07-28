@@ -36,8 +36,7 @@ def create_mock_args(group_rpath="test-group/pkg", **kwargs) -> Mock:
     args.dump = kwargs.get("dump", False)
     args.command = kwargs.get("command", "test")
     for key, value in kwargs.items():
-        if hasattr(args, key):
-            setattr(args, key, value)
+        setattr(args, key, value)
     return args
 
 

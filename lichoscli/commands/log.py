@@ -75,10 +75,11 @@ class LogCommand(Command):
             logger.error("Job %s did not start.", self.jobname)
             return 1
 
-        log_bytes = (
-            self.pkg_group_handler.gitlab.projects.get(pkg.id).jobs.get(job.id).trace()
-        )
-        log = log_bytes.decode("utf-8", errors="replace")
+        log = self.pkg_group_handler.extract_log_from_job(pkg, self.jobname)
+        if log is None:
+            logger.error("Failed to extract log from job %s", self.jobname)
+            return 1
+        
         log = self.normalize_gitlab_log(log)
 
         console = Console()

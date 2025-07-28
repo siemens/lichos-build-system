@@ -13,7 +13,8 @@ class StatusCommand(Command):
 
     def __init__(self, pkg_group_handler, args):
         super().__init__(pkg_group_handler, args)
-        self.package_name = utils.BuildUtils.get_package_name(args.package)
+
+        self.package_name = utils.BuildUtils.get_package_name(args.package) if args.package else None
         self.dump = args.dump
 
     @classmethod
@@ -29,22 +30,20 @@ class StatusCommand(Command):
     def print_all_status(self):
         t = [["Name", "Type", "Enabled", "Status", "Pipeline"]]
         packages = self.pkg_group_handler.get_all_packages()
-        pipeline_statuses = self.pkg_group_handler.get_all_pipelines_status(max_workers=10, branch=self.args.branch)
 
         for package in packages:
             status = "-"
             date = "-"
 
-            pipeline = pipeline_statuses.get(package.name)
+            pipeline = self.pkg_group_handler.get_latest_pipeline(package)
             if pipeline:
-                status = getattr(pipeline, "status", "-") or "-"
+                status = pipeline.status or "-"
 
-                updated_at = getattr(pipeline, "updated_at", None)
-                if updated_at:
+                if pipeline.updated_at:
                     try:
-                        date = f"{datetime.fromisoformat(updated_at):%Y-%m-%d %H:%M:%S}"
+                        date = f"{datetime.fromisoformat(pipeline.updated_at):%Y-%m-%d %H:%M:%S}"
                     except ValueError:
-                        date = f"(Invalid date: {updated_at})"
+                        date = f"(Invalid date: {pipeline.updated_at})"
 
             t.append(
                 [
@@ -60,15 +59,20 @@ class StatusCommand(Command):
         return 0
 
     def print_package_status(self):
-        latest_pipeline = self.pkg_group_handler.get_latest_pipeline(self.package_name, self.args.branch)
+        package = self.pkg_group_handler.get_package(self.package_name)
+        if not package:
+            logger.error("Package '%s' not found", self.package_name)
+            return 1
+            
+        latest_pipeline = self.pkg_group_handler.get_latest_pipeline(package, self.args.branch)
 
         if not latest_pipeline:
             logger.error("No pipeline found for package %s", self.package_name)
-            return
+            return 1
 
         if self.dump:
-            print(json.dumps(latest_pipeline, indent=2))
-            return
+            pipeline_data = latest_pipeline.attributes if hasattr(latest_pipeline, 'attributes') else vars(latest_pipeline)
+            print(json.dumps(pipeline_data, indent=2, default=str))
 
         headers = [
             ["Setting", "Value"],

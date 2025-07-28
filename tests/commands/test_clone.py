@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import Mock, patch, mock_open, call
 
 import git
+from git.exc import GitCommandError
 import yaml
 
 from lichoscli.commands.clone import CloneCommand
@@ -40,7 +41,7 @@ class TestCloneCommand(unittest.TestCase):
         command = CloneCommand(self.pkg_handler, self.args)
         self.assertEqual(command.branch, "feature-branch")
 
-    @patch("git.Repo.clone_from")
+    @patch("lichoscli.commands.clone.Repo.clone_from")
     def test_execute_without_branch(self, mock_clone_from):
         """Test execution without a branch specified."""
         mock_clone_from.return_value = self.mock_repo
@@ -54,7 +55,7 @@ class TestCloneCommand(unittest.TestCase):
         )
         self.assertEqual(result, 0)
 
-    @patch("git.Repo.clone_from")
+    @patch("lichoscli.commands.clone.Repo.clone_from")
     def test_execute_with_branch_success(self, mock_clone_from):
         """Test execution with a branch that exists."""
         self.args.branch = "feature-branch"
@@ -69,14 +70,14 @@ class TestCloneCommand(unittest.TestCase):
         )
         self.assertEqual(result, 0)
 
-    @patch("git.Repo.clone_from")
+    @patch("lichoscli.commands.clone.Repo.clone_from")
     def test_execute_with_branch_failure(self, mock_clone_from):
         """Test execution with a branch that does not exist."""
         self.args.branch = "nonexistent-branch"
 
         # First call raises GitCommandError, second call succeeds (fallback)
         mock_clone_from.side_effect = [
-            git.exc.GitCommandError("git", "failed"),
+            GitCommandError("git", "failed"),
             self.mock_repo,
         ]
 
@@ -103,7 +104,7 @@ class TestCloneCommand(unittest.TestCase):
 
         self.assertEqual(result, 0)
 
-    @patch("git.Repo.clone_from")
+    @patch("lichoscli.commands.clone.Repo.clone_from")
     def test_execute_with_forked_project(self, mock_clone_from):
         """Test execution with a package that is a fork."""
         mock_clone_from.return_value = self.mock_repo
@@ -125,7 +126,7 @@ class TestCloneCommand(unittest.TestCase):
 
         self.assertEqual(result, 0)
 
-    @patch("git.Repo.clone_from")
+    @patch("lichoscli.commands.clone.Repo.clone_from")
     @patch("os.path.exists")
     @patch("builtins.open", new_callable=mock_open)
     def test_execute_with_upstream_metadata(
@@ -159,7 +160,7 @@ class TestCloneCommand(unittest.TestCase):
 
         self.assertEqual(result, 0)
 
-    @patch("git.Repo.clone_from")
+    @patch("lichoscli.commands.clone.Repo.clone_from")
     @patch("os.path.exists")
     @patch("builtins.open", new_callable=mock_open)
     def test_execute_with_upstream_metadata_no_repository(

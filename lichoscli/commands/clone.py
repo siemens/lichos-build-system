@@ -2,6 +2,8 @@ import logging
 import os
 
 import git
+from git.repo import Repo
+from git.exc import GitCommandError
 import yaml
 
 from lichoscli.commands.base import Command
@@ -26,23 +28,27 @@ class CloneCommand(Command):
 
     def execute(self):
         package = self.pkg_group_handler.get_package(self.package_name)
+        if not package:
+            logger.error("Package '%s' not found", self.package_name)
+            return 1
+            
         repo_url = package.ssh_url_to_repo
         if self.branch:
             try:
-                repo = git.Repo.clone_from(
+                repo = Repo.clone_from(
                     repo_url, self.package_name, branch=self.branch
                 )
-            except git.exc.GitCommandError as e:
+            except GitCommandError as e:
                 logger.warning("Failed to checkout %s: %s", self.branch, e)
                 logger.warning(
                     "Checkout default branch and create local branch %s", self.branch
                 )
-                repo = git.Repo.clone_from(repo_url, self.package_name)
+                repo = Repo.clone_from(repo_url, self.package_name)
                 repo.git.checkout("-b", self.branch)
         else:
-            repo = git.Repo.clone_from(repo_url, self.package_name)
+            repo = Repo.clone_from(repo_url, self.package_name)
 
-        if hasattr(package, 'forked_from_project'):
+        if hasattr(package, 'forked_from_project') and package.forked_from_project:
             logger.debug(package.forked_from_project)
             purl = package.forked_from_project.get('ssh_url_to_repo', None)
             if purl:

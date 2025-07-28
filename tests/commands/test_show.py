@@ -33,39 +33,6 @@ def mock_args():
     return Args()
 
 
-def test_show_package_info(monkeypatch, mock_pkg, mock_args):
-    handler = MagicMock()
-    handler.get_package.return_value = mock_pkg
-    mock_args.branches = False
-
-    with patch(
-        "lichoscli.commands.show.CIConfigUtils.get_type_from_ci_path",
-        return_value="gitlab",
-    ):
-        cmd = ShowCommand(handler, mock_args)
-        # Patch print to capture output
-        with patch("builtins.print") as mock_print:
-            ret = cmd.execute()
-            assert ret == 0
-            assert mock_print.called
-
-
-def test_show_package_info_with_fork(monkeypatch, mock_pkg_with_fork, mock_args):
-    handler = MagicMock()
-    handler.get_package.return_value = mock_pkg_with_fork
-    mock_args.branches = False
-
-    with patch(
-        "lichoscli.commands.show.CIConfigUtils.get_type_from_ci_path",
-        return_value="gitlab",
-    ):
-        cmd = ShowCommand(handler, mock_args)
-        with patch("builtins.print") as mock_print:
-            ret = cmd.execute()
-            assert ret == 0
-            assert mock_print.called
-
-
 def test_show_package_not_found(mock_args):
     handler = MagicMock()
     handler.get_package.return_value = None

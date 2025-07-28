@@ -9,6 +9,9 @@ from typing import Optional
 from urllib.parse import urlparse
 from tabulate import tabulate
 import git
+from git import InvalidGitRepositoryError
+from git.repo import Repo
+from git.exc import GitCommandError, NoSuchPathError
 from collections import namedtuple
 
 
@@ -23,10 +26,10 @@ class GitUtils:
     """Handle Git repository operations and parsing"""
 
     @staticmethod
-    def get_branch(repo: git.Repo = None) -> str:
+    def get_branch(repo: Optional[Repo] = None) -> str:
         try:
             if repo is None:
-                repo = git.Repo(".")
+                repo = Repo(".")
             branch = repo.active_branch.name
             logger.debug("Found active branch: %s", branch)
             return branch
@@ -35,11 +38,11 @@ class GitUtils:
             return ""
 
     @staticmethod
-    def parse_repo_data(repo: git.Repo = None) -> tuple[str, str, str, str] | None:
+    def parse_repo_data(repo: Optional[Repo] = None) -> tuple[str, str, str, str] | None:
         if repo is None and os.path.exists('.git/config'):
             try:
-                repo = git.Repo(".")
-            except git.exc.InvalidGitRepositoryError:
+                repo = Repo(".")
+            except GitCommandError:
                 pass
         if repo is None:
             return None
@@ -64,7 +67,7 @@ class GitUtils:
         return None
 
     @staticmethod
-    def get_host(repo: git.Repo = None) -> str:
+    def get_host(repo: Optional[Repo] = None) -> str:
         try:
             t = GitUtils.parse_repo_data(repo)
             return t[0] if t else ''
@@ -73,16 +76,13 @@ class GitUtils:
             return ""
 
     @staticmethod
-    def get_group(repo: git.Repo = None) -> str:
-        try:
-            t = GitUtils.parse_repo_data(repo)
-            return t[1] if t else ''
-        except Exception as e:
-            logger.error("Failed to parse repo data: %s", str(e))
-            return ""
+    def get_group(repo: Optional[Repo] = None) -> str:
+        repo = repo or GitUtils.get_git_repo()
+        t = GitUtils.parse_repo_data(repo)
+        return t[1] if t else ''
 
     @staticmethod
-    def get_package_name_from_git_repo(repo: git.Repo = None) -> str:
+    def get_package_name_from_git_repo(repo: Optional[Repo] = None) -> str:
         try:
             t = GitUtils.parse_repo_data(repo)
             return t[2] if t else ''
@@ -91,11 +91,11 @@ class GitUtils:
             return ""
 
     @staticmethod
-    def get_git_repo(path: str = ".") -> Optional[git.Repo]:
+    def get_git_repo(path: str = ".") -> Optional[Repo]:
         """Get git repository object, return None if invalid"""
         try:
-            return git.Repo(path)
-        except git.exc.InvalidGitRepositoryError:
+            return Repo(path)
+        except (InvalidGitRepositoryError, NoSuchPathError):
             logger.error("Invalid git repository at path: %s", path)
             return None
 
@@ -105,7 +105,8 @@ class GitUtils:
         if index != -1:
             return input_group[:index + len(PKG_GROUP_NAME)]
         else:
-            raise ValueError("Group '{}' is not part of a group named '{}'".format(main_group_name, input_group))
+            logger.warning("Group '%s' does not contain '%s', using full group path", input_group, PKG_GROUP_NAME)
+            return input_group
 
     @staticmethod
     def delete_main_from_branch_name(branch_name):
@@ -118,7 +119,11 @@ class GitUtils:
         return re.sub(r"[^a-z0-9]", "-", branch.lower()).strip("-")[:63]
 
     @staticmethod
-    def auto_detect_git_repo():
+    def auto_detect_git_repo(package_name: Optional[str] = None) -> Optional[Repo]:
+        if package_name:
+            if os.path.exists(package_name):
+                return GitUtils.get_git_repo(package_name)
+            
         repo = None
         d = None
         if os.path.exists(".git/config"):
@@ -130,9 +135,54 @@ class GitUtils:
                     break
 
         if d:
-            repo = git.Repo(d)
+            repo = Repo(d)
 
         return repo
+
+    @staticmethod
+    def has_submodules(repo: Optional[Repo] = None) -> bool:
+        """Check if the repository has submodules"""
+        if repo is None:
+            repo = GitUtils.get_git_repo()
+        
+        if repo is None:
+            return False
+            
+        try:
+            gitmodules_path = os.path.join(repo.working_dir, '.gitmodules')
+            return os.path.exists(gitmodules_path)
+        except Exception as e:
+            logger.debug("Failed to check for submodules: %s", str(e))
+            return False
+
+    @staticmethod
+    def initialize_submodules(repo: Optional[Repo] = None) -> bool:
+        """Initialize and update submodules if they exist"""
+        if repo is None:
+            repo = GitUtils.get_git_repo()
+        
+        if repo is None:
+            logger.error("No valid git repository found")
+            return False
+            
+        if not GitUtils.has_submodules(repo):
+            logger.debug("No submodules found in repository")
+            return True
+            
+        try:
+            logger.info("Initializing and updating submodules...")
+            
+            repo.git.submodule('init')
+            
+            repo.git.submodule('update', '--recursive')
+            
+            logger.info("Submodules initialized and updated successfully")
+            return True
+            
+        except GitCommandError as e:
+            logger.error("Failed to initialize submodules: %s", str(e))
+            return False
+
 
 class CIConfigUtils:
     """Handle CI/CD configuration and pipeline operations"""
@@ -146,12 +196,6 @@ class CIConfigUtils:
 
         return P(r.group("name"), r.group("group"), r.group('pkg'), r.group('branch'))
 
-    @staticmethod
-    def get_type_from_ci_path(ci_config_path):
-        t = CIConfigUtils.parse_ci_config_path(ci_config_path)
-        if t is None:
-            raise ValueError("ci_config_path is not set or invalid")
-        return t.name
 
     @staticmethod
     def get_ci_path(group_rpath, ci_typ=CI_DEFAULT_PIPELINE_NAME, branch=None):
@@ -160,53 +204,16 @@ class CIConfigUtils:
             ci += ":" + branch
         return ci
 
-    @staticmethod
-    def format_variables_table(variables: list, print_masked: bool = True) -> str:
-        """Format GitLab variables into a table string"""
-        headers = [
-            "type",
-            "key",
-            "value",
-            "hidden",
-            "protected",
-            "masked",
-            "raw",
-            "scope",
-            "description",
-        ]
-        rows = [headers]
-
-        for v in variables:
-            row = [
-                v.variable_type,
-                v.key,
-                "***" if (v.masked and print_masked) else v.value,
-                v.hidden,
-                v.protected,
-                v.masked,
-                v.raw,
-                v.environment_scope,
-                v.description,
-            ]
-            rows.append(row)
-
-        if len(rows) > 1:
-            return "GitLab CI/CD Variables:\n" + tabulate(rows, headers="firstrow")
-        return ""
 
 
 class BuildUtils:
 
     @staticmethod
-    def ensure_url_scheme(url: str) -> str:
-        """
-        Ensure URL has a scheme (https:// if none provided).
-        """
-        parsed = urlparse(url)
-        if not parsed.scheme:
-            # If no scheme is present, add https://
-            return f"https://{url}"
-        return url
+    def normalize_architecture(arch: str) -> str:
+        """Normalize architecture name using the arch map."""
+        arch_map = {"x86_64": "amd64", "aarch64": "arm64"}
+        return arch_map.get(arch, arch)
+
 
     @staticmethod
     def get_package_name(package_name_arg: str):
@@ -223,54 +230,6 @@ class BuildUtils:
         if not branch_name_arg or branch_name_arg == ".":
             return GitUtils.get_branch()
         return branch_name_arg
-
-    @staticmethod
-    def build_docker_command(
-        env_file_path: str,
-        image: str,
-        ci_project_dir: str,
-        platform: str,
-        script: Optional[str] = None,
-        shell: Optional[str] = None,
-        current_dir: Optional[str] = None,
-    ) -> list:
-        """Build Docker run command"""
-        if current_dir is None:
-            current_dir = os.getcwd()
-
-        cmd = [
-            "docker",
-            "run",
-            "--env-file",
-            env_file_path,
-            "--rm",
-            "-v",
-            f"{current_dir}:{ci_project_dir}",
-            "--platform",
-            platform,
-            "-w",
-            ci_project_dir,
-        ]
-
-        if shell:
-            cmd.extend(["-it", image, shell])
-        elif script:
-            cmd.extend([image, "/usr/bin/bash", "-c", script])
-        else:
-            raise ValueError("Either shell or script must be provided")
-
-        logger.info("Docker command: %s", cmd)
-        return cmd
-
-    @staticmethod
-    def determine_project_directory(has_shell: bool = False) -> str:
-        """Determine project directory path"""
-        shell_project_dir = "/build"
-        if has_shell:
-            return shell_project_dir
-        return "/" + "".join(
-            random.sample(shell_project_dir[1:], k=len(shell_project_dir[1:]))
-        )
 
     @staticmethod
     def pull_docker_image(image: str) -> int:
@@ -297,7 +256,7 @@ class BuildUtils:
     @staticmethod
     def print_build_info(script):
         print("**************************************************")
-        print("********** RUNNING TO BUILD THE PACKAGE **********")
+        print("********* RUN THIS TO BUILD THE PACKAGE **********")
         print("**************************************************")
         print(script)
         print("**************************************************")
@@ -307,18 +266,6 @@ class BuildUtils:
     def build_script_command(repo_setup_cmd: str, build_cmd: str) -> str:
         """Build the script command string"""
         return f"{repo_setup_cmd} ; {build_cmd}"
-
-    @staticmethod
-    def run_docker_build(
-        docker_cmd: list, env_file_path: str, cleanup_env_file: bool = True
-    ) -> int:
-        """Execute Docker build command and return exit code"""
-        try:
-            response = subprocess.run(docker_cmd, check=False)
-            return response.returncode
-        finally:
-            if cleanup_env_file and os.path.exists(env_file_path):
-                os.unlink(env_file_path)
 
     @staticmethod
     def expand_var(env):
@@ -343,20 +290,6 @@ class BuildUtils:
         finally:
             tmpdir.cleanup()
         return env
-
-    @staticmethod
-    def get_file_from_dir(artifacts_dir: str, filename: str) -> Optional[str]:
-        """
-        Get a specific file from the artifacts directory.
-        Returns the full path to the file if found, otherwise None.
-        """
-        file_path = os.path.join(artifacts_dir, filename)
-        if os.path.isfile(file_path):
-            return file_path
-        logger.warning(
-            "File %s not found in artifacts directory %s", filename, artifacts_dir
-        )
-        return None
 
 
 class TimeUtils:

@@ -1,5 +1,6 @@
 import logging
 from urllib.parse import urlparse
+from typing import Optional
 import gitlab
 import os
 import yaml
@@ -9,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class GitLabClientFactory:
 
-    def __init__(self, host: str = None):
+    def __init__(self, host: Optional[str] = None):
         """
         If host is not provided, uses the default host from glab config.
         """
@@ -31,7 +32,7 @@ class GitLabClientFactory:
             return f"https://{url}"
         return url
 
-    def _init_from_glab_config(self, host: str = None) -> gitlab.Gitlab:
+    def _init_from_glab_config(self, host: Optional[str] = None) -> gitlab.Gitlab:
         """
         Initialize GitLab client from glab config file.
 
@@ -77,7 +78,7 @@ class GitLabClientFactory:
         except yaml.YAMLError as e:
             logger.error("YAML parsing error: %s", str(e))
             raise
-        except gitlab.exceptions.GitlabAuthenticationError:
+        except gitlab.GitlabAuthenticationError:
             logger.error("Failed to authenticate with GitLab")
             raise
         except Exception as e:

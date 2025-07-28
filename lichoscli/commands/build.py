@@ -2,6 +2,7 @@ import logging
 import os
 import random
 import subprocess
+from typing import Optional
 
 import git
 from lichoscli.commands.base import Command
@@ -14,21 +15,18 @@ logger = logging.getLogger(__name__)
 class BuildCommand(Command):
     """build package"""
 
-    ARCH_MAP = {"x86_64": "amd64", "aarch64": "arm64"}
-
     def __init__(self, pkg_group_handler: PkgGroupHandler, args):
         super().__init__(pkg_group_handler, args)
         self.ci_project_dir = self._determine_project_dir(args.shell)
 
-        repo = git.Repo(".")
         self.package_name = BuildUtils.get_package_name(args.package)
-        self.package = self.pkg_group_handler.get_package(self.package_name, full_details=True)
-        self.group = args.pkg_group or GitUtils.get_group(repo)
+        self.package = self.pkg_group_handler.get_package(self.package_name)
+        self.group = args.pkg_group or GitUtils.get_group()
         self.branch = BuildUtils.get_branch_name(args.branch)
         self.shell = args.shell
-        self.architecture = self._normalize_architecture(args.architecture)
+        self.architecture = BuildUtils.normalize_architecture(args.architecture)
         self.enable_cross = args.enable_cross
-        self.build_arch = self._normalize_architecture(os.uname().machine)
+        self.build_arch = BuildUtils.normalize_architecture(os.uname().machine)
 
         if self.enable_cross: 
             self.platform = f"linux/{self.build_arch}"
@@ -65,8 +63,19 @@ class BuildCommand(Command):
         sp.add_argument("--network", nargs="?", help="docker network to use for the container")
 
     def execute(self):
+        if not self.package:
+            logger.error("Package '%s' not found", self.package_name)
+            return 1
+            
         print(f"Building package: {self.package.name}")
         print(f"Architecture: {self.architecture}")
+
+        repo = GitUtils.get_git_repo()
+        if repo and GitUtils.has_submodules(repo):
+            print("Submodules detected, initializing...")
+            if not GitUtils.initialize_submodules(repo):
+                logger.error("Failed to initialize submodules")
+                return 1
 
         try:
             env_file = self._prepare_build_environment()
@@ -100,10 +109,6 @@ class BuildCommand(Command):
             return "/" + "".join(
                 random.sample(shell_project_dir[1:], k=len(shell_project_dir[1:]))
             )
-
-    def _normalize_architecture(self, arch: str) -> str:
-        """Normalize architecture name using the arch map."""
-        return self.ARCH_MAP.get(arch, arch)
 
     def _build_environment(self) -> dict:
         """Build the complete environment dictionary for the build process."""
@@ -141,7 +146,11 @@ class BuildCommand(Command):
 
     def _prepare_build_environment(self):
         """Prepare the build environment by fetching artifacts and creating env file."""
-        tmpdir = PkgGroupHandler.get_job_artifacts(
+        if not self.package:
+            logger.error("Package '%s' not found", self.package_name)
+            return None
+            
+        tmpdir = self.pkg_group_handler.get_job_artifacts(
             branch_name=self.branch, package=self.package, job_name="calculate-env"
         )
         if not tmpdir:
@@ -161,7 +170,7 @@ class BuildCommand(Command):
 
         return env_file
 
-    def _extract_docker_config(self, env_file) -> dict:
+    def _extract_docker_config(self, env_file) -> Optional[dict]:
         """Extract and validate Docker configuration from environment file."""
         with open(env_file.name, "r", encoding="utf-8") as f:
             env_content = f.read()
@@ -204,9 +213,9 @@ class BuildCommand(Command):
             self.ci_project_dir,
         ]
 
-        # Add network option if specified
         if self.network:
             cmd.extend(["--network", self.network])
+
 
         if self.shell:
             cmd.extend(["-it", docker_config["image"], "/usr/bin/bash"])

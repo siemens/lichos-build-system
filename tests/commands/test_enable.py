@@ -17,6 +17,7 @@ class TestEnableCommand(unittest.TestCase):
         self.args = fixtures.create_mock_args()
         self.args.package = "test-package"
         self.args.type = "test-type"
+        self.args.ci_branch = None 
 
         self.command = EnableCommand(self.pkg_handler, self.args)
 

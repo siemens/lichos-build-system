@@ -1,7 +1,6 @@
 import argparse
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, Type
-
+from typing import Dict, Type
 from lichoscli.pkg import PkgGroupHandler
 
 
@@ -20,7 +19,7 @@ class CommandRegister:
     _commands: Dict[str, Type["Command"]] = {}
 
     @classmethod
-    def get_command(cls, command_name: str) -> Type["Command"]:
+    def get_command(cls, command_name: str) -> Command:
         return cls._commands.get(command_name)
 
     @classmethod

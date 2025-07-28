@@ -2,6 +2,7 @@ import logging
 import os
 import textwrap
 import git
+from git.repo import Repo
 
 from lichoscli import utils
 from lichoscli.commands.base import Command
@@ -28,7 +29,12 @@ class CreateCommand(Command):
         sp.add_argument("subgroup", nargs="?", help="subgroup name")
 
     def execute(self):
-
+        if self.branch is None:
+            raise ValueError(
+                "The create command requires a branch to be specified. "
+                "Use --branch <branch_name> "
+            )
+        
         if self.check_local_package_exists(self.package_name):
             return 1
 
@@ -52,6 +58,9 @@ class CreateCommand(Command):
             self.package_name,
             self.branch,
         )
+
+        print(f"Package created successfully!")
+        print(f"Remote URL: {package.web_url}")
 
         if self.package_type == "gbp":
             self.create_debian_package_template(self.package_name, author)
@@ -112,7 +121,7 @@ class CreateCommand(Command):
     def initialize_package_repository(package, package_name):
         """Initialize the package repository by cloning and making initial commit."""
         repo_url = package.ssh_url_to_repo
-        repo = git.Repo.clone_from(repo_url, package_name)
+        repo = Repo.clone_from(repo_url, package_name)
         author = repo.index.commit("Initialize package").author
         repo.remotes.origin.push()
         return author

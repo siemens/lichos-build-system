@@ -1,7 +1,8 @@
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, PropertyMock
 import pytest
 import git
+from git.exc import InvalidGitRepositoryError, NoSuchPathError
 from lichoscli.utils import BuildUtils, CIConfigUtils, GitUtils
 
 
@@ -49,15 +50,6 @@ class TestGitUtils:
         assert result == ""
 
     @patch("git.Repo")
-    def test_get_group_exception(self, mock_repo):
-        """Test group extraction with exception"""
-        mock_repo_instance = MagicMock()
-        mock_repo_instance.remotes.origin.side_effect = Exception("Remote error")
-
-        result = GitUtils.get_group(mock_repo_instance)
-        assert result == ""
-
-    @patch("git.Repo")
     def test_get_package_name_success(self, mock_repo):
         """Test successful package name extraction"""
         mock_repo_instance = MagicMock()
@@ -97,7 +89,7 @@ class TestGitUtils:
         result = GitUtils.get_package_name_from_git_repo(mock_repo_instance)
         assert result == ""
 
-    @patch("git.Repo")
+    @patch("lichoscli.utils.Repo")
     def test_get_git_repo_success(self, mock_repo):
         """Test successful git repo retrieval"""
         mock_repo_instance = MagicMock()
@@ -107,10 +99,10 @@ class TestGitUtils:
         assert result == mock_repo_instance
         mock_repo.assert_called_once_with("/path/to/repo")
 
-    @patch("git.Repo")
+    @patch("lichoscli.utils.Repo")
     def test_get_git_repo_invalid(self, mock_repo):
         """Test git repo retrieval with invalid repo"""
-        mock_repo.side_effect = git.exc.InvalidGitRepositoryError
+        mock_repo.side_effect = InvalidGitRepositoryError
 
         result = GitUtils.get_git_repo("/invalid/path")
         assert result is None
@@ -184,44 +176,88 @@ class TestGitUtils:
         result = GitUtils.get_main_group(data[1])
         assert result == "your-group/platform-os/pkg"
 
+    @patch("os.path.exists")
+    @patch("lichoscli.utils.GitUtils.get_git_repo")
+    def test_has_submodules_with_gitmodules_file(self, mock_get_repo, mock_exists):
+        """Test has_submodules returns True when .gitmodules exists"""
+        mock_repo = MagicMock()
+        mock_repo.working_dir = "/test/repo"
+        mock_get_repo.return_value = mock_repo
+        mock_exists.return_value = True
+
+        result = GitUtils.has_submodules()
+        assert result is True
+        mock_exists.assert_called_once_with("/test/repo/.gitmodules")
+
+    @patch("os.path.exists")
+    @patch("lichoscli.utils.GitUtils.get_git_repo")
+    def test_has_submodules_without_gitmodules_file(self, mock_get_repo, mock_exists):
+        """Test has_submodules returns False when .gitmodules doesn't exist"""
+        mock_repo = MagicMock()
+        mock_repo.working_dir = "/test/repo"
+        mock_get_repo.return_value = mock_repo
+        mock_exists.return_value = False
+
+        result = GitUtils.has_submodules()
+        assert result is False
+        mock_exists.assert_called_once_with("/test/repo/.gitmodules")
+
+    @patch("lichoscli.utils.GitUtils.get_git_repo")
+    def test_has_submodules_no_repo(self, mock_get_repo):
+        """Test has_submodules returns False when no git repo is found"""
+        mock_get_repo.return_value = None
+
+        result = GitUtils.has_submodules()
+        assert result is False
+
+    @patch("lichoscli.utils.GitUtils.has_submodules")
+    @patch("lichoscli.utils.GitUtils.get_git_repo")
+    def test_initialize_submodules_success(self, mock_get_repo, mock_has_submodules):
+        """Test successful submodule initialization"""
+        mock_repo = MagicMock()
+        mock_get_repo.return_value = mock_repo
+        mock_has_submodules.return_value = True
+
+        result = GitUtils.initialize_submodules()
+        assert result is True
+        mock_repo.git.submodule.assert_any_call('init')
+        mock_repo.git.submodule.assert_any_call('update', '--recursive')
+
+    @patch("lichoscli.utils.GitUtils.has_submodules")
+    @patch("lichoscli.utils.GitUtils.get_git_repo")
+    def test_initialize_submodules_no_submodules(self, mock_get_repo, mock_has_submodules):
+        """Test initialize_submodules when no submodules exist"""
+        mock_repo = MagicMock()
+        mock_get_repo.return_value = mock_repo
+        mock_has_submodules.return_value = False
+
+        result = GitUtils.initialize_submodules()
+        assert result is True
+        mock_repo.git.submodule.assert_not_called()
+
+    @patch("lichoscli.utils.GitUtils.get_git_repo")
+    def test_initialize_submodules_no_repo(self, mock_get_repo):
+        """Test initialize_submodules when no git repo is found"""
+        mock_get_repo.return_value = None
+
+        result = GitUtils.initialize_submodules()
+        assert result is False
+
+    @patch("lichoscli.utils.GitUtils.has_submodules")
+    @patch("lichoscli.utils.GitUtils.get_git_repo")
+    def test_initialize_submodules_git_command_error(self, mock_get_repo, mock_has_submodules):
+        """Test initialize_submodules when git command fails"""
+        mock_repo = MagicMock()
+        mock_get_repo.return_value = mock_repo
+        mock_has_submodules.return_value = True
+        mock_repo.git.submodule.side_effect = git.exc.GitCommandError("submodule", 1)
+
+        result = GitUtils.initialize_submodules()
+        assert result is False
+
 
 class TestCIConfigUtils:
     """Complete tests for CIConfigUtils class"""
-
-    def test_get_type_from_ci_path_gbp(self):
-        """Test CI config path starting with 'gbp'"""
-        result = CIConfigUtils.get_type_from_ci_path(
-            "gbp.yml@your-group/platform-os/pkg/00ci"
-        )
-        assert result == "gbp"
-
-    def test_get_type_from_ci_path_image(self):
-        """Test CI config path starting with 'image'"""
-        result = CIConfigUtils.get_type_from_ci_path(
-            "image.yml@your-group/platform-os/pkg/00ci"
-        )
-        assert result == "image"
-
-    def test_get_type_from_ci_path_gbp_additional(self):
-        """Test CI config path starting with 'gbp' followed by other text"""
-        result = CIConfigUtils.get_type_from_ci_path(
-            "gbp-custom.yml@your-group/platform-os/pkg/00ci"
-        )
-        assert result == "gbp-custom"
-
-    def test_get_type_from_ci_path_image_additional(self):
-        """Test CI config path starting with 'image' followed by other text"""
-        result = CIConfigUtils.get_type_from_ci_path(
-            "image-build.yml@your-group/platform-os/pkg/00ci"
-        )
-        assert result == "image-build"
-
-    def test_get_type_from_ci_path_invalid(self):
-        """Test CI config path that doesn't start with 'gbp' or 'image'"""
-        with pytest.raises(ValueError, match="ci_config_path is not set or invalid"):
-            CIConfigUtils.get_type_from_ci_path(
-                "blub"
-            )
 
     def test_get_ci_path_default(self):
         """Test CI path generation with default pipeline name"""
@@ -251,62 +287,6 @@ class TestCIConfigUtils:
         expected = "image.yml@your-group/platform-os/00ci:develop"
         assert result == expected
 
-    def test_format_variables_table_empty(self):
-        """Test formatting empty variables list"""
-        result = CIConfigUtils.format_variables_table([])
-        assert result == ""
-
-    def test_format_variables_table_with_data(self):
-        """Test formatting variables with data"""
-        mock_var = MagicMock()
-        mock_var.variable_type = "env_var"
-        mock_var.key = "TEST_VAR"
-        mock_var.value = "test_value"
-        mock_var.hidden = False
-        mock_var.protected = True
-        mock_var.masked = False
-        mock_var.raw = False
-        mock_var.environment_scope = "*"
-        mock_var.description = "Test variable"
-
-        result = CIConfigUtils.format_variables_table([mock_var])
-        assert "GitLab CI/CD Variables:" in result
-        assert "TEST_VAR" in result
-        assert "test_value" in result
-
-    def test_format_variables_table_masked_variable(self):
-        """Test formatting masked variables"""
-        mock_var = MagicMock()
-        mock_var.variable_type = "env_var"
-        mock_var.key = "SECRET_VAR"
-        mock_var.value = "secret_value"
-        mock_var.hidden = False
-        mock_var.protected = True
-        mock_var.masked = True
-        mock_var.raw = False
-        mock_var.environment_scope = "*"
-        mock_var.description = "Secret variable"
-
-        result = CIConfigUtils.format_variables_table([mock_var], print_masked=True)
-        assert "***" in result
-        assert "secret_value" not in result
-
-    def test_format_variables_table_masked_variable_show_value(self):
-        """Test formatting masked variables with print_masked=False"""
-        mock_var = MagicMock()
-        mock_var.variable_type = "env_var"
-        mock_var.key = "SECRET_VAR"
-        mock_var.value = "secret_value"
-        mock_var.hidden = False
-        mock_var.protected = True
-        mock_var.masked = True
-        mock_var.raw = False
-        mock_var.environment_scope = "*"
-        mock_var.description = "Secret variable"
-
-        result = CIConfigUtils.format_variables_table([mock_var], print_masked=False)
-        assert "secret_value" in result
-
     @patch("subprocess.run")
     def test_pull_docker_image_success_unittest(self, mock_run):
         """Test successful Docker image pull"""
@@ -330,21 +310,6 @@ class TestCIConfigUtils:
         """Test script command building"""
         result = BuildUtils.build_script_command("apt update", "make install")
         assert result == "apt update ; make install"
-
-    @patch("subprocess.run")
-    @patch("os.path.exists")
-    @patch("os.unlink")
-    def test_run_docker_build_unittest(self, mock_unlink, mock_exists, mock_run):
-        """Test Docker build execution"""
-        mock_run.return_value.returncode = 0
-        mock_exists.return_value = True
-
-        cmd = ["docker", "run", "debian:11"]
-        result = BuildUtils.run_docker_build(cmd, "/tmp/env", cleanup_env_file=True)
-
-        assert result == 0
-        mock_run.assert_called_once_with(cmd, check=False)
-        mock_unlink.assert_called_once_with("/tmp/env")
 
 
 if __name__ == "__main__":

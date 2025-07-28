@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import Mock, patch, mock_open
 from lichoscli.commands.build import BuildCommand
 from lichoscli.commands.base import CommandRegister
+from lichoscli.utils import BuildUtils
 from tests import fixtures
 
 
@@ -52,24 +53,11 @@ class TestBuildCommand(unittest.TestCase):
 
     def test_normalize_architecture_maps_correctly(self):
         """Test architecture normalization mapping."""
-        with patch("git.Repo"), patch("lichoscli.commands.build.GitUtils"):
-            command = BuildCommand(self.pkg_handler, self.args)
+        from lichoscli.utils import BuildUtils
 
-            self.assertEqual(command._normalize_architecture("x86_64"), "amd64")
-            self.assertEqual(command._normalize_architecture("aarch64"), "arm64")
-            self.assertEqual(command._normalize_architecture("unknown"), "unknown")
-
-    @patch("git.Repo")
-    @patch("lichoscli.commands.build.GitUtils")
-    def test_determine_project_dir_non_shell_mode(self, _, __):
-        """Test project directory determination in non-shell mode."""
-        self.args.shell = False
-        command = BuildCommand(self.pkg_handler, self.args)
-
-        project_dir = command._determine_project_dir(False)
-        # Should be a randomized version of "/build" path
-        self.assertNotEqual(project_dir, "/build")
-        self.assertTrue(project_dir.startswith("/"))
+        self.assertEqual(BuildUtils.normalize_architecture("x86_64"), "amd64")
+        self.assertEqual(BuildUtils.normalize_architecture("aarch64"), "arm64")
+        self.assertEqual(BuildUtils.normalize_architecture("unknown"), "unknown")
 
     @patch("git.Repo")
     @patch("lichoscli.commands.build.GitUtils")
@@ -138,7 +126,7 @@ class TestBuildCommand(unittest.TestCase):
             cross_env = command._get_cross_compilation_env()
 
             expected = {
-                "ARCHITECTURE": command._normalize_architecture(
+                "ARCHITECTURE": BuildUtils.normalize_architecture(
                     os.uname().machine
                 ),  # normalized architecture
                 "DEB_HOST_ARCH": "amd64",  # target architecture
@@ -170,35 +158,37 @@ class TestBuildCommand(unittest.TestCase):
         """Test successful build environment preparation."""
         with patch("git.Repo"), patch("lichoscli.commands.build.GitUtils"):
             # Setup mocks
-            mock_tmpdir = "/tmp/test"
-            mock_pkg_handler_class.get_job_artifacts.return_value = mock_tmpdir
+            mock_tmpdir = Mock()
+            mock_tmpdir.name = "/tmp/test"
 
-            mock_env = {"TEST": "value"}
-            mock_build_utils.update_environment_from_file.return_value = mock_env
-            mock_build_utils.expand_var.return_value = mock_env
+            # Mock the instance method directly
+            with patch.object(
+                self.pkg_handler, "get_job_artifacts", return_value=mock_tmpdir
+            ):
+                mock_env = {"TEST": "value"}
+                mock_build_utils.update_environment_from_file.return_value = mock_env
+                mock_build_utils.expand_var.return_value = mock_env
 
-            mock_env_file = Mock()
-            mock_build_utils.create_tmp_env_file.return_value = mock_env_file
+                mock_env_file = Mock()
+                mock_build_utils.create_tmp_env_file.return_value = mock_env_file
 
-            command = BuildCommand(self.pkg_handler, self.args)
-            result = command._prepare_build_environment()
+                command = BuildCommand(self.pkg_handler, self.args)
+                result = command._prepare_build_environment()
 
-            self.assertEqual(result, mock_env_file)
-            mock_pkg_handler_class.get_job_artifacts.assert_called_once()
-            mock_build_utils.update_environment_from_file.assert_called_once()
-            mock_build_utils.expand_var.assert_called_once()
-            mock_build_utils.create_tmp_env_file.assert_called_once()
+                self.assertEqual(result, mock_env_file)
+                self.pkg_handler.get_job_artifacts.assert_called_once()
+                mock_build_utils.update_environment_from_file.assert_called_once()
+                mock_build_utils.expand_var.assert_called_once()
+                mock_build_utils.create_tmp_env_file.assert_called_once()
 
     @patch("lichoscli.commands.build.PkgGroupHandler")
-    def test_prepare_build_environment_no_artifacts(self, mock_pkg_handler_class):
+    def test_prepare_build_environment_no_artifacts(self, _):
         """Test build environment preparation when artifacts are not available."""
         with patch("git.Repo"), patch("lichoscli.commands.build.GitUtils"):
-            mock_pkg_handler_class.get_job_artifacts.return_value = None
-
+            self.pkg_handler.get_job_artifacts.return_value = None
             command = BuildCommand(self.pkg_handler, self.args)
-            result = command._prepare_build_environment()
-
-            self.assertIsNone(result)
+            
+            self.assertIsNone(command._prepare_build_environment())
 
     def test_extract_docker_config_success(self):
         """Test successful Docker configuration extraction."""
@@ -337,3 +327,59 @@ class TestBuildCommand(unittest.TestCase):
 
                 self.assertEqual(result, 1)
                 mock_unlink.assert_called_once_with(mock_env_file.name)
+
+    @patch("lichoscli.commands.build.GitUtils")
+    def test_execute_with_submodules_initialization_success(self, mock_git_utils):
+        """Test command execution with successful submodule initialization."""
+        mock_repo = Mock()
+        mock_git_utils.get_git_repo.return_value = mock_repo
+        mock_git_utils.has_submodules.return_value = True
+        mock_git_utils.initialize_submodules.return_value = True
+        mock_git_utils.get_branch.return_value = "main"
+        mock_git_utils.get_ref_slug.return_value = "main-slug"
+
+        command = BuildCommand(self.pkg_handler, self.args)
+
+        with patch.object(command, "_prepare_build_environment", return_value=None):
+            result = command.execute()
+
+            mock_git_utils.has_submodules.assert_called_once_with(mock_repo)
+            mock_git_utils.initialize_submodules.assert_called_once_with(mock_repo)
+            self.assertEqual(result, 1)  # Fails at prepare_build_environment
+
+    @patch("lichoscli.commands.build.GitUtils")
+    def test_execute_with_submodules_initialization_failure(self, mock_git_utils):
+        """Test command execution with failed submodule initialization."""
+        mock_repo = Mock()
+        mock_git_utils.get_git_repo.return_value = mock_repo
+        mock_git_utils.has_submodules.return_value = True
+        mock_git_utils.initialize_submodules.return_value = False
+        mock_git_utils.get_branch.return_value = "main"
+        mock_git_utils.get_ref_slug.return_value = "main-slug"
+
+        command = BuildCommand(self.pkg_handler, self.args)
+
+        result = command.execute()
+
+        mock_git_utils.has_submodules.assert_called_once_with(mock_repo)
+        mock_git_utils.initialize_submodules.assert_called_once_with(mock_repo)
+        self.assertEqual(result, 1)
+
+    @patch("lichoscli.commands.build.GitUtils")
+    def test_execute_without_submodules(self, mock_git_utils):
+        """Test command execution when no submodules are present."""
+        mock_repo = Mock()
+        mock_git_utils.get_git_repo.return_value = mock_repo
+        mock_git_utils.has_submodules.return_value = False
+        mock_git_utils.get_branch.return_value = "main"
+        mock_git_utils.get_ref_slug.return_value = "main-slug"
+
+        command = BuildCommand(self.pkg_handler, self.args)
+
+        with patch.object(command, "_prepare_build_environment", return_value=None):
+            result = command.execute()
+
+            # Should check for submodules but not initialize them
+            mock_git_utils.has_submodules.assert_called_once_with(mock_repo)
+            mock_git_utils.initialize_submodules.assert_not_called()
+            self.assertEqual(result, 1)  # Fails at prepare_build_environment

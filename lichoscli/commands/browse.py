@@ -4,7 +4,7 @@ import subprocess
 import git
 from lichoscli.commands.base import Command
 from lichoscli.pkg import PkgGroupHandler
-from lichoscli.utils import BuildUtils
+from lichoscli.utils import BuildUtils, GitUtils
 
 logger = logging.getLogger(__name__)
 
@@ -28,16 +28,15 @@ class BrowseCommand(Command):
             return 1
 
         url = pkg.web_url
-        branch = self.branch
         if self.branch is None:
-            try:
-                repo = git.Repo(".")
-                branch = str(repo.head.reference)
-            except git.exc.InvalidGitRepositoryError:
-                logger.error("Invalid repository: %s", self.package_name)
-                return 1
+            repo = GitUtils.auto_detect_git_repo(package_name=self.package_name)
+            branch = str(repo.head.reference) if repo is not None else None
+        else:
+            branch = self.branch
+        
+        if branch:
+            url = f"{url}/tree/{branch}"
 
-        url = f"{url}/tree/{branch}"
         logger.info("Opening URL: %s", url)
 
         r = subprocess.run(("xdg-open", url), check=True)

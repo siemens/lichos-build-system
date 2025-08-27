@@ -8,7 +8,6 @@ artifacts
 .pybuild/
 .debhelper/
 debian/lichoscli
-changelog
 debhelper*
 files
 lichoscli.*

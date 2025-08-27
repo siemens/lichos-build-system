@@ -4,7 +4,7 @@ from lichoscli.utils import CIConfigUtils
 
 
 class ListCommand(Command):
-    """list packages"""
+    """List all packages"""
 
     def execute(self):
         headers = ["Name", "Type", "Enabled", "Branch"]

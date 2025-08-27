@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class WorkspaceCommand(Command):
-    """set workspace branch"""
+    """Set workspace branch"""
 
     def __init__(self, pkg_group_handler: PkgGroupHandler, args):
         super().__init__(pkg_group_handler=pkg_group_handler, args=args)

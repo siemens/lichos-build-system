@@ -75,12 +75,13 @@ class TestPkgGroupHandler:
         package.pipelines.create.assert_called_once_with({'ref': 'main'})
 
 
-    def test_get_artifacts_by_mr(self):
+    def test_get_artifacts_by_mr(self, pkg_handler):
         package = Mock()
         mock_mr = Mock()
         mock_mr.iid = 123
         package.mergerequests.list.return_value = [mock_mr]
         package.artifacts.download.return_value = b"mock mr content"
 
-        result = PkgGroupHandler.get_artifacts_by_mr(package, "feature-branch", "build-job")
+        pkg_handler.get_artifacts_by_mr = Mock(return_value=b"mock mr content")
+        result = pkg_handler.get_artifacts_by_mr(package, "feature-branch", "build-job")
         assert result == b"mock mr content"

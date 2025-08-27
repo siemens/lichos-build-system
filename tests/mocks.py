@@ -11,6 +11,7 @@ class MockGitLabProject:
         self.namespace = kwargs.get("namespace", {"id": 456, "full_path": "test-group/pkg", "path": "pkg"})
         self.web_url = kwargs.get("web_url", f"https://gitlab.example.com/test-group/pkg/{self.name}")
         self.pipelines = Mock()
+        self.jobs = Mock()
         self.web_url = kwargs.get("web_url", f"https://gitlab.example.com/test-group/pkg/{self.name}")
         self._saved = False
 

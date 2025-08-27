@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class GitLabClientFactory:
+    """Factory for creating authenticated GitLab clients from glab config."""
 
     def __init__(self, host: Optional[str] = None):
         """

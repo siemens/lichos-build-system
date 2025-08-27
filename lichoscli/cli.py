@@ -1,19 +1,14 @@
 #!/usr/bin/python3
-
 import argparse
 import logging
 import sys
 import os
-
-import git
-
-from lichoscli.client import GitLabClientFactory
+from lichoscli.providers.gitlab import GitLabClientFactory
 from lichoscli.commands.base import CommandExecutor, CommandRegister
 from lichoscli.pkg import PkgGroupHandler
-
 # noqa: F403
 from lichoscli.commands import *
-from lichoscli.utils import GitUtils, PKG_GROUP_NAME
+from lichoscli.utils import GitUtils
 
 logger = logging.getLogger(__name__)#
 
@@ -46,7 +41,7 @@ def main() -> int:
     parser.add_argument("--host", help="gitlab host name")
     parser.add_argument(
         "--pkg-group",
-        help="pkg-group to work with. Must end with /{}".format(PKG_GROUP_NAME),
+        help="main group path that contains the 00ci project",
     )
     parser.add_argument(
         "--branch",
@@ -66,6 +61,8 @@ def main() -> int:
         parser.print_help()
         sys.exit(1)
 
+    args.branch_explicitly_provided = args.branch is not None
+
     # Configure logging with custom formatter
     handler = logging.StreamHandler()
     formatter = CustomFormatter("%(levelname)s %(message)s")
@@ -82,8 +79,7 @@ def main() -> int:
     else:
         root_logger.setLevel(logging.WARNING)
 
-    if args.branch is None:
-        args.branch = os.environ.get('LICHOS_BRANCH', None)
+    args.branch = args.branch or os.environ.get('LICHOS_BRANCH') or GitUtils.get_branch()
 
     if args.host is None and args.pkg_group is None:
         repo = GitUtils.auto_detect_git_repo()
@@ -95,9 +91,7 @@ def main() -> int:
                     args.host = data[0]
                 if args.pkg_group is None:
                     args.pkg_group = data[1]
-#                if args.package is None:
-#                    args.package = data[2]
-                if args.branch is None and repo.working_dir == os.getcwd():
+                if args.branch is None:
                     args.branch = data[3]
             else:
                 logger.debug("Failed to parse repo data in %s", repo.working_dir)
@@ -106,11 +100,14 @@ def main() -> int:
         logger.error("Please specify host and group manually")
         return 1
 
+    if args.branch is None:
+        logger.error("Please specify branch manually or set LICHOS_BRANCH environment variable")
+        return 1
+
     gl = GitLabClientFactory(args.host).create()
 
-    main_group = GitUtils.get_main_group(args.pkg_group)
 
-    pkg_group_handler = PkgGroupHandler(main_group, gl)
+    pkg_group_handler = PkgGroupHandler(args.pkg_group, gl)
 
     try:
         executor = CommandExecutor(pkg_group_handler, args)

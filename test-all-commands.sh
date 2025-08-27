@@ -28,7 +28,7 @@ TEST_PKG_GROUP="your-group/platform-os/pkg"
 TEST_BRANCH="flocken"
 
 
-CLI_CMD="/home/sami/workspace/platform-os/pkg/lichoscli/cli"
+CLI_CMD="./cli"
 
 # Control output verbosity
 SHOW_OUTPUT_LINES=40  # Number of lines to show from output

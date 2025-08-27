@@ -3,6 +3,7 @@ import os
 import textwrap
 import git
 from git.repo import Repo
+from gitlab import GitlabError
 
 from lichoscli import utils
 from lichoscli.commands.base import Command
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class CreateCommand(Command):
-    """create a package"""
+    """Create a new package"""
 
     def __init__(self, pkg_group_handler: PkgGroupHandler, args):
         super().__init__(pkg_group_handler=pkg_group_handler, args=args)
@@ -34,7 +35,7 @@ class CreateCommand(Command):
                 "The create command requires a branch to be specified. "
                 "Use --branch <branch_name> "
             )
-        
+       
         if self.check_local_package_exists(self.package_name):
             return 1
 
@@ -59,8 +60,8 @@ class CreateCommand(Command):
             self.branch,
         )
 
-        print(f"Package created successfully!")
-        print(f"Remote URL: {package.web_url}")
+        print("Package created successfully!")
+        print("Remote URL: %s" % package.web_url)
 
         if self.package_type == "gbp":
             self.create_debian_package_template(self.package_name, author)
@@ -163,6 +164,7 @@ class CreateCommand(Command):
                 Build-Depends:
                     debhelper-compat (= 13)
                 Standards-Version: 4.6.2
+
                 Package: {package}
                 Architecture: any
                 Multi-Arch: foreign

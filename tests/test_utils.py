@@ -1,8 +1,8 @@
 import unittest
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 import pytest
 import git
-from git.exc import InvalidGitRepositoryError, NoSuchPathError
+from git.exc import InvalidGitRepositoryError
 from lichoscli.utils import BuildUtils, CIConfigUtils, GitUtils
 
 
@@ -80,14 +80,6 @@ class TestGitUtils:
         result = GitUtils.get_package_name_from_git_repo(mock_repo_instance)
         assert result == ""
 
-    @patch("git.Repo")
-    def test_get_package_name_exception(self, mock_repo):
-        """Test package name extraction with exception"""
-        mock_repo_instance = MagicMock()
-        mock_repo_instance.remotes.origin.side_effect = Exception("Remote error")
-
-        result = GitUtils.get_package_name_from_git_repo(mock_repo_instance)
-        assert result == ""
 
     @patch("lichoscli.utils.Repo")
     def test_get_git_repo_success(self, mock_repo):
@@ -164,17 +156,6 @@ class TestGitUtils:
         result = GitUtils.get_ref_slug("")
         assert result == ""
 
-    @patch("git.Repo")
-    def test_get_main_group_from_git_url(self, mock_repo):
-        """Test main group extraction from Git URL"""
-        mock_repo_instance = MagicMock()
-        mock_repo_instance.remotes.origin.url = (
-            "git@gitlab.com:your-group/platform-os/pkg/test"
-        )
-        data = GitUtils.parse_repo_data(mock_repo_instance)
-        assert data is not None
-        result = GitUtils.get_main_group(data[1])
-        assert result == "your-group/platform-os/pkg"
 
     @patch("os.path.exists")
     @patch("lichoscli.utils.GitUtils.get_git_repo")

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class CloneCommand(Command):
-    """clone a package"""
+    """Clone a package repository"""
 
     def __init__(self, pkg_group_handler: PkgGroupHandler, args):
         super().__init__(pkg_group_handler=pkg_group_handler, args=args)

@@ -1,0 +1,219 @@
+lichoscli (0.2.2) UNRELEASED; urgency=medium
+
+  * List only active packages
+  * Introduce set_forked command
+  * create: need empty line in control file template
+  * fix: update ci_config_path retrieval in ShowCommand to use pretty_format_ci_path method
+  * feat: enhance ShowCommand to display CI configuration path and package variables
+  * fix: handle missing package in StatusCommand and log an error
+
+ -- Ludwig Nussel <ludwig.nussel@siemens.com>  Thu, 28 Aug 2025 07:09:56 +0000
+
+lichoscli (0.2.1) UNRELEASED; urgency=medium
+
+  * refactor: streamline architecture normalization and log extraction methods
+  * feat: add CollectSourcesCommand for generating GPL compliance archives with source packages
+  * refactor: streamline execution flow and improve package name handling in MergerequestCommand and VerifyCommand
+  * refactor: simplify test structure for StatusCommand and remove unused code
+  * refactor: enhance package fetching with concurrent execution and improve test assertions for package names
+  * refactor: update test cases to use correct GitUtils references and improve mock handling
+  * replace integration tests by manual test using shell script
+  * fix: pyright issues
+  * fix: enhance BuildCommand to handle package not found errors and introduce submodule initialization
+  * feat: implement VerifyCommand to validate package settings and configurations
+  * refactor: improve package handling and caching in PkgGroupHandler
+  * feat: implement MergerequestCommand to list open merge requests for packages
+  * fix: enhance trigger_package_build to handle merge requests and improve logging
+  * fix: update package retrieval to include full details in TriggerCommand tests
+  * fix: retrieve full package details in TriggerCommand execution
+  * fix: add network option handling in BuildCommand and update package retrieval in PkgGroupHandler
+  * fix: add network option to BuildCommand for docker container configuration
+  * fix: enhance error reporting for artifact downloads in BuildCommand and PkgGroupHandler
+
+ -- Sami Alzein <sami.alzein@siemens.com>  Thu, 17 Jul 2025 13:50:09 +0000
+
+lichoscli (0.2.0) UNRELEASED; urgency=medium
+
+  * fix: correct lichoscli enable passing the ci config path
+  * Show package variables again
+  * Don't access git repo in help screen
+  * Implement pretty printing CI type again
+  * remove workspace exit
+  * Exit with code correctly
+  * Use correct branch in status command
+  * Store args in Command class
+  * clone: fix adding parent repo
+  * Improve autodetection of host and group
+  * Update README
+  * Automatic subparser generation
+  * Automatic command registration
+  * Fix getting latest pipeline
+  * status: use util function to get package name
+  * Parse host from git url
+
+ -- Stephan Kulow <stephan.kulow@siemens.com>  Tue, 01 Jul 2025 09:18:53 +0000
+
+lichoscli (0.1.1) UNRELEASED; urgency=medium
+
+  * fix: update logging format for consistency in PkgGroupHandler
+  * fix: improve logging format for error and debug messages in PkgGroupHandler
+  * add: implement package caching and improve performance in PkgGroupHandler
+  * adjust review changes
+  * missing tests
+  * adjust create function for subgroups
+  * refactor: get package
+  * enable call from subgroups
+  * add testing list
+  * feat: get also subgroups by get_all_packages
+  * refactor: trigger_package_build
+  * fix: update platform assignment logic for cross-compilation support
+  * Add local wrapper
+
+ -- Sami Alzein <sami.alzein@siemens.com>  Thu, 26 Jun 2025 10:44:53 +0000
+
+lichoscli (0.0.9) UNRELEASED; urgency=medium
+
+  * refactor: improve artifact download logic with enhanced error handling and code formatting
+  * refactor: enhance artifact download logic with error handling and branch/MR support
+  * refactor: remove redundant pkg_group_handler assignment in command classes
+  * run linter to increase code quality
+  * refactor: adds standarized logging
+  * refactor: streamline command imports and enhance dynamic loading in __init__.py
+  * fix: normalize architecture in cross-compilation environment test
+  * fix: update .gitignore and control file for additional build artifacts
+  * docs: add project structure and command addition guidelines to README
+  * refactor lichoscli into a more modular architecture
+  * fix: update .gitignore to include additional build artifacts and directories
+
+ -- Sami Alzein <sami.alzein@siemens.com>  Wed, 04 Jun 2025 11:11:39 +0000
+
+lichoscli (0.0.3) UNRELEASED; urgency=medium
+
+  * fix: improvement of package name matching
+  * refactor: improving the renewal of package information
+  * refactor: improve env var handling
+  * fix: fixed paths to the buildinfo files
+  * chore: add more logging to track the HTTP request
+  * fix: get package information in all runs of the scheduler
+  * fix: take buildinfo in DEBS and gpb folder for now
+  * fix: do not set default value for profile
+  * feat: simplify cross compilation configuration
+
+ -- Max Mueller <mueller.max@siemens.com>  Thu, 22 May 2025 11:12:12 +0000
+
+lichoscli (0.0.2) UNRELEASED; urgency=medium
+
+  * Fix printing group variables
+  * feat: introduce build profile
+  * fix: specify arch in cross-compile correctly
+  * Fix permissions
+  * feat: enable cross compilation
+  * fix: do_buildlist
+  * test: add ctree test
+  * chore: remove useless lines
+  * fix: pass args to do_list, as it is always expected
+  * fix: symlink path
+  * chore: changed log level of some outputs to debug
+  * test: build list creation
+  * feat: move ctree into separate tool
+  * add --debian to create cmd
+  * feat: use env variables to detect pipeline enviroment
+  * feat: use pipeline status in _get_job_artifacts
+  * feat: add pkg to packages func
+  * feat: create ordered package rebuild list
+  * fix: add missing dot
+  * chore: remove f-strings
+  * add getartifacts command
+  * Make workspace command work on project level
+  * add do workspace
+  * refactor _load_variables_remote
+  * Open current branch in browser if it exists
+  * Show group variables too
+  * update maintainer
+  * Fix docker from snap
+  * Don't hardcode architecture
+  * Use calculated environment from pipeline job
+  * Output version mismatches between latest builds
+  * Follow redirect from api requests
+  * Add --all option to trigger all
+  * Don't allow empty type
+  * Show pipeline time in project status
+  * Get all pages for package listing
+  * Print list of projects if none specified
+  * Print pipeline start time and duration
+  * Support different build types
+  * Support local pipeline file for build command
+  * Don't print masked variables
+  * Don't use root logger
+  * export CI_COMMIT_REF_NAME
+  * Flatten script list
+  * Fallback to 'default' section for before_script
+  * Always pull docker image
+  * Use bash to run gitlab pipeline
+  * Adopt to current gbp.yml
+  * Initialize empty repo on package creation
+  * Add browse command
+  * Add user name to sample gitlab config
+  * Add upstream repo too if available
+  * Document default config
+  * Document the shell command
+  * try host from git config first
+  * Handle package lookup better
+  * Support emtpy shell
+  * Use builds_access_level to enable or disable builds
+  * Support disabled pipeline
+  * Use dest for argparse to determine function name
+  * Better pdiff for missing parent branch
+  * Implement shell option for build
+  * Fix namespace id setting
+  * Fix fetching namespace_id from home repos
+  * Allow custom script for build command
+  * Use common variable for subparsers
+  * Update README
+  * Create command
+  * Update README
+  * Add global --branch option
+  * Add build command
+  * Show reason and user of pipeline trigger
+  * Implement DELETE
+  * Allow . as package name
+  * Show branch protection status
+  * Add pdiff function
+  * Check return value of handler functions
+  * Add parent on clone
+  * Fix typos in README
+
+ -- Ludwig Nussel <ludwig.nussel@siemens.com>  Mon, 12 May 2025 10:59:20 +0000
+
+lichoscli (0.0.1) UNRELEASED; urgency=medium
+
+  * Update README
+  * Print sha in branch output
+  * Allow enabling with custom template
+  * Add wait option for job log
+  * Split project status from list
+  * Debianize
+  * Refactor log into separate command
+  * Live log
+  * Decode log lines
+  * Accept 00ci as package
+  * Show fork
+  * Add log option
+  * Make it work with user forks
+  * Auto detect package if possible
+  * Rename to lichoscli
+  * Warn about forks
+  * Option to show branches
+  * Add clone command
+  * Refactor to omit package
+  * Automatically determine location from git url
+  * Missing API for listing artifacts
+  * Update README
+  * list --status
+  * enable, disable, status commands
+  * Add README
+  * Update
+  * Initial commit
+
+ -- Ludwig Nussel <ludwig.nussel@siemens.com>  Thu, 27 Feb 2025 15:33:54 +0000
+

@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class StatusCommand(Command):
-    """build status of package"""
+    """Show build status of package"""
 
     def __init__(self, pkg_group_handler, args):
         super().__init__(pkg_group_handler, args)
@@ -35,7 +35,7 @@ class StatusCommand(Command):
             status = "-"
             date = "-"
 
-            pipeline = self.pkg_group_handler.get_latest_pipeline(package)
+            pipeline = self.pkg_group_handler.get_latest_pipeline(package, self.args.branch)
             if pipeline:
                 status = pipeline.status or "-"
 
@@ -45,15 +45,15 @@ class StatusCommand(Command):
                     except ValueError:
                         date = f"(Invalid date: {pipeline.updated_at})"
 
-            t.append(
-                [
-                    package.name,
-                    self.pkg_group_handler.pretty_format_ci_path(package),
-                    package.builds_access_level,
-                    status,
-                    date,
-                ]
-            )
+                t.append(
+                    [
+                        package.name,
+                        self.pkg_group_handler.pretty_format_ci_path(package),
+                        package.builds_access_level,
+                        status,
+                        date,
+                    ]
+                )
 
         print(tabulate(t, headers="firstrow"))
         return 0

@@ -4,7 +4,7 @@ import yaml
 from unittest.mock import patch, mock_open, MagicMock
 import gitlab
 
-from lichoscli.client import GitLabClientFactory
+from lichoscli.providers.gitlab.client import GitLabClientFactory
 
 
 class TestGitLabClientFactory:

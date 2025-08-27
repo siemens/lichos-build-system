@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class MergerequestCommand(Command):
-    """list open merge requests for packages"""
+    """List open merge requests for packages"""
 
     def __init__(self, pkg_group_handler, args):
         super().__init__(pkg_group_handler, args)
@@ -78,7 +78,7 @@ class MergerequestCommand(Command):
 
     def _get_merge_requests_for_package(self, package):
         try:
-            return self.pkg_group_handler._get_merge_requests_for_package(package, state="opened", all=True)
+            return self.pkg_group_handler.get_merge_requests_for_package(package, state="opened", get_all=True)
         except GitlabError as e:
             logger.debug("Failed to get merge requests for package %s: %s", package.name, str(e))
             return []
@@ -126,20 +126,6 @@ class MergerequestCommand(Command):
                         print("  |")
                 
                 print()  
-
-    def _format_date(self, date_str):
-        try:
-            dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-            return dt.strftime('%Y-%m-%d')
-        except (ValueError, AttributeError):
-            return date_str or "-"
-
-    def _format_date_compact(self, date_str):
-        try:
-            dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-            return dt.strftime('%d.%m')
-        except (ValueError, AttributeError):
-            return date_str or "-"
 
     def _format_date_with_year(self, date_str):
         try:

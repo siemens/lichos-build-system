@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class TriggerCommand(Command):
-    """trigger package build"""
+    """Trigger package build"""
 
     def __init__(self, pkg_group_handler, args):
         super().__init__(pkg_group_handler, args)

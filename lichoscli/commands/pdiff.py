@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class PDiffCommand(Command):
-    """print diff to parent"""
+    """Print diff between package and its parent"""
 
     def __init__(self, pkg_group_handler: PkgGroupHandler, args):
         super().__init__(pkg_group_handler=pkg_group_handler, args=args)

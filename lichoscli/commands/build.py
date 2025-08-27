@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class BuildCommand(Command):
-    """build package"""
+    """Build a package locally"""
 
     def __init__(self, pkg_group_handler: PkgGroupHandler, args):
         super().__init__(pkg_group_handler, args)
@@ -35,7 +35,6 @@ class BuildCommand(Command):
             
         self.branch_ref_slug = GitUtils.get_ref_slug(self.branch)
         self.build_env = self._build_environment()
-        self.profile = args.profile
         self.network = args.network
 
     @classmethod
@@ -59,8 +58,8 @@ class BuildCommand(Command):
             action="store_true",
             help="option to enable cross compilation setup",
         )
-        sp.add_argument("--profile", nargs="?", help="debian profile to build")
         sp.add_argument("--network", nargs="?", help="docker network to use for the container")
+        sp.add_argument("--profile", help="debian profile to build")
 
     def execute(self):
         if not self.package:
@@ -140,8 +139,9 @@ class BuildCommand(Command):
 
     def _get_profile_env(self) -> dict:
         """Get environment variables for build profile."""
-        if hasattr(self, "profile") and self.profile:
-            return {"DEB_BUILD_PROFILES": self.profile}
+        if self.args.profile:
+            logger.info("profile %s", self.args.profile)
+            return {"DEB_BUILD_PROFILES": self.args.profile}
         return {}
 
     def _prepare_build_environment(self):

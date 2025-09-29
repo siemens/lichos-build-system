@@ -16,9 +16,14 @@ Build-Depends:
  python3-requests,
  python3-tabulate,
  python3-yaml,
+ python3-prompt-toolkit,
+ python3-packaging,
+ python3-diskcache,
+ python3-cachetools,
+ python3-xdg,
  pybuild-plugin-pyproject
-Standards-Version: 4.6.0
-Homepage: https://gitlab.example.com/ludwig.nussel/lichoscli
+Standards-Version: 4.7.0
+Homepage: https://github.com/samastek/lichoscli
 #Vcs-Browser: https://salsa.debian.org/debian/lichoscli
 #Vcs-Git: https://salsa.debian.org/debian/lichoscli.git
 Rules-Requires-Root: no
@@ -32,6 +37,11 @@ Depends: ${python3:Depends}, ${misc:Depends},
  python3-tabulate,
  python3-yaml, 
  python3-gitlab, 
- python3-rich
+ python3-rich,
+ python3-packaging,
+ python3-prompt-toolkit,
+ python3-diskcache,
+ python3-cachetools,
+ python3-xdg
 Description: Manage LiChOS package builds
  Command-line tool to manage LiChOS package builds and related tasks.

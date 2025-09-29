@@ -1,55 +1,74 @@
-import unittest
 from unittest.mock import Mock, patch
 
-from gitlab import GitlabError
+import pytest
+
 from lichoscli.commands.browse import BrowseCommand
-from lichoscli.commands.base import CommandRegister
-from tests import fixtures
+from tests.fixtures.utils import TestConstants
+from tests.mocks import create_mock_args
 
 
-class TestBrowseCommand(unittest.TestCase):
-    def setUp(self):
-        """Set up test fixtures before each test method."""
-        CommandRegister._commands = {}
-        CommandRegister._parser_hooks = {}
+@pytest.fixture
+def mock_args():
+    args = create_mock_args()
+    args.package = TestConstants.DEFAULT_PROJECT_NAME
+    args.branch = None
+    return args
 
-        self.pkg_handler = fixtures.create_mock_pkg_handler()
-        self.args = fixtures.create_mock_args()
-        self.args.package = fixtures.TestConstants.DEFAULT_PROJECT_NAME
-        self.args.branch = None
 
-        self.command = BrowseCommand(self.pkg_handler, self.args)
+def test_browse_command_initialization(mock_di_container, mock_args):
+    command = BrowseCommand(mock_di_container, mock_args)
 
-    @patch("lichoscli.commands.browse.GitUtils.auto_detect_git_repo")
-    @patch("lichoscli.commands.browse.subprocess.run")
-    def test_execute_success(self, mock_subprocess, mock_auto_detect):
-        """Test successful execution of the browse command."""
-        mock_package = fixtures.create_mock_project()
-        mock_package.web_url = "https://example.com/package"
-        self.pkg_handler.get_package = Mock(return_value=mock_package)
+    assert command.di_container == mock_di_container
+    assert command.args == mock_args
 
-        mock_repo_instance = Mock()
-        mock_repo_instance.head.reference = fixtures.TestConstants.DEFAULT_BRANCH
-        mock_auto_detect.return_value = mock_repo_instance
 
+@patch("lichoscli.commands.browse.GitUtils.auto_detect_git_repo")
+@patch("lichoscli.commands.browse.subprocess.run")
+def test_execute_success(mock_subprocess, mock_auto_detect, mock_di_container, mock_package, mock_args):
+    mock_package.web_url = "https://example.com/package"
+    mock_di_container.package_service.get_package.return_value = mock_package
+
+    mock_repo_instance = Mock()
+    mock_repo_instance.head.reference = TestConstants.DEFAULT_BRANCH
+    mock_auto_detect.return_value = mock_repo_instance
+
+    mock_subprocess.return_value.returncode = 0
+
+    command = BrowseCommand(mock_di_container, mock_args)
+    result = command.execute()
+
+    assert result == 0
+    mock_subprocess.assert_called_once_with(("xdg-open", "https://example.com/package/tree/main"), check=True)
+
+
+@patch("lichoscli.commands.browse.GitUtils.auto_detect_git_repo")
+def test_execute_with_branch_specified(mock_auto_detect, mock_di_container, mock_package, mock_args):
+    mock_args.branch = "feature-branch"
+    mock_package.web_url = "https://example.com/package"
+    mock_di_container.package_service.get_package.return_value = mock_package
+
+    with patch("lichoscli.commands.browse.subprocess.run") as mock_subprocess:
         mock_subprocess.return_value.returncode = 0
 
-        result = self.command.execute()
+        command = BrowseCommand(mock_di_container, mock_args)
+        result = command.execute()
 
-        self.assertEqual(result, 0)
+        assert result == 0
         mock_subprocess.assert_called_once_with(
-            ("xdg-open", "https://example.com/package/tree/main"), check=True
+            ("xdg-open", "https://example.com/package/tree/feature-branch"), check=True
         )
-
-    @patch("lichoscli.commands.browse.GitUtils.auto_detect_git_repo")
-    def test_execute_invalid_repo(self, mock_auto_detect):
-        """Test execution when the repository is invalid."""
-        mock_auto_detect.side_effect = GitlabError("Invalid repository")
-
-        result = self.command.execute()
-
-        self.assertEqual(result, 1)
+        mock_auto_detect.assert_not_called()
 
 
-if __name__ == "__main__":
-    unittest.main()
+@patch("lichoscli.commands.browse.GitUtils.auto_detect_git_repo")
+def test_execute_package_not_found(mock_auto_detect, mock_di_container, mock_args):
+    mock_di_container.package_service.get_package.return_value = None
+
+    mock_repo_instance = Mock()
+    mock_repo_instance.head.reference = TestConstants.DEFAULT_BRANCH
+    mock_auto_detect.return_value = mock_repo_instance
+
+    command = BrowseCommand(mock_di_container, mock_args)
+    result = command.execute()
+
+    assert result == 1

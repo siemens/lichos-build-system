@@ -1,16 +1,15 @@
 #!/usr/bin/python3
 import argparse
 import logging
-import sys
 import os
-from lichoscli.providers.gitlab import GitLabClientFactory
+import sys
+
 from lichoscli.commands.base import CommandExecutor, CommandRegister
-from lichoscli.pkg import PkgGroupHandler
-# noqa: F403
-from lichoscli.commands import *
+from lichoscli.providers.gitlab import GitLabClientFactory
+from lichoscli.providers.gitlab.container import GitLabServiceContainer
 from lichoscli.utils import GitUtils
 
-logger = logging.getLogger(__name__)#
+logger = logging.getLogger(__name__)
 
 
 class CustomFormatter(logging.Formatter):
@@ -28,6 +27,7 @@ class CustomFormatter(logging.Formatter):
         # Replace the levelname with our custom level indicator
         record.levelname = self.level_mapping.get(record.levelno, record.levelname)
         return super().format(record)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -47,9 +47,7 @@ def main() -> int:
         "--branch",
         help="branch name for some commands",
     )
-    parser.add_argument(
-        "--dump", action="store_true", help="some command allow dumping json data"
-    )
+    parser.add_argument("--dump", action="store_true", help="some command allow dumping json data")
 
     subparsers = parser.add_subparsers(dest="command", title="Commands")
 
@@ -74,12 +72,15 @@ def main() -> int:
 
     if args.debug:
         root_logger.setLevel(logging.DEBUG)
+        logging.getLogger("urllib3.connectionpool").setLevel(logging.INFO)
+        logging.getLogger("requests.packages.urllib3.connectionpool").setLevel(logging.INFO)
+        logging.getLogger("gitlab").setLevel(logging.INFO)
     elif args.verbose:
         root_logger.setLevel(logging.INFO)
     else:
         root_logger.setLevel(logging.WARNING)
 
-    args.branch = args.branch or os.environ.get('LICHOS_BRANCH') or GitUtils.get_branch()
+    args.branch = args.branch or os.environ.get("LICHOS_BRANCH") or GitUtils.get_branch()
 
     if args.host is None and args.pkg_group is None:
         repo = GitUtils.auto_detect_git_repo()
@@ -106,14 +107,15 @@ def main() -> int:
 
     gl = GitLabClientFactory(args.host).create()
 
-
-    pkg_group_handler = PkgGroupHandler(args.pkg_group, gl)
-
     try:
-        executor = CommandExecutor(pkg_group_handler, args)
+        di_container = GitLabServiceContainer(args.pkg_group, gl)
+        executor = CommandExecutor(di_container, args)
         result = executor.execute(args)
         return 0 if result is None else result
 
+    except KeyboardInterrupt:
+        print("\nOperation cancelled by user.")
+        return 130
     except (argparse.ArgumentError, ValueError, RuntimeError) as e:
         print(f"Error: {e}")
         return 1

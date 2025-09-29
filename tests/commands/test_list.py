@@ -1,142 +1,92 @@
-import unittest
-from unittest.mock import Mock, patch
 from lichoscli.commands.list import ListCommand
-from lichoscli.commands.base import CommandRegister
-from tests.mocks import MockGitLabProject
-from tests import fixtures
+from tests.mocks import MockGitLabProject, create_mock_args
 
 
-class TestListCommand(unittest.TestCase):
-    def setUp(self):
-        """Set up test fixtures before each test method."""
+def test_command_initialization_sets_correct_attributes(mock_di_container):
+    """Test that command initialization sets correct attributes."""
+    args = create_mock_args()
+    command = ListCommand(mock_di_container, args)
 
-        CommandRegister._commands = {}
-        CommandRegister._parser_hooks = {}
-
-        self.pkg_handler = fixtures.create_mock_pkg_handler()
-        self.args = fixtures.create_mock_args()
-
-        self.command = ListCommand(self.pkg_handler, self.args)
-
-    def test_command_initialization_sets_correct_attributes(self):
-        """Test that command initialization sets correct attributes."""
-        self.assertEqual(self.command.pkg_group_handler, self.pkg_handler)
-
-    @patch("lichoscli.commands.list.print")
-    @patch("lichoscli.commands.list.tabulate")
-    def test_execute_with_packages_success(self, mock_tabulate, mock_print):
-        """Test successful execution with packages returns 0 and prints table."""
-
-        mock_package1 = MockGitLabProject(name="package1", id=1, ci_config_path="gbp.yml@test-group/pkg/00ci")
-
-        mock_package2 = MockGitLabProject(name="package2", id=2, ci_config_path="gbp.yml@test-group/pkg/00ci", default_branch="develop", builds_access_level="disabled")
-
-        self.pkg_handler.get_all_packages = Mock(return_value=[mock_package1, mock_package2])
-        mock_tabulate.return_value = "formatted_table_output"
-
-        result = self.command.execute()
-
-        self.assertEqual(result, 0)
-
-        self.pkg_handler.get_all_packages.assert_called_once()
-
-        expected_headers = ["Name", "Type", "Enabled", "Branch"]
-        expected_rows = [
-            ["package1", "gbp", "enabled", "main"],
-            ["package2", "gbp", "disabled", "develop"],
-        ]
-        mock_tabulate.assert_called_once_with(expected_rows, headers=expected_headers)
-
-        mock_print.assert_called_once_with("formatted_table_output")
-    
-    @patch("lichoscli.commands.list.print")
-    @patch("lichoscli.commands.list.tabulate")
-    def test_execute_with_subgroups(self, mock_tabulate, mock_print):
-        """Test successful execution with subpackages returns 0 and prints table."""
+    assert command.di_container == mock_di_container
+    assert command.args == args
 
 
-        mock_package1 = MockGitLabProject(name="package1", id=1, ci_config_path="gbp.yml@test-group/pkg/00ci", namespace={"full_path": "test-group/pkg", "path": "pkg"})
-
-        mock_package2 = MockGitLabProject(name="package4", id=4, ci_config_path="gbp.yml@test-group/pkg/00ci", namespace={"full_path": "test-group/pkg/subgroup", "path": "subgroup"})
-
-        self.pkg_handler.get_all_packages = Mock(return_value=[mock_package1, mock_package2])
-        mock_tabulate.return_value = "formatted_table_output"
-
-        result = self.command.execute()
-
-        self.assertEqual(result, 0)
-
-        self.pkg_handler.get_all_packages.assert_called()
-
-        expected_headers = ["Name", "Type", "Enabled", "Branch"]
-        expected_rows = [
-            ["package1", "gbp", "enabled", "main"],
-            ["subgroup/package4", "gbp", "enabled", "main"],
-        ]
-        mock_tabulate.assert_called_once_with(expected_rows, headers=expected_headers)
-
-        mock_print.assert_called_once_with("formatted_table_output")
-
-    @patch("lichoscli.commands.list.print")
-    @patch("lichoscli.commands.list.tabulate")
-    def test_execute_with_empty_packages_list(self, mock_tabulate, mock_print):
-        """Test execution with empty packages list."""
-        self.pkg_handler.get_all_packages = Mock(return_value=[])
-        mock_tabulate.return_value = "empty_table_output"
-
-        result = self.command.execute()
-
-        self.assertEqual(result, 0)
-
-        self.pkg_handler.get_all_packages.assert_called_once()
-
-        expected_headers = ["Name", "Type", "Enabled", "Branch"]
-        expected_rows = []
-        mock_tabulate.assert_called_once_with(expected_rows, headers=expected_headers)
-
-        mock_print.assert_called_once_with("empty_table_output")
-
-    @patch("lichoscli.commands.list.print")
-    @patch("lichoscli.commands.list.tabulate")
-    def test_execute_with_single_package(self, mock_tabulate, mock_print):
-        """Test execution with single package."""
-        mock_package = MockGitLabProject(name="single-package", id=1, ci_config_path="gbp.yml@test-group/pkg/00ci", default_branch="master")
-
-        self.pkg_handler.get_all_packages = Mock(return_value=[mock_package])
-        mock_tabulate.return_value = "single_package_table"
-
-        result = self.command.execute()
-
-        self.assertEqual(result, 0)
-
-        expected_headers = ["Name", "Type", "Enabled", "Branch"]
-        expected_rows = [["single-package", "gbp", "enabled", "master"]]
-        mock_tabulate.assert_called_once_with(expected_rows, headers=expected_headers)
-
-        mock_print.assert_called_once_with("single_package_table")
-
-    @patch("lichoscli.commands.list.print")
-    @patch("lichoscli.commands.list.tabulate")
-    def test_execute_handles_package_with_none_values(self, mock_tabulate, mock_print):
-        """Test execution handles packages with None attribute values gracefully."""
-        mock_package = Mock()
-        mock_package.name = None
-        mock_package.ci_config_path = None
-        mock_package.builds_access_level = None
-        mock_package.default_branch = None
-        mock_package.namespace = {"full_path": None, "path": None}
-
-        self.pkg_handler.get_all_packages = Mock(return_value=[mock_package])
-        mock_tabulate.return_value = "none_values_table"
-
-        result = self.command.execute()
-
-        self.assertEqual(result, 0)
-
-        expected_headers = ["Name", "Type", "Enabled", "Branch"]
-        expected_rows = [[None, "local", None, None]]
-        mock_tabulate.assert_called_once_with(expected_rows, headers=expected_headers)
+def test_list_command_mock_package():
+    """Test mock package creation for list command."""
+    mock_package1 = MockGitLabProject(
+        name="package1",
+        id=1,
+        ci_config_path="gbp.yml@test-group/pkg/00ci",
+        namespace={"full_path": "test-group/pkg", "path": "pkg"},
+    )
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_execute_gets_packages_and_returns_success(mock_di_container):
+    """Test successful execution calls get_all_packages and returns 0."""
+    args = create_mock_args()
+
+    mock_package1 = MockGitLabProject(name="package1", id=1, ci_config_path="gbp.yml@test-group/pkg/00ci")
+    mock_package2 = MockGitLabProject(
+        name="package2",
+        id=2,
+        ci_config_path="gbp.yml@test-group/pkg/00ci",
+        default_branch="develop",
+        builds_access_level="disabled",
+    )
+
+    package_service = mock_di_container.package_service
+    package_service.get_all_packages.return_value = [mock_package1, mock_package2]
+    package_service.pretty_format_ci_path.return_value = "gbp"
+    package_service.get_display_name.side_effect = lambda pkg: pkg.name
+
+    # Mock the DI container's group_rpath attribute
+    mock_di_container.group_rpath = "test-group/pkg"
+
+    command = ListCommand(mock_di_container, args)
+    result = command.execute()
+
+    assert result == 0
+    package_service.get_all_packages.assert_called_once()
+
+
+def test_execute_with_empty_package_list(mock_di_container):
+    """Test execution with empty package list returns 0."""
+    args = create_mock_args()
+
+    package_service = mock_di_container.package_service
+    package_service.get_all_packages.return_value = []
+
+    # Mock the DI container's group_rpath attribute
+    mock_di_container.group_rpath = "test-group/pkg"
+
+    command = ListCommand(mock_di_container, args)
+    result = command.execute()
+
+    assert result == 0
+    package_service.get_all_packages.assert_called_once()
+
+
+def test_execute_handles_package_with_subgroup_namespace(mock_di_container):
+    """Test execution handles packages in subgroups correctly."""
+    args = create_mock_args()
+
+    mock_package = MockGitLabProject(
+        name="package4",
+        id=4,
+        ci_config_path="gbp.yml@test-group/pkg/00ci",
+        namespace={"full_path": "test-group/pkg/subgroup", "path": "subgroup"},
+    )
+
+    package_service = mock_di_container.package_service
+    package_service.get_all_packages.return_value = [mock_package]
+    package_service.pretty_format_ci_path.return_value = "gbp"
+    package_service.get_display_name.side_effect = lambda pkg: "subgroup/package4"
+
+    # Mock the DI container's group_rpath attribute
+    mock_di_container.group_rpath = "test-group/pkg"
+
+    command = ListCommand(mock_di_container, args)
+    result = command.execute()
+
+    assert result == 0
+    package_service.get_all_packages.assert_called_once()

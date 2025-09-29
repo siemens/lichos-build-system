@@ -2,12 +2,15 @@
 
 import logging
 import os
-import requests
 from datetime import datetime
+
+import requests
 from gitlab.exceptions import GitlabError
+
 from lichoscli.commands.base import Command
-from lichoscli.pkg import PkgGroupHandler
-from lichoscli.utils import CI_PKG, REQUIRED_PACKAGES
+from lichoscli.core.di import DIContainer
+from lichoscli.core.services import PackageService
+from lichoscli.utils import CI_PKG, CORE_PACKAGES
 
 logger = logging.getLogger(__name__)
 
@@ -15,12 +18,13 @@ logger = logging.getLogger(__name__)
 class ReleaseCommand(Command):
     """Create and manage releases by updating submodules, verifying builds, creating snapshots and tagging"""
 
-    def __init__(self, pkg_group_handler: PkgGroupHandler, args):
-        super().__init__(pkg_group_handler=pkg_group_handler, args=args)
+    def __init__(self, di_container: DIContainer, args):
+        super().__init__(di_container, args)
+        self.package_service = di_container.obtain_ref(PackageService)
 
     def validate_args(self) -> None:
         """Validate that required arguments are provided"""
-        if not getattr(self.args, 'branch_explicitly_provided', False):
+        if not getattr(self.args, "branch_explicitly_provided", False):
             raise ValueError("--branch is required for the release command")
 
     @classmethod
@@ -39,16 +43,15 @@ class ReleaseCommand(Command):
     def execute(self) -> int:
         """Execute the release process"""
 
-        packages = self.pkg_group_handler.get_all_packages()
-        if not self.pkg_group_handler.verify_builds_success(packages):
+        packages = self.package_service.get_all_packages()
+        if not self._verify_builds_success(packages):
             logger.error("Build verification failed")
             return 1
 
         snapshot_tag = self._get_snapshot_tag()
         git_tag = f"v{snapshot_tag}"
 
-
-        for package_name in REQUIRED_PACKAGES:
+        for package_name in CORE_PACKAGES:
             branch = "main" if package_name == CI_PKG else self.args.branch
 
             if not self._tag_package(package_name, git_tag, branch, self.args.dry):
@@ -75,9 +78,7 @@ class ReleaseCommand(Command):
         logger.debug("Generated snapshot tag: %s", tag)
         return tag
 
-    def _tag_package(
-        self, package_name: str, tag: str, branch: str, dry_run: bool
-    ) -> bool:
+    def _tag_package(self, package_name: str, tag: str, branch: str, dry_run: bool) -> bool:
         """Tag a specific package with the snapshot tag
 
         Args:
@@ -91,7 +92,7 @@ class ReleaseCommand(Command):
         """
         logger.info("Tagging package '%s' with tag '%s'", package_name, tag)
 
-        package = self.pkg_group_handler.get_package(package_name)
+        package = self.package_service.get_package(package_name)
         if not package:
             logger.error("Package '%s' not found", package_name)
             return False
@@ -115,18 +116,14 @@ class ReleaseCommand(Command):
         try:
             existing_tag = package.tags.get(tag)
             if existing_tag:
-                logger.warning(
-                    "Tag '%s' already exists for package '%s'", tag, package_name
-                )
+                logger.warning("Tag '%s' already exists for package '%s'", tag, package_name)
                 return True
         except GitlabError:
             # Tag doesn't exist, which is expected for new tags
             pass
         return False
 
-    def _create_new_tag(
-        self, package, tag: str, branch: str, package_name: str
-    ) -> bool:
+    def _create_new_tag(self, package, tag: str, branch: str, package_name: str) -> bool:
         """Create a new tag for the package"""
         tag_data = {
             "tag_name": tag,
@@ -136,9 +133,7 @@ class ReleaseCommand(Command):
 
         try:
             package.tags.create(tag_data)
-            logger.info(
-                "Successfully created tag '%s' for package '%s'", tag, package_name
-            )
+            logger.info("Successfully created tag '%s' for package '%s'", tag, package_name)
             return True
         except GitlabError as e:
             logger.error(
@@ -149,9 +144,7 @@ class ReleaseCommand(Command):
             )
             return False
 
-    def _create_snapshot_repository(
-        self, tag: str, branch: str, rms_url: str, nexus_url: str, dry_run: bool
-    ) -> bool:
+    def _create_snapshot_repository(self, tag: str, branch: str, rms_url: str, nexus_url: str, dry_run: bool) -> bool:
         """Create branch snapshot repository using the repository API
 
         Args:
@@ -198,9 +191,7 @@ class ReleaseCommand(Command):
             response = requests.post(url, json=data, headers=headers, timeout=5)
 
             if response.status_code in [200, 201, 202]:
-                logger.info(
-                    "Snapshot repository creation request submitted successfully"
-                )
+                logger.info("Snapshot repository creation request submitted successfully")
                 logger.debug("Response: %s", response.text)
                 return True
 
@@ -219,3 +210,43 @@ class ReleaseCommand(Command):
         except requests.RequestException as e:
             logger.error("Network error while creating snapshot repository: %s", str(e))
             return False
+
+    def _verify_builds_success(self, packages) -> bool:
+        """Verify builds and tests for all packages."""
+        logger.info("Verifying builds and tests for all packages")
+
+        failed_packages = []
+
+        for package in packages:
+            if package.name in CORE_PACKAGES:
+                logger.debug("Skipping package: %s", package.name)
+                continue
+            logger.debug("Checking build status for package: %s", package.name)
+
+            pipeline = package.pipelines.get_latest()
+
+            if not pipeline:
+                logger.warning("No pipeline found for package: %s", package.name)
+                failed_packages.append(package.name)
+                continue
+
+            if not pipeline.status.is_successful:
+                logger.error(
+                    "Pipeline failed for package %s with status: %s",
+                    package.name,
+                    pipeline.status.to_string(),
+                )
+                failed_packages.append(package.name)
+                continue
+
+            logger.debug("Package %s build status: %s", package.name, pipeline.status.to_string())
+
+        if failed_packages:
+            logger.error(
+                "The following packages have failed builds: %s",
+                ", ".join(failed_packages),
+            )
+            return False
+
+        logger.info("All package builds and tests passed successfully")
+        return True

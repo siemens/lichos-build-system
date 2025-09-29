@@ -1,3 +1,30 @@
+lichoscli (0.3.0) UNRELEASED; urgency=medium
+
+  * fix: add provider module to debian package
+  * fix build --profile
+  * feat: list only packages with current branch in status command
+  * refactor: consolidate REQUIRED_PACKAGES usage across commands and utils
+  * refactor: standardize shebang to /usr/bin/python3 and improve string formatting in commands
+  * refactor: split pkg into domains and prepare for multi git provider support
+  * refactor: update command descriptions for clarity and consistency
+  * Refactor CLI command path in test-all-commands.sh and add unit tests for ForkCommand and HierarchyCommand
+  * refactor: remove unused imports in test_utils.py
+  * refactor: remove redundant test for main group extraction from Git URL in TestGitUtils
+  * refactor: update PkgGroupHandler initialization and simplify group matching logic
+  * fix: improve error handling in GitUtils and remove redundant test case for package name extraction
+  * refactor: streamline HierarchyCommand and enhance log streaming functionality
+  * refactor: simplify CLI_CMD assignment and enhance test_log.py for better clarity and functionality
+  * feat: implement SubmoduleCommand to create git submodule projects with all packages
+  * feat: enhance GitUtils for improved error handling and add HierarchyUtils for package path operations
+  * feat: implement HierarchyCommand to create and manage package hierarchies
+  * feat: implement ForkCommand to facilitate package forking with auto-detection of source hierarchy
+  * feat: add methods to manage group variables and fork packages with subgroup support
+  * feat: enhance LogCommand to support real-time log streaming and improved job status handling
+  * feat: add argument validation for release command and main function
+  * feat: implement ReleaseCommand for managing releases, including tagging and snapshot creation
+
+ -- Nicole Weber <nicoleweber@siemens.com>  Tue, 16 Sep 2025 05:56:40 +0000
+
 lichoscli (0.2.2) UNRELEASED; urgency=medium
 
   * List only active packages
@@ -216,4 +243,3 @@ lichoscli (0.0.1) UNRELEASED; urgency=medium
   * Initial commit
 
  -- Ludwig Nussel <ludwig.nussel@siemens.com>  Thu, 27 Feb 2025 15:33:54 +0000
-

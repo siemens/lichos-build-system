@@ -1,76 +1,64 @@
-import logging
-import unittest
-from unittest.mock import Mock
+import pytest
+
 from lichoscli.commands.enable import EnableCommand
-from lichoscli.commands.base import CommandRegister
-from tests import fixtures
+from tests.mocks import create_mock_args
 
 
-class TestEnableCommand(unittest.TestCase):
-    def setUp(self):
-        """Set up test fixtures before each test method."""
-
-        CommandRegister._commands = {}
-        CommandRegister._parser_hooks = {}
-
-        self.pkg_handler = fixtures.create_mock_pkg_handler()
-        self.args = fixtures.create_mock_args()
-        self.args.package = "test-package"
-        self.args.type = "test-type"
-        self.args.ci_branch = None 
-
-        self.command = EnableCommand(self.pkg_handler, self.args)
-
-    def tearDown(self):
-        """Clean up after each test method."""
-        pass
-
-    def test_enable_package_success_returns_zero(self):
-        self.args.package = "package3"
-        self.command = EnableCommand(self.pkg_handler, self.args)
-
-        result = self.command.execute()
-
-        self.assertEqual(result, 0)
-
-    def test_enable_subpackage_success_returns_zero(self):
-        self.args.package = "package4"
-        self.command = EnableCommand(self.pkg_handler, self.args)
-
-        result = self.command.execute()
-
-        self.assertEqual(result, 0)
-
-    def test_enable_package_failure_returns_one(self):
-        """Test that package enable failure returns 1."""
-        self.pkg_handler = fixtures.create_mock_pkg_handler()
-
-        result = self.command.execute()
-
-        self.assertEqual(result, 1)
-
-    def test_command_initialization_sets_correct_attributes(self):
-        """Test that command initialization sets correct attributes."""
-        self.assertEqual(self.command.package_name, "test-package")
-        self.assertEqual(self.command.type, "test-type")
-        self.assertEqual(self.command.pkg_group_handler, self.pkg_handler)
-
-    def test_enable_package_with_none_package_name(self):
-        """Test behavior when package name is None."""
-        logging.basicConfig(level=logging.ERROR)
-
-        self.args.package = None
-        command = EnableCommand(self.pkg_handler, self.args)
-        result = command.execute()
-        self.assertEqual(result, 1)
-
-    def test_enable_package_with_empty_package_name(self):
-        """Test behavior when package name is empty string."""
-        self.args.package = ""
-        command = EnableCommand(self.pkg_handler, self.args)
-        result = command.execute()
-        self.assertEqual(result, 1)
+@pytest.fixture
+def mock_args():
+    args = create_mock_args()
+    args.package = "test-package"
+    args.type = "test-type"
+    args.ci_branch = None
+    return args
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_enable_package_success_returns_zero(mock_di_container, mock_args):
+    mock_args.package = "package3"
+    package_service = mock_di_container.obtain_ref.return_value
+    package_service.enable_package.return_value = True
+
+    command = EnableCommand(mock_di_container, mock_args)
+    result = command.execute()
+    assert result == 0
+
+
+def test_enable_subpackage_success_returns_zero(mock_di_container, mock_args):
+    mock_args.package = "package4"
+    package_service = mock_di_container.obtain_ref.return_value
+    package_service.enable_package.return_value = True
+
+    command = EnableCommand(mock_di_container, mock_args)
+    result = command.execute()
+    assert result == 0
+
+
+def test_enable_package_failure_returns_one(mock_di_container, mock_args):
+    mock_di_container.package_service.update_package.return_value = None
+
+    command = EnableCommand(mock_di_container, mock_args)
+    result = command.execute()
+    assert result == 1
+
+
+def test_command_initialization_sets_correct_attributes(mock_di_container, mock_args):
+    command = EnableCommand(mock_di_container, mock_args)
+    assert command.package_name == "test-package"
+    assert command.type == "test-type"
+    assert command.di_container == mock_di_container
+
+
+def test_enable_package_with_none_package_name(mock_di_container, mock_args):
+    mock_args.package = None
+    mock_di_container.package_service.update_package.return_value = None
+    command = EnableCommand(mock_di_container, mock_args)
+    result = command.execute()
+    assert result == 1
+
+
+def test_enable_package_with_empty_package_name(mock_di_container, mock_args):
+    mock_args.package = ""
+    mock_di_container.package_service.update_package.return_value = None
+    command = EnableCommand(mock_di_container, mock_args)
+    result = command.execute()
+    assert result == 1

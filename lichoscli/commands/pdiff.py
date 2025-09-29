@@ -1,8 +1,8 @@
 import logging
 
-from lichoscli.utils import BuildUtils, GitUtils
 from lichoscli.commands.base import Command
-from lichoscli.pkg import PkgGroupHandler
+from lichoscli.core.di import DIContainer
+from lichoscli.utils import BuildUtils, GitUtils
 
 logger = logging.getLogger(__name__)
 
@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 class PDiffCommand(Command):
     """Print diff between package and its parent"""
 
-    def __init__(self, pkg_group_handler: PkgGroupHandler, args):
-        super().__init__(pkg_group_handler=pkg_group_handler, args=args)
+    def __init__(self, di_container: DIContainer, args):
+        super().__init__(di_container, args)
         self.package_name = BuildUtils.get_package_name(args.package)
 
     @classmethod
@@ -34,9 +34,7 @@ class PDiffCommand(Command):
 
         if str(refname) not in parent.refs:
             pbr = [str(r).split("/", 2)[1] for r in repo.remotes.parent.refs]
-            logger.warning(
-                "parent repo does not have %s branch, trying %s", refname, pbr[0]
-            )
+            logger.warning("parent repo does not have %s branch, trying %s", refname, pbr[0])
             pref = repo.remotes.parent.refs[pbr[0]]
         else:
             pref = repo.remotes.parent.refs[str(refname)]

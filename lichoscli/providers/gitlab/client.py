@@ -1,8 +1,9 @@
 import logging
-from urllib.parse import urlparse
-from typing import Optional
-import gitlab
 import os
+from typing import Optional
+from urllib.parse import urlparse
+
+import gitlab
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -65,9 +66,7 @@ class GitLabClientFactory:
 
             gitlab_url = self._ensure_url_scheme(host)
 
-            gl = gitlab.Gitlab(
-                url=gitlab_url, private_token=host_config.get("token"), api_version="4"
-            )
+            gl = gitlab.Gitlab(url=gitlab_url, private_token=host_config.get("token"), api_version="4")
 
             gl.auth()
             logger.info("Successfully authenticated with GitLab at %s", gitlab_url)

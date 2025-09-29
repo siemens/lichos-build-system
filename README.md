@@ -137,6 +137,122 @@ lichoscli --branch 'feature/main' create my-new-package
 
 This sets up the default branch, protection rules, and pipeline configuration.
 
+## Advanced Workflows
+
+### Workspace Management
+
+**Workspaces** are collections of related packages that share a common branch context. They help manage complex multi-package development scenarios where you need to coordinate changes across multiple packages.
+
+**Create a workspace:**
+```bash
+# Create workspace with a package and its reverse dependencies
+lichoscli --branch feature/my-feature workspace create keyctl-caam
+```
+
+This automatically discovers packages that depend on `keyctl-caam` and lets you select which ones to include in the workspace.
+
+**List available workspaces:**
+```bash
+# List all workspaces
+lichoscli workspace list
+
+# List workspaces containing a specific package
+lichoscli workspace list keyctl-caam
+```
+
+**Enter a workspace:**
+```bash
+# Interactive selection of workspace to enter
+lichoscli workspace enter
+
+# Sets LICHOS_BRANCH environment variable and opens new shell
+```
+
+**Add/remove packages:**
+```bash
+# Add package to existing workspace
+lichoscli --branch feature/my-feature workspace add-package new-package
+
+# Remove package from workspace
+lichoscli --branch feature/my-feature workspace remove-package old-package
+```
+
+**Show workspace details:**
+```bash
+lichoscli workspace show
+
+lichoscli --branch feature/my-feature workspace show
+```
+
+**Delete workspace:**
+```bash
+lichoscli workspace delete
+```
+
+### Build Scheduling
+
+**Schedule sequential builds** for all packages in a workspace with dependency-aware ordering:
+
+```bash
+# Schedule builds for current workspace
+lichoscli schedule
+
+# Dry run to see what would be built
+lichoscli schedule 
+
+# Skip version checking and build everything
+lichoscli schedule --skip-version-check
+
+# Custom polling interval (default: 30 seconds)
+lichoscli schedule --poll-interval 60
+```
+
+The scheduler:
+- **Analyzes dependencies** to determine optimal build order
+- **Checks versions** to identify packages needing rebuilds due to dependency updates
+- **Builds level by level** - waits for each level to complete before starting the next
+- **Monitors progress** with real-time status updates and web links
+- **Stops on failure** to prevent cascading build issues
+
+### Build Dependencies Analysis
+
+**Analyze package dependencies** and build relationships:
+
+**Show build dependencies:**
+```bash
+lichoscli buildinfo keyctl-caam
+
+# Use latest available data (don't wait for pipeline completion)
+lichoscli buildinfo keyctl-caam --no-wait
+```
+
+**Check dependency versions:**
+```bash
+# Verify reverse dependency versions
+lichoscli buildinfo keyctl-caam --check-versions
+
+# Check if packages using keyctl-caam have correct versions
+lichoscli buildinfo keyctl-caam --check-versions --no-wait
+```
+
+**Build dependency graph:**
+```bash
+# Show complete dependency DAG for all packages
+lichoscli buildinfo --rev-deps
+
+# Include version checking across all packages
+lichoscli buildinfo --rev-deps --check-versions
+
+# Use latest available buildinfo data
+lichoscli buildinfo --rev-deps --no-wait
+```
+
+The DAG analysis shows:
+- **Package hierarchy** with visual tree representation
+- **Build levels** indicating parallel vs sequential build requirements  
+- **Dependency relationships** between packages
+- **Version mismatches** that require rebuilds
+
 ---
 
 **Need more help?** Run `lichoscli --help` to see all available commands and options.

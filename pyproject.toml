@@ -39,6 +39,10 @@ dependencies = [
     "rich",
     "tabulate",
     "requests",
+    "prompt-toolkit",
+    "diskcache",
+    "cachetools",
+    "xdg",
 ]
 
 [project.urls]
@@ -54,17 +58,14 @@ lichoscli = "lichoscli.cli:main"
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["lichoscli", "lichoscli.commands"]
-
-[tool.setuptools.package-dir]
-lichoscli = "lichoscli"
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["lichoscli*"]
 
 [project.optional-dependencies]
 test = [
     "pytest",
-    "pytest-cov",
-    "unittest-mock"
+    "pytest-cov"
 ]
 dev = [
     "pylint",

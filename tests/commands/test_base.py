@@ -3,10 +3,11 @@ Base test classes and utilities for lichoscli tests
 """
 
 import unittest
-import argparse
 from unittest.mock import Mock
-from lichoscli.commands.base import Command, CommandRegister, CommandExecutor
-from tests import fixtures
+
+from lichoscli.commands.base import Command, CommandExecutor, CommandRegister
+from lichoscli.core.di import DIContainer
+from tests.mocks import create_mock_args
 
 
 class TestCommandRegister(unittest.TestCase):
@@ -43,12 +44,9 @@ class TestCommandRegister(unittest.TestCase):
 
 class TestCommandExecutor(unittest.TestCase):
     def setUp(self):
-        self.pkg_handler = fixtures.create_mock_pkg_handler()
-        self.args = fixtures.create_mock_args()
-        self.executor = CommandExecutor(self.pkg_handler, self.args)
-
-        CommandRegister._commands = {}
-        CommandRegister._parser_hooks = {}
+        self.di_container = Mock(spec=DIContainer)
+        self.args = create_mock_args()
+        self.executor = CommandExecutor(self.di_container, self.args)
 
     def test_execute_valid_command(self):
         """Test executing a valid command"""
@@ -98,8 +96,8 @@ class TestCommandExecutor(unittest.TestCase):
         command_args.command = "test-args"
         command_args.test_param = "test-value"
 
-        self.executor = CommandExecutor(self.pkg_handler, command_args)
-        self.executor.execute(command_args)
+        executor = CommandExecutor(self.di_container, command_args)
+        executor.execute(command_args)
 
         self.assertEqual(len(test_value), 1)
         self.assertEqual(test_value[0], "test-value")

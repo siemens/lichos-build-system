@@ -1,0 +1,104 @@
+import logging
+import os
+import re
+import subprocess
+import tempfile
+
+from .git import GitUtils
+
+logger = logging.getLogger(__name__)
+
+
+class BuildUtils:
+
+    @staticmethod
+    def normalize_architecture(arch: str) -> str:
+        """Normalize architecture name using the arch map."""
+        arch_map = {"x86_64": "amd64", "aarch64": "arm64"}
+        return arch_map.get(arch, arch)
+
+    @staticmethod
+    def get_package_name(package_name_arg: str):
+        if not package_name_arg or package_name_arg == "." or package_name_arg == "":
+            return GitUtils.get_package_name_from_git_repo()
+        return package_name_arg
+
+    @staticmethod
+    def get_branch_name(branch_name_arg: str) -> str:
+        """
+        Get branch name from argument or current git branch.
+        If argument is empty, return current branch name.
+        """
+        if not branch_name_arg or branch_name_arg == ".":
+            return GitUtils.get_branch()
+        return branch_name_arg
+
+    @staticmethod
+    def pull_docker_image(image: str) -> int:
+        """Pull Docker image and return success status"""
+        logger.info("Updating %s", image)
+        try:
+            response = subprocess.run(("docker", "pull", image), check=False)
+            return response.returncode
+        except subprocess.SubprocessError as e:
+            logger.error("Failed to pull Docker image %s: %s", image, e)
+            return 1
+
+    @staticmethod
+    def create_tmp_env_file(env):
+        env_file = tempfile.NamedTemporaryFile(prefix=".gitlab_env.", dir=".", mode="w", delete=False)
+        for key in env:
+            logger.debug("%s=%s", key, env[key])
+            env_file.write("{0}={1}\n".format(key, env[key]))
+        env_file.close()
+        return env_file
+
+    @staticmethod
+    def sanitize_container_name(name: str) -> str:
+        """Sanitize a string to be used as a container name.
+
+        Docker container names must:
+        - Use only [a-zA-Z0-9][a-zA-Z0-9_.-]* characters
+        - Not start with a dot or dash
+        - Be between 1 and 63 characters
+        """
+        if not name:
+            return "unnamed"
+
+        sanitized = re.sub(r"[^a-zA-Z0-9_.-]", "_", name)
+
+        sanitized = re.sub(r"^[.-]+", "", sanitized)
+
+        if sanitized and not sanitized[0].isalnum():
+            sanitized = "c" + sanitized
+
+        if not sanitized:
+            sanitized = "unnamed"
+
+        if len(sanitized) > 63:
+            sanitized = sanitized[:63]
+
+        return sanitized
+
+    @staticmethod
+    def build_script_command(repo_setup_cmd: str, build_cmd: str) -> str:
+        """Build the script command string"""
+        return f"{repo_setup_cmd} ; {build_cmd}"
+
+    @staticmethod
+    def expand_var(env):
+        for key, value in env.items():
+            if value is None:  # skip protected variables
+                continue
+            env[key] = re.sub(r"\${([A-Z_][A-Z0-9_]*)}", lambda m: env.get(m.group(1), ""), value)
+        return env
+
+    @staticmethod
+    def update_environment_from_file(env, tmpdir):
+        try:
+            with open(os.path.join(tmpdir.name, "variables.env"), "r", encoding="utf-8") as f:
+                variables = f.read()
+                env |= dict(line.split("=", 1) for line in variables.splitlines() if "=" in line)
+        finally:
+            tmpdir.cleanup()
+        return env

@@ -1,8 +1,9 @@
-import pytest
 import os
-import yaml
-from unittest.mock import patch, mock_open, MagicMock
+from unittest.mock import MagicMock, mock_open, patch
+
 import gitlab
+import pytest
+import yaml
 
 from lichoscli.providers.gitlab.client import GitLabClientFactory
 
@@ -41,15 +42,11 @@ class TestGitLabClientFactory:
     @patch("builtins.open", new_callable=mock_open)
     @patch("yaml.safe_load")
     @patch("gitlab.Gitlab")
-    def test_init_from_glab_config_success_default_host(
-        self, mock_gitlab, mock_yaml, mock_file, mock_exists
-    ):
+    def test_init_from_glab_config_success_default_host(self, mock_gitlab, mock_yaml, mock_file, mock_os_exists):
         """Test successful initialization from glab config with default host."""
 
-        mock_exists.side_effect = lambda path: path.endswith("config.yml")
-        mock_config = {
-            "hosts": {"gitlab.com": {"token": "test-token-123", "user": "testuser"}}
-        }
+        mock_os_exists.side_effect = lambda path: path.endswith("config.yml")
+        mock_config = {"hosts": {"gitlab.com": {"token": "test-token-123", "user": "testuser"}}}
         mock_yaml.return_value = mock_config
         mock_gl_instance = MagicMock()
         mock_gitlab.return_value = mock_gl_instance
@@ -57,9 +54,7 @@ class TestGitLabClientFactory:
         factory = GitLabClientFactory()
         result = factory._init_from_glab_config()
 
-        mock_gitlab.assert_called_once_with(
-            url="https://gitlab.com", private_token="test-token-123", api_version="4"
-        )
+        mock_gitlab.assert_called_once_with(url="https://gitlab.com", private_token="test-token-123", api_version="4")
         mock_gl_instance.auth.assert_called_once()
         assert result == mock_gl_instance
 
@@ -67,11 +62,9 @@ class TestGitLabClientFactory:
     @patch("builtins.open", new_callable=mock_open)
     @patch("yaml.safe_load")
     @patch("gitlab.Gitlab")
-    def test_init_from_glab_config_success_specific_host(
-        self, mock_gitlab, mock_yaml, mock_file, mock_exists
-    ):
+    def test_init_from_glab_config_success_specific_host(self, mock_gitlab, mock_yaml, mock_file, mock_os_exists):
         """Test successful initialization from glab config with specific host."""
-        mock_exists.side_effect = lambda path: path.endswith("config.yml")
+        mock_os_exists.side_effect = lambda path: path.endswith("config.yml")
         mock_config = {
             "hosts": {
                 "gitlab.com": {
@@ -89,16 +82,14 @@ class TestGitLabClientFactory:
         factory = GitLabClientFactory()
         result = factory._init_from_glab_config(host="gitlab.example.com")
 
-        mock_gitlab.assert_called_once_with(
-            url="https://gitlab.example.com", private_token="token-2", api_version="4"
-        )
+        mock_gitlab.assert_called_once_with(url="https://gitlab.example.com", private_token="token-2", api_version="4")
         mock_gl_instance.auth.assert_called_once()
         assert result == mock_gl_instance
 
     @patch("os.path.exists")
-    def test_init_from_glab_config_file_not_found(self, mock_exists):
+    def test_init_from_glab_config_file_not_found(self, mock_os_exists):
         """Test FileNotFoundError when config file doesn't exist."""
-        mock_exists.return_value = False
+        mock_os_exists.return_value = False
 
         factory = GitLabClientFactory()
 
@@ -106,9 +97,9 @@ class TestGitLabClientFactory:
             factory._init_from_glab_config()
 
     @patch("os.path.exists")
-    def test_init_from_glab_config_checks_both_paths(self, mock_exists):
+    def test_init_from_glab_config_checks_both_paths(self, mock_os_exists):
         """Test that both possible config paths are checked."""
-        mock_exists.return_value = False
+        mock_os_exists.return_value = False
 
         factory = GitLabClientFactory()
 
@@ -119,15 +110,15 @@ class TestGitLabClientFactory:
             os.path.expanduser("~/.config/glab-cli/config.yml"),
             os.path.expanduser("~/AppData/Local/glab-cli/config.yml"),
         ]
-        actual_calls = [call[0][0] for call in mock_exists.call_args_list]
+        actual_calls = [call[0][0] for call in mock_os_exists.call_args_list]
         assert actual_calls == expected_calls
 
     @patch("os.path.exists")
     @patch("builtins.open", new_callable=mock_open)
     @patch("yaml.safe_load")
-    def test_init_from_glab_config_yaml_error(self, mock_yaml, mock_file, mock_exists):
+    def test_init_from_glab_config_yaml_error(self, mock_yaml, mock_file, mock_os_exists):
         """Test YAML parsing error handling."""
-        mock_exists.side_effect = lambda path: path.endswith("config.yml")
+        mock_os_exists.side_effect = lambda path: path.endswith("config.yml")
         mock_yaml.side_effect = yaml.YAMLError("Invalid YAML")
 
         factory = GitLabClientFactory()
@@ -138,9 +129,9 @@ class TestGitLabClientFactory:
     @patch("os.path.exists")
     @patch("builtins.open", new_callable=mock_open)
     @patch("yaml.safe_load")
-    def test_init_from_glab_config_no_hosts(self, mock_yaml, mock_file, mock_exists):
+    def test_init_from_glab_config_no_hosts(self, mock_yaml, mock_file, mock_os_exists):
         """Test ValueError when no hosts are found in config."""
-        mock_exists.side_effect = lambda path: path.endswith("config.yml")
+        mock_os_exists.side_effect = lambda path: path.endswith("config.yml")
         mock_yaml.return_value = {"hosts": {}}
 
         factory = GitLabClientFactory()
@@ -151,36 +142,28 @@ class TestGitLabClientFactory:
     @patch("os.path.exists")
     @patch("builtins.open", new_callable=mock_open)
     @patch("yaml.safe_load")
-    def test_init_from_glab_config_host_not_found(
-        self, mock_yaml, mock_file, mock_exists
-    ):
+    def test_init_from_glab_config_host_not_found(self, mock_yaml, mock_file, mock_os_exists):
         """Test ValueError when specified host is not found in config."""
-        mock_exists.side_effect = lambda path: path.endswith("config.yml")
+        mock_os_exists.side_effect = lambda path: path.endswith("config.yml")
         mock_config = {"hosts": {"gitlab.com": {"token": "test-token"}}}
         mock_yaml.return_value = mock_config
 
         factory = GitLabClientFactory()
 
-        with pytest.raises(
-            ValueError, match="Host nonexistent.com not found in glab config"
-        ):
+        with pytest.raises(ValueError, match="Host nonexistent.com not found in glab config"):
             factory._init_from_glab_config(host="nonexistent.com")
 
     @patch("os.path.exists")
     @patch("builtins.open", new_callable=mock_open)
     @patch("yaml.safe_load")
     @patch("gitlab.Gitlab")
-    def test_init_from_glab_config_auth_error(
-        self, mock_gitlab, mock_yaml, mock_file, mock_exists
-    ):
+    def test_init_from_glab_config_auth_error(self, mock_gitlab, mock_yaml, mock_file, mock_os_exists):
         """Test GitLab authentication error handling."""
-        mock_exists.side_effect = lambda path: path.endswith("config.yml")
+        mock_os_exists.side_effect = lambda path: path.endswith("config.yml")
         mock_config = {"hosts": {"gitlab.com": {"token": "invalid-token"}}}
         mock_yaml.return_value = mock_config
         mock_gl_instance = MagicMock()
-        mock_gl_instance.auth.side_effect = gitlab.exceptions.GitlabAuthenticationError(
-            "Invalid token"
-        )
+        mock_gl_instance.auth.side_effect = gitlab.exceptions.GitlabAuthenticationError("Invalid token")
         mock_gitlab.return_value = mock_gl_instance
 
         factory = GitLabClientFactory()
@@ -192,11 +175,9 @@ class TestGitLabClientFactory:
     @patch("builtins.open", new_callable=mock_open)
     @patch("yaml.safe_load")
     @patch("gitlab.Gitlab")
-    def test_init_from_glab_config_general_exception(
-        self, mock_gitlab, mock_yaml, mock_file, mock_exists
-    ):
+    def test_init_from_glab_config_general_exception(self, mock_gitlab, mock_yaml, mock_file, mock_os_exists):
         """Test general exception handling."""
-        mock_exists.side_effect = lambda path: path.endswith("config.yml")
+        mock_os_exists.side_effect = lambda path: path.endswith("config.yml")
         mock_config = {"hosts": {"gitlab.com": {"token": "test-token"}}}
         mock_yaml.return_value = mock_config
         mock_gitlab.side_effect = Exception("Unexpected error")
@@ -234,15 +215,13 @@ class TestGitLabClientFactory:
     @patch("builtins.open", new_callable=mock_open)
     @patch("yaml.safe_load")
     @patch("gitlab.Gitlab")
-    def test_uses_windows_config_path(
-        self, mock_gitlab, mock_yaml, mock_file, mock_exists
-    ):
+    def test_uses_windows_config_path(self, mock_gitlab, mock_yaml, mock_file, mock_os_exists):
         """Test that Windows config path is used when Unix path doesn't exist."""
 
         def exists_side_effect(path):
             return "AppData" in path
 
-        mock_exists.side_effect = exists_side_effect
+        mock_os_exists.side_effect = exists_side_effect
         mock_config = {"hosts": {"gitlab.com": {"token": "test-token"}}}
         mock_yaml.return_value = mock_config
         mock_gl_instance = MagicMock()
@@ -259,11 +238,9 @@ class TestGitLabClientFactory:
     @patch("builtins.open", new_callable=mock_open)
     @patch("yaml.safe_load")
     @patch("gitlab.Gitlab")
-    def test_host_with_existing_scheme(
-        self, mock_gitlab, mock_yaml, mock_file, mock_exists
-    ):
+    def test_host_with_existing_scheme(self, mock_gitlab, mock_yaml, mock_file, mock_os_exists):
         """Test initialization with host that already has a scheme."""
-        mock_exists.side_effect = lambda path: path.endswith("config.yml")
+        mock_os_exists.side_effect = lambda path: path.endswith("config.yml")
         mock_config = {"hosts": {"http://gitlab.example.com": {"token": "test-token"}}}
         mock_yaml.return_value = mock_config
         mock_gl_instance = MagicMock()
@@ -279,9 +256,9 @@ class TestGitLabClientFactory:
     @patch("os.path.exists")
     @patch("builtins.open")
     @patch("yaml.safe_load")
-    def test_file_encoding_utf8(self, mock_yaml, mock_file, mock_exists):
+    def test_file_encoding_utf8(self, mock_yaml, mock_file, mock_os_exists):
         """Test that config file is opened with UTF-8 encoding."""
-        mock_exists.side_effect = lambda path: path.endswith("config.yml")
+        mock_os_exists.side_effect = lambda path: path.endswith("config.yml")
         mock_yaml.return_value = {"hosts": {}}
 
         factory = GitLabClientFactory()
@@ -320,11 +297,9 @@ class TestIntegration:
     @patch("builtins.open", new_callable=mock_open)
     @patch("yaml.safe_load")
     @patch("gitlab.Gitlab")
-    def test_end_to_end_flow(
-        self, mock_gitlab, mock_yaml, mock_file, mock_exists, sample_config
-    ):
+    def test_end_to_end_flow(self, mock_gitlab, mock_yaml, mock_file, mock_os_exists, sample_config):
         """Test the complete flow from factory creation to GitLab client."""
-        mock_exists.side_effect = lambda path: path.endswith("config.yml")
+        mock_os_exists.side_effect = lambda path: path.endswith("config.yml")
         mock_yaml.return_value = sample_config
         mock_gl_instance = MagicMock()
         mock_gitlab.return_value = mock_gl_instance

@@ -1,9 +1,12 @@
 import unittest
-from unittest.mock import patch, MagicMock
-import pytest
+from unittest.mock import MagicMock, patch
+
 import git
+import pytest
 from git.exc import InvalidGitRepositoryError
-from lichoscli.utils import BuildUtils, CIConfigUtils, GitUtils
+
+from lichoscli.utils import BuildUtils, CIConfigUtils
+from lichoscli.utils.git import GitUtils
 
 
 class TestGitUtils:
@@ -22,9 +25,7 @@ class TestGitUtils:
     def test_get_group_success_ssh(self, mock_repo):
         """Test successful group extraction from SSH URL"""
         mock_repo_instance = MagicMock()
-        mock_repo_instance.remotes.origin.url = (
-            "git@gitlab.com:your-group/platform-os/mypackage.git"
-        )
+        mock_repo_instance.remotes.origin.url = "git@gitlab.com:your-group/platform-os/mypackage.git"
 
         result = GitUtils.get_group(mock_repo_instance)
         assert result == "your-group/platform-os"
@@ -33,9 +34,7 @@ class TestGitUtils:
     def test_get_group_success_no_git_extension(self, mock_repo):
         """Test successful group extraction from URL without .git"""
         mock_repo_instance = MagicMock()
-        mock_repo_instance.remotes.origin.url = (
-            "git@gitlab.com:your-group/platform-os/mypackage"
-        )
+        mock_repo_instance.remotes.origin.url = "git@gitlab.com:your-group/platform-os/mypackage"
 
         result = GitUtils.get_group(mock_repo_instance)
         assert result == "your-group/platform-os"
@@ -53,9 +52,7 @@ class TestGitUtils:
     def test_get_package_name_success(self, mock_repo):
         """Test successful package name extraction"""
         mock_repo_instance = MagicMock()
-        mock_repo_instance.remotes.origin.url = (
-            "git@gitlab.com:your-group/platform-os/mypackage.git"
-        )
+        mock_repo_instance.remotes.origin.url = "git@gitlab.com:your-group/platform-os/mypackage.git"
 
         result = GitUtils.get_package_name_from_git_repo(mock_repo_instance)
         assert result == "mypackage"
@@ -64,9 +61,7 @@ class TestGitUtils:
     def test_get_package_name_no_git_extension(self, mock_repo):
         """Test package name extraction without .git extension"""
         mock_repo_instance = MagicMock()
-        mock_repo_instance.remotes.origin.url = (
-            "git@gitlab.com:your-group/platform-os/mypackage"
-        )
+        mock_repo_instance.remotes.origin.url = "git@gitlab.com:your-group/platform-os/mypackage"
 
         result = GitUtils.get_package_name_from_git_repo(mock_repo_instance)
         assert result == "mypackage"
@@ -80,8 +75,7 @@ class TestGitUtils:
         result = GitUtils.get_package_name_from_git_repo(mock_repo_instance)
         assert result == ""
 
-
-    @patch("lichoscli.utils.Repo")
+    @patch("lichoscli.utils.git.Repo")
     def test_get_git_repo_success(self, mock_repo):
         """Test successful git repo retrieval"""
         mock_repo_instance = MagicMock()
@@ -91,7 +85,7 @@ class TestGitUtils:
         assert result == mock_repo_instance
         mock_repo.assert_called_once_with("/path/to/repo")
 
-    @patch("lichoscli.utils.Repo")
+    @patch("lichoscli.utils.git.Repo")
     def test_get_git_repo_invalid(self, mock_repo):
         """Test git repo retrieval with invalid repo"""
         mock_repo.side_effect = InvalidGitRepositoryError
@@ -156,32 +150,31 @@ class TestGitUtils:
         result = GitUtils.get_ref_slug("")
         assert result == ""
 
-
     @patch("os.path.exists")
     @patch("lichoscli.utils.GitUtils.get_git_repo")
-    def test_has_submodules_with_gitmodules_file(self, mock_get_repo, mock_exists):
+    def test_has_submodules_with_gitmodules_file(self, mock_get_repo, mock_os_exists):
         """Test has_submodules returns True when .gitmodules exists"""
         mock_repo = MagicMock()
         mock_repo.working_dir = "/test/repo"
         mock_get_repo.return_value = mock_repo
-        mock_exists.return_value = True
+        mock_os_exists.return_value = True
 
         result = GitUtils.has_submodules()
         assert result is True
-        mock_exists.assert_called_once_with("/test/repo/.gitmodules")
+        mock_os_exists.assert_called_once_with("/test/repo/.gitmodules")
 
     @patch("os.path.exists")
     @patch("lichoscli.utils.GitUtils.get_git_repo")
-    def test_has_submodules_without_gitmodules_file(self, mock_get_repo, mock_exists):
+    def test_has_submodules_without_gitmodules_file(self, mock_get_repo, mock_os_exists):
         """Test has_submodules returns False when .gitmodules doesn't exist"""
         mock_repo = MagicMock()
         mock_repo.working_dir = "/test/repo"
         mock_get_repo.return_value = mock_repo
-        mock_exists.return_value = False
+        mock_os_exists.return_value = False
 
         result = GitUtils.has_submodules()
         assert result is False
-        mock_exists.assert_called_once_with("/test/repo/.gitmodules")
+        mock_os_exists.assert_called_once_with("/test/repo/.gitmodules")
 
     @patch("lichoscli.utils.GitUtils.get_git_repo")
     def test_has_submodules_no_repo(self, mock_get_repo):
@@ -201,8 +194,8 @@ class TestGitUtils:
 
         result = GitUtils.initialize_submodules()
         assert result is True
-        mock_repo.git.submodule.assert_any_call('init')
-        mock_repo.git.submodule.assert_any_call('update', '--recursive')
+        mock_repo.git.submodule.assert_any_call("init")
+        mock_repo.git.submodule.assert_any_call("update", "--recursive")
 
     @patch("lichoscli.utils.GitUtils.has_submodules")
     @patch("lichoscli.utils.GitUtils.get_git_repo")
@@ -254,17 +247,13 @@ class TestCIConfigUtils:
 
     def test_get_ci_path_with_branch(self):
         """Test CI path generation with branch specified"""
-        result = CIConfigUtils.get_ci_path(
-            "your-group/platform-os", branch="feature-branch"
-        )
+        result = CIConfigUtils.get_ci_path("your-group/platform-os", branch="feature-branch")
         expected = "gbp.yml@your-group/platform-os/00ci:feature-branch"
         assert result == expected
 
     def test_get_ci_path_custom_type_with_branch(self):
         """Test CI path generation with custom type and branch"""
-        result = CIConfigUtils.get_ci_path(
-            "your-group/platform-os", ci_typ="image", branch="develop"
-        )
+        result = CIConfigUtils.get_ci_path("your-group/platform-os", ci_typ="image", branch="develop")
         expected = "image.yml@your-group/platform-os/00ci:develop"
         assert result == expected
 

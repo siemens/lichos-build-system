@@ -1,6 +1,7 @@
 import logging
+
 from lichoscli.commands.base import Command
-from lichoscli.pkg import PkgGroupHandler
+from lichoscli.core.services import PackageService
 from lichoscli.utils import BuildUtils
 
 logger = logging.getLogger(__name__)
@@ -9,9 +10,10 @@ logger = logging.getLogger(__name__)
 class DisableCommand(Command):
     """Disable package builds"""
 
-    def __init__(self, pkg_group_handler: PkgGroupHandler, args):
-        super().__init__(pkg_group_handler=pkg_group_handler, args=args)
+    def __init__(self, di_container, args):
+        super().__init__(di_container, args)
         self.package_name = BuildUtils.get_package_name(args.package)
+        self.package_service = di_container.obtain_ref(PackageService)
 
     @classmethod
     def add_arguments(cls, sp):
@@ -21,9 +23,7 @@ class DisableCommand(Command):
         if self.package_name is None:
             logger.error("Package name must be specified")
             return 1
-        pkg = self.pkg_group_handler.update_package(
-            self.package_name, access_level="disabled"
-        )
+        pkg = self.package_service.update_package(self.package_name, access_level="disabled")
         if pkg is None:
             logger.error("Package %s could not be disabled", self.package_name)
             return 1

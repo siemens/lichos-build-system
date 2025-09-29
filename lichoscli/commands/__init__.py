@@ -3,6 +3,7 @@
 import importlib
 import re
 from pathlib import Path
+
 from .base import Command, CommandRegister
 
 __all__ = ["Command", "CommandRegister"]

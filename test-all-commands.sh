@@ -7,7 +7,7 @@
 # Usage:
 #   ./test-all-commands.sh [all|<test-group>...]
 #   
-# Examp    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --branch $TEST_BRANCH create testpackage" "Create with full host options"
+
 #   ./test-all-commands.sh basic mr               # Run only basic and mr tests
 #   ./test-all-commands.sh clone                  # Run only clone tests
 #   ./test-all-commands.sh                        # Run default test groups (basic, getartifacts)
@@ -27,6 +27,7 @@ TEST_HOST="gitlab.example.com"
 TEST_PKG_GROUP="your-group/platform-os/pkg"
 TEST_BRANCH="flocken"
 
+export LICHOS_BRANCH=$TEST_BRANCH
 
 CLI_CMD="./cli"
 
@@ -40,30 +41,35 @@ passed_count=0
 ALL_TEST_GROUPS=(
     "basic"          
     "browse"         
+    "buildinfo"      
     # "build"          
     # "clone"          
+    "collect_sources"
     # "create"         
     "disable"        
     "enable"         
     "getartifacts"   
     "list"           
     "log"            
-    "mr"             
-    # "pdiff"          
+    "pdiff"          
     "show"           
     "status"         
+    "submodule"      
     # "trigger"        
+    "verify"         
     "workspace"      
 )
 
 # Default test groups (when no arguments provided)
 DEFAULT_TEST_GROUPS=(
     "basic"          
+    "buildinfo"      
     "getartifacts"
     "log"
     "status"
     "list"
     "show"
+    "verify"
       
 )
 
@@ -215,6 +221,64 @@ print_test_header() {
 }
 
 
+test_buildinfo() {
+    print_test_header "Buildinfo Command"
+    
+    run_test "$CLI_CMD buildinfo --rev-deps --no-wait" "Buildinfo DAG for all packages"
+    run_test "$CLI_CMD buildinfo $TEST_PACKAGE" "Buildinfo package"
+    run_test "$CLI_CMD --branch $TEST_BRANCH buildinfo $TEST_PACKAGE" "Buildinfo with branch"
+    run_test "$CLI_CMD --branch $TEST_BRANCH buildinfo --rev-deps --no-wait" "Buildinfo DAG with branch"
+}
+
+
+test_collect_sources() {
+    print_test_header "Collect Sources Command"
+    
+    run_test "$CLI_CMD collect_sources" "Collect sources (auto-detect)"
+    run_test "$CLI_CMD collect_sources ." "Collect sources current directory"
+    run_test "$CLI_CMD collect_sources $TEST_PACKAGE" "Collect sources package"
+    run_test "$CLI_CMD collect_sources $TEST_PACKAGE --architecture amd64" "Collect sources with amd64"
+    run_test "$CLI_CMD collect_sources $TEST_PACKAGE --architecture arm64" "Collect sources with arm64"
+    run_test "$CLI_CMD collect_sources $TEST_PACKAGE --output-dir /tmp" "Collect sources with output directory"
+    run_test "$CLI_CMD collect_sources $TEST_PACKAGE --skip-download" "Collect sources skip download"
+    run_test "$CLI_CMD --branch $TEST_BRANCH collect_sources $TEST_PACKAGE" "Collect sources with branch"
+    run_test "$CLI_CMD --branch $TEST_BRANCH collect_sources $TEST_PACKAGE --architecture amd64 --skip-download" "Collect sources with branch and flags"
+}
+
+
+
+
+test_submodule() {
+    print_test_header "Submodule Command"
+    
+    run_test "$CLI_CMD submodule create test-submodule" "Submodule create"
+    run_test "$CLI_CMD submodule create test-submodule --output-dir /tmp" "Submodule create with output directory"
+    run_test "$CLI_CMD --branch $TEST_BRANCH submodule create test-submodule" "Submodule create with branch"
+    run_test "$CLI_CMD --branch $TEST_BRANCH submodule create test-submodule --output-dir /tmp" "Submodule create with branch and output directory"
+    
+    # Cleanup
+    if [[ -d "test-submodule" ]]; then
+        rm -rf test-submodule
+    fi
+    if [[ -d "/tmp/test-submodule" ]]; then
+        rm -rf /tmp/test-submodule
+    fi
+}
+
+
+test_verify() {
+    print_test_header "Verify Command"
+    
+    run_test "$CLI_CMD verify" "Verify all packages"
+    run_test "$CLI_CMD verify ." "Verify current directory"
+    run_test "$CLI_CMD verify $TEST_PACKAGE" "Verify package"
+    run_test "$CLI_CMD verify $TEST_PACKAGE --detailed" "Verify package with detailed output"
+    run_test "$CLI_CMD verify --detailed" "Verify all packages with detailed output"
+    run_test "$CLI_CMD --branch $TEST_BRANCH verify $TEST_PACKAGE" "Verify package with branch"
+    run_test "$CLI_CMD --branch $TEST_BRANCH verify $TEST_PACKAGE --detailed" "Verify with branch and detailed"
+}
+
+
 test_basic() {
     print_test_header "Basic Commands"
     
@@ -229,7 +293,6 @@ test_browse() {
     run_test "$CLI_CMD browse" "Browse (auto-detect)"
     run_test "$CLI_CMD browse ." "Browse current directory"
     run_test "$CLI_CMD browse $TEST_PACKAGE" "Browse package"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP browse $TEST_PACKAGE" "Browse with full options"
     
 }
 
@@ -251,7 +314,6 @@ test_build() {
     run_test "$CLI_CMD build --profile cross" "Build with cross profile"
     run_test "$CLI_CMD build --network bridge" "Build with bridge network"
     run_test "$CLI_CMD build $TEST_PACKAGE --profile cross --network bridge" "Build package with profile and network"    
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP build $TEST_PACKAGE --architecture amd64" "Build with full host options"
 }
 
 
@@ -268,19 +330,7 @@ test_clone() {
         rm -rf "$TEST_PACKAGE"
     fi
     
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP clone $TEST_PACKAGE" "Clone with full options"
-    
-    if [[ -d "$TEST_PACKAGE" ]]; then
-        rm -rf "$TEST_PACKAGE"
-    fi
-    
     run_test "$CLI_CMD --branch $TEST_BRANCH clone $TEST_PACKAGE" "Clone with branch"
-    
-    if [[ -d "$TEST_PACKAGE" ]]; then
-        rm -rf "$TEST_PACKAGE"
-    fi
-    
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --branch $TEST_BRANCH clone $TEST_PACKAGE" "Clone with branch and full options"
     
     if [[ -d "$TEST_PACKAGE" ]]; then
         rm -rf "$TEST_PACKAGE"
@@ -313,24 +363,6 @@ test_create() {
     if [[ -d "testpackage" ]]; then
         rm -rf testpackage
     fi
-
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --branch $TEST_BRANCH create testpackage" "Create with full host options"
-
-    if [[ -d "testpackage" ]]; then
-        rm -rf testpackage
-    fi
-
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --branch $TEST_BRANCH create testpackage gbp" "Create with full options and type"
-
-    if [[ -d "testpackage" ]]; then
-        rm -rf testpackage
-    fi
-
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --branch $TEST_BRANCH create testpackage gbp tools" "Create with full options, type and subgroup"
-
-    if [[ -d "testpackage" ]]; then
-        rm -rf testpackage
-    fi
 }
 
 
@@ -340,9 +372,6 @@ test_disable() {
     run_test "$CLI_CMD disable" "Disable (auto-detect)"
     run_test "$CLI_CMD disable ." "Disable current directory" 
     run_test "$CLI_CMD disable $TEST_PACKAGE" "Disable package"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP disable" "Disable with full options (auto-detect)"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP disable ." "Disable current directory with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP disable $TEST_PACKAGE" "Disable package with full options"
     
 }
 
@@ -355,10 +384,6 @@ test_enable() {
     run_test "$CLI_CMD enable ." "Enable current directory"
     run_test "$CLI_CMD enable $TEST_PACKAGE" "Enable package"
     run_test "$CLI_CMD enable $TEST_PACKAGE gbp" "Enable package with type"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP enable" "Enable with full options (auto-detect)"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP enable ." "Enable current directory with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP enable $TEST_PACKAGE" "Enable package with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP enable $TEST_PACKAGE gbp" "Enable package with type and full options"
     run_test "$CLI_CMD --branch $TEST_BRANCH enable" "Enable with branch (auto-detect)"
     run_test "$CLI_CMD --branch $TEST_BRANCH enable ." "Enable current directory with branch"
     run_test "$CLI_CMD --branch $TEST_BRANCH enable $TEST_PACKAGE" "Enable package with branch"
@@ -369,28 +394,17 @@ test_enable() {
 
 test_getartifacts() {
     print_test_header "Getartifacts Command"
-
-    
     run_test "$CLI_CMD getartifacts" "Get artifacts (auto-detect)"
-    run_test "$CLI_CMD getartifacts ." "Get artifacts current directory"
-    run_test "$CLI_CMD getartifacts $TEST_PACKAGE" "Get artifacts package"
-    run_test "$CLI_CMD getartifacts $TEST_PACKAGE build-amd64" "Get artifacts with job name"
-    run_test "$CLI_CMD getartifacts $TEST_PACKAGE build-arm64" "Get artifacts with arm64 job name"
-    run_test "$CLI_CMD getartifacts $TEST_PACKAGE publish" "Get artifacts with publish job name"
-    run_test "$CLI_CMD getartifacts . build-amd64" "Get artifacts current directory with job name"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP getartifacts" "Get artifacts with full options (auto-detect)"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP getartifacts ." "Get artifacts current directory with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP getartifacts $TEST_PACKAGE" "Get artifacts package with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP getartifacts $TEST_PACKAGE build-amd64" "Get artifacts with job name and full options"
-    run_test "$CLI_CMD --branch $TEST_BRANCH getartifacts" "Get artifacts with branch (auto-detect)"
-    run_test "$CLI_CMD --branch $TEST_BRANCH getartifacts ." "Get artifacts current directory with branch"
+    run_test "$CLI_CMD getartifacts --job build-amd64" "Get artifacts with job name (auto-detect)"
+    run_test "$CLI_CMD getartifacts --job build-amd64 $TEST_PACKAGE" "Get artifacts with job name and package"
+    run_test "$CLI_CMD getartifacts --job build-arm64" "Get artifacts with arm64 job name (auto-detect)"
+    run_test "$CLI_CMD getartifacts --job build-arm64 $TEST_PACKAGE" "Get artifacts with arm64 job name and package"
+    run_test "$CLI_CMD getartifacts --job publish" "Get artifacts with publish job name (auto-detect)"
+    run_test "$CLI_CMD getartifacts --job publish $TEST_PACKAGE" "Get artifacts with publish job name and package"
     run_test "$CLI_CMD --branch $TEST_BRANCH getartifacts $TEST_PACKAGE" "Get artifacts package with branch"
-    run_test "$CLI_CMD --branch $TEST_BRANCH getartifacts $TEST_PACKAGE build-amd64" "Get artifacts with job name and branch"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --branch $TEST_BRANCH getartifacts" "Get artifacts with branch and full options (auto-detect)"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --branch $TEST_BRANCH getartifacts ." "Get artifacts current directory with branch and full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --branch $TEST_BRANCH getartifacts $TEST_PACKAGE" "Get artifacts package with branch and full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --branch $TEST_BRANCH getartifacts $TEST_PACKAGE build-amd64" "Get artifacts with job name, branch and full options"    
-    
+    run_test "$CLI_CMD --branch $TEST_BRANCH getartifacts --job build-amd64" "Get artifacts with job name and branch (auto-detect)"
+    run_test "$CLI_CMD --branch $TEST_BRANCH getartifacts --job build-amd64 $TEST_PACKAGE" "Get artifacts with job name, package and branch"
+
 }
 
 
@@ -399,11 +413,8 @@ test_list() {
 
     
     run_test "$CLI_CMD list" "List packages"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP list" "List with full options"
     run_test "$CLI_CMD --branch $TEST_BRANCH list" "List with branch"
     run_test "$CLI_CMD --dump list" "List with dump"
-    run_test "$CLI_CMD --dump --host $TEST_HOST --pkg-group $TEST_PKG_GROUP list" "List with dump and full options"
-    run_test "$CLI_CMD --dump --branch $TEST_BRANCH --host $TEST_HOST --pkg-group $TEST_PKG_GROUP list" "List with dump, branch and full options"
     
     
 }
@@ -427,16 +438,9 @@ test_log() {
     run_test "$CLI_CMD log build-amd64 $TEST_PACKAGE --wait" "Log job for package with wait"
     run_test "$CLI_CMD log build-arm64 --wait" "Log arm64 job with wait"
     run_test "$CLI_CMD log build-arm64 $TEST_PACKAGE --wait" "Log arm64 job for package with wait"   
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP log build-amd64" "Log job with full options (auto-detect)"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP log build-amd64 ." "Log job current directory with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP log build-amd64 $TEST_PACKAGE" "Log job for package with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP log build-amd64 --wait" "Log job with full options and wait"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP log build-amd64 $TEST_PACKAGE --wait" "Log job for package with full options and wait"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --branch $TEST_BRANCH log build-amd64" "Log job with branch and full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --branch $TEST_BRANCH log build-amd64 $TEST_PACKAGE" "Log job for package with branch and full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --branch $TEST_BRANCH log build-amd64 --wait" "Log job with branch, full options and wait"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --branch $TEST_BRANCH log build-amd64 $TEST_PACKAGE --wait" "Log job for package with branch, full options and wait"
-    
+
+
+
     
 }
 
@@ -449,10 +453,10 @@ test_mr() {
     run_test "$CLI_CMD mr $TEST_PACKAGE" "List merge requests for package"
     run_test "$CLI_CMD --dump mr" "List merge requests with dump"
     run_test "$CLI_CMD --dump mr $TEST_PACKAGE" "List merge requests for package with dump"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP mr" "List merge requests with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP mr $TEST_PACKAGE" "List merge requests for package with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --dump mr" "List merge requests with full options and dump"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP --dump mr $TEST_PACKAGE" "List merge requests for package with full options and dump"
+
+
+
+
     run_test "$CLI_CMD --branch $TEST_BRANCH mr" "List merge requests with branch option"
     run_test "$CLI_CMD --branch $TEST_BRANCH mr $TEST_PACKAGE" "List merge requests for package with branch option"
 }
@@ -465,7 +469,7 @@ test_pdiff() {
     run_test "$CLI_CMD pdiff ." "Print diff current directory"
     run_test "$CLI_CMD pdiff $TEST_PACKAGE" "Print diff package"
     
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP pdiff $TEST_PACKAGE" "Print diff with full options"
+
 }
 
 
@@ -478,10 +482,10 @@ test_show() {
     run_test "$CLI_CMD show --branches" "Show with branches (auto-detect)"
     run_test "$CLI_CMD show . --branches" "Show current directory with branches"
     run_test "$CLI_CMD show $TEST_PACKAGE --branches" "Show package with branches"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP show" "Show with host and pkg-group (auto-detect)"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP show $TEST_PACKAGE" "Show package with host and pkg-group"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP show --branches" "Show branches with host and pkg-group (auto-detect)"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP show $TEST_PACKAGE --branches" "Show package branches with host and pkg-group"
+
+
+
+
     run_test "$CLI_CMD --dump show" "Show with dump (auto-detect)"
     run_test "$CLI_CMD --dump show ." "Show current directory with dump"
     run_test "$CLI_CMD --dump show $TEST_PACKAGE" "Show package with dump"
@@ -490,8 +494,8 @@ test_show() {
     run_test "$CLI_CMD --branch $TEST_BRANCH show" "Show with branch (auto-detect)"
     run_test "$CLI_CMD --branch $TEST_BRANCH show $TEST_PACKAGE" "Show package with branch"
     run_test "$CLI_CMD --branch $TEST_BRANCH show $TEST_PACKAGE --branches" "Show package branches with branch option"
-    run_test "$CLI_CMD --dump --host $TEST_HOST --pkg-group $TEST_PKG_GROUP show $TEST_PACKAGE" "Show with dump and full options"
-    run_test "$CLI_CMD --dump --branch $TEST_BRANCH --host $TEST_HOST --pkg-group $TEST_PKG_GROUP show $TEST_PACKAGE --branches" "Show with dump and all options"
+
+
 }
 
 
@@ -505,12 +509,10 @@ test_status() {
     run_test "$CLI_CMD --dump status $TEST_PACKAGE" "Status package with dump"
     run_test "$CLI_CMD --branch $TEST_BRANCH status $TEST_PACKAGE" "Status package with branch"
     run_test "$CLI_CMD --dump --branch $TEST_BRANCH status $TEST_PACKAGE" "Status package with dump and branch"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP status" "Status all packages with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP status ." "Status current directory with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP status $TEST_PACKAGE" "Status package with full options"
-    run_test "$CLI_CMD --dump --host $TEST_HOST --pkg-group $TEST_PKG_GROUP status $TEST_PACKAGE" "Status package with dump and full options"
-    run_test "$CLI_CMD --branch $TEST_BRANCH --host $TEST_HOST --pkg-group $TEST_PKG_GROUP status $TEST_PACKAGE" "Status package with branch and full options"
-    run_test "$CLI_CMD --dump --branch $TEST_BRANCH --host $TEST_HOST --pkg-group $TEST_PKG_GROUP status $TEST_PACKAGE" "Status package with dump, branch and full options"
+
+
+
+
     
 }
 
@@ -521,48 +523,39 @@ test_trigger() {
     run_test "$CLI_CMD trigger $TEST_PACKAGE" "Trigger package build"
     run_test "$CLI_CMD trigger ." "Trigger current directory"
     run_test "$CLI_CMD trigger --all" "Trigger all packages"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger $TEST_PACKAGE" "Trigger package with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger ." "Trigger current directory with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger --all" "Trigger all packages with full options"
+
+
+
     run_test "$CLI_CMD --branch $TEST_BRANCH trigger $TEST_PACKAGE" "Trigger package with branch"
     run_test "$CLI_CMD --branch $TEST_BRANCH trigger ." "Trigger current directory with branch"
     run_test "$CLI_CMD --branch $TEST_BRANCH trigger --all" "Trigger all packages with branch"
     run_test "$CLI_CMD --dump trigger $TEST_PACKAGE" "Trigger package with dump"
     run_test "$CLI_CMD --dump trigger ." "Trigger current directory with dump"
     run_test "$CLI_CMD --dump trigger --all" "Trigger all packages with dump"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger $TEST_PACKAGE" "Trigger package with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger ." "Trigger current directory with full options"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger --all" "Trigger all packages with full options"
+
+
+
     run_test "$CLI_CMD --verbose --branch $TEST_BRANCH trigger $TEST_PACKAGE" "Trigger package with verbose and branch"
     run_test "$CLI_CMD --verbose --dump trigger $TEST_PACKAGE" "Trigger package with verbose and dump"
-    run_test "$CLI_CMD --verbose --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger $TEST_PACKAGE" "Trigger package with verbose and full options"
-    run_test "$CLI_CMD --verbose --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger ." "Trigger current directory with verbose and full options"
-    run_test "$CLI_CMD --verbose --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger --all" "Trigger all packages with verbose and full options"
+
+
+
     run_test "$CLI_CMD --branch $TEST_BRANCH --dump trigger $TEST_PACKAGE" "Trigger package with branch and dump"
-    run_test "$CLI_CMD --branch $TEST_BRANCH --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger $TEST_PACKAGE" "Trigger package with branch and full options"
-    run_test "$CLI_CMD --branch $TEST_BRANCH --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger ." "Trigger current directory with branch and full options"
-    run_test "$CLI_CMD --branch $TEST_BRANCH --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger --all" "Trigger all packages with branch and full options"
-    run_test "$CLI_CMD --dump --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger $TEST_PACKAGE" "Trigger package with dump and full options"
-    run_test "$CLI_CMD --dump --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger ." "Trigger current directory with dump and full options"
-    run_test "$CLI_CMD --dump --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger --all" "Trigger all packages with dump and full options"
-    run_test "$CLI_CMD --verbose --branch $TEST_BRANCH --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger $TEST_PACKAGE" "Trigger package with verbose, branch and full options"
-    run_test "$CLI_CMD --verbose --dump --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger $TEST_PACKAGE" "Trigger package with verbose, dump and full options"
-    run_test "$CLI_CMD --branch $TEST_BRANCH --dump --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger $TEST_PACKAGE" "Trigger package with branch, dump and full options"
-    run_test "$CLI_CMD --branch $TEST_BRANCH --dump --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger $TEST_PACKAGE" "Trigger package with branch, dump and full options"
+
+
     run_test "$CLI_CMD --verbose --branch $TEST_BRANCH --dump trigger $TEST_PACKAGE" "Trigger package with verbose, branch and dump"
-    run_test "$CLI_CMD --verbose --branch $TEST_BRANCH --dump --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger $TEST_PACKAGE" "Trigger package with all options"
-    run_test "$CLI_CMD --verbose --branch $TEST_BRANCH --dump --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger ." "Trigger current directory with all options"
-    run_test "$CLI_CMD --verbose --branch $TEST_BRANCH --dump --host $TEST_HOST --pkg-group $TEST_PKG_GROUP trigger --all" "Trigger all packages with all options"
+
+
+
 }
 
 
 test_workspace() {
-    print_test_header "Workspace Command"
 
     run_test "$CLI_CMD workspace enter" "Workspace enter (auto-detect)"
     run_test "$CLI_CMD workspace enter $TEST_BRANCH" "Workspace enter with branch"
     run_test "$CLI_CMD --branch $TEST_BRANCH workspace enter" "Workspace enter with global branch"
-    run_test "$CLI_CMD --host $TEST_HOST --pkg-group $TEST_PKG_GROUP workspace enter $TEST_BRANCH" "Workspace enter with full options"
+
 }
 
 
@@ -592,11 +585,17 @@ for group in "${TEST_GROUPS[@]}"; do
         "browse")
             test_browse
             ;;
+        "buildinfo")
+            test_buildinfo
+            ;;
         "build")
             test_build
             ;;
         "clone")
             test_clone
+            ;;
+        "collect_sources")
+            test_collect_sources
             ;;
         "create")
             test_create
@@ -628,8 +627,14 @@ for group in "${TEST_GROUPS[@]}"; do
         "status")
             test_status
             ;;
+        "submodule")
+            test_submodule
+            ;;
         "trigger")
             test_trigger
+            ;;
+        "verify")
+            test_verify
             ;;
         "workspace")
             test_workspace

@@ -1,7 +1,9 @@
 import logging
-from gitlab import GitlabError
+
 from lichoscli.commands.base import Command
-from lichoscli.pkg import PkgGroupHandler
+from lichoscli.core.di import DIContainer
+from lichoscli.core.exceptions import ProjectFetchingError
+from lichoscli.core.services import PackageService
 from lichoscli.utils import BuildUtils
 
 logger = logging.getLogger(__name__)
@@ -10,8 +12,9 @@ logger = logging.getLogger(__name__)
 class SetForkedCommand(Command):
     """Set fork relationship to a parent project"""
 
-    def __init__(self, pkg_group_handler: PkgGroupHandler, args):
-        super().__init__(pkg_group_handler=pkg_group_handler, args=args)
+    def __init__(self, di_container: DIContainer, args):
+        super().__init__(di_container, args)
+        self.package_service = di_container.obtain_ref(PackageService)
 
     @classmethod
     def add_arguments(cls, sp):
@@ -22,21 +25,25 @@ class SetForkedCommand(Command):
         pn = BuildUtils.get_package_name(self.args.package)
         pkg = None
         if pn:
-            pkg = self.pkg_group_handler.get_package(pn)
+            pkg = self.package_service.get_package(pn)
 
         if pn is None or pkg is None:
             logger.error("Can't find %s", pn)
             return 1
 
         try:
-            pprj = self.pkg_group_handler.gitlab.projects.get(self.args.parent)
-        except GitlabError as e:
+            # Get parent package by full path
+            parent_pkg = self.package_service.get_package(self.args.parent)
+            if not parent_pkg:
+                logger.error("Parent package '%s' not found", self.args.parent)
+                return 1
+        except ProjectFetchingError as e:
             logger.error("%s: %s", self.args.parent, e)
             return 1
 
         try:
-            pkg.create_fork_relation(pprj.id)
-        except GitlabError as e:
+            pkg.create_fork_relation(parent_pkg.id)
+        except ProjectFetchingError as e:
             logger.error("%s: %s", pn, e)
             return 1
 

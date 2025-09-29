@@ -1,14 +1,14 @@
 import logging
 import os
 import textwrap
-import git
-from git.repo import Repo
-from gitlab import GitlabError
 
-from lichoscli import utils
+from git.repo import Repo
+
 from lichoscli.commands.base import Command
-from lichoscli.pkg import PkgGroupHandler
-from lichoscli.utils import BuildUtils, GitUtils
+from lichoscli.core.di import DIContainer
+from lichoscli.core.exceptions import ProjectFetchingError
+from lichoscli.core.services import PackageService
+from lichoscli.utils import CI_DEFAULT_PIPELINE_NAME, BuildUtils, GitUtils
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +16,19 @@ logger = logging.getLogger(__name__)
 class CreateCommand(Command):
     """Create a new package"""
 
-    def __init__(self, pkg_group_handler: PkgGroupHandler, args):
-        super().__init__(pkg_group_handler=pkg_group_handler, args=args)
+    def __init__(self, di_container: DIContainer, args):
+        super().__init__(di_container, args)
+        self.package_service = di_container.obtain_ref(PackageService)
         self.package_name = BuildUtils.get_package_name(args.package)
-        self.package_type = args.type if args.type else utils.CI_DEFAULT_PIPELINE_NAME
+        self.package_type = args.type if args.type else CI_DEFAULT_PIPELINE_NAME
         self.branch = args.branch
         self.subgroup = args.subgroup
+        self.group_rpath = self.package_service.get_projects().path
+
+    def validate_args(self) -> None:
+        """Validate that required arguments are provided"""
+        if not getattr(self.args, "branch_explicitly_provided", False):
+            raise ValueError("--branch is required for the create command")
 
     @classmethod
     def add_arguments(cls, sp):
@@ -30,20 +37,19 @@ class CreateCommand(Command):
         sp.add_argument("subgroup", nargs="?", help="subgroup name")
 
     def execute(self):
-        if self.branch is None:
-            raise ValueError(
-                "The create command requires a branch to be specified. "
-                "Use --branch <branch_name> "
-            )
-       
         if self.check_local_package_exists(self.package_name):
             return 1
 
-        if self.check_remote_package_exists(self.pkg_group_handler, self.package_name):
+        if self.check_remote_package_exists(self.package_service, self.package_name, self.group_rpath):
             return 1
 
         package = self.create_package(
-            self.pkg_group_handler, self.package_name, self.branch, self.package_type, self.subgroup
+            self.package_service,
+            self.package_name,
+            self.branch,
+            self.package_type,
+            self.subgroup,
+            self.group_rpath,
         )
         if package is None:
             return 1
@@ -51,10 +57,10 @@ class CreateCommand(Command):
         if not self.protect_branch(package, self.branch):
             return 2
 
-        author = self.initialize_package_repository(package, self.package_name)
+        author, repo = self.initialize_package_repository(package, self.package_name)
         logger.info(
             "%s/%s/%s with branch %s created",
-            self.pkg_group_handler.group_rpath,
+            self.group_rpath,
             self.subgroup,
             self.package_name,
             self.branch,
@@ -66,33 +72,30 @@ class CreateCommand(Command):
         if self.package_type == "gbp":
             self.create_debian_package_template(self.package_name, author)
 
+        repo.remotes.origin.push()
         return 0
 
     @staticmethod
     def check_local_package_exists(package_name):
         """Check if a local package directory or file exists."""
         if os.path.exists(package_name):
-            logger.error(
-                "Please remove the local file or directory '%s' first", package_name
-            )
+            logger.error("Please remove the local file or directory '%s' first", package_name)
             return True
         return False
 
     @staticmethod
-    def check_remote_package_exists(pkg_group_handler, package_name):
+    def check_remote_package_exists(package_service, package_name, group_rpath):
         """Check if a remote package already exists."""
-        if pkg_group_handler.get_package(package_name) is not None:
-            logger.error(
-                "%s/%s already exists", pkg_group_handler.group_rpath, package_name
-            )
+        if package_service.get_package(package_name) is not None:
+            logger.error("%s/%s already exists", group_rpath, package_name)
             return True
         return False
 
     @staticmethod
-    def create_package(pkg_group_handler, package_name, branch, package_type, subgroup):
+    def create_package(package_service, package_name, branch, package_type, subgroup, group_rpath=None):
         """Create a new package with the given parameters."""
-        package = pkg_group_handler.add_package(
-            package_name=package_name,
+        package = package_service.create_package(
+            name=package_name,
             branch=branch,
             package_type=package_type,
             access_level="enabled",
@@ -101,7 +104,7 @@ class CreateCommand(Command):
         if package is None:
             logger.error(
                 "Failed to create package %s/%s/%s",
-                pkg_group_handler.group_rpath,
+                group_rpath or "unknown",
                 subgroup,
                 package_name,
             )
@@ -114,7 +117,7 @@ class CreateCommand(Command):
         try:
             package.protectedbranches.create({"name": formatted_branch_name})
             return True
-        except Exception as e:
+        except ProjectFetchingError as e:
             logger.error("Failed to protect branch: %s", e)
             return False
 
@@ -124,8 +127,7 @@ class CreateCommand(Command):
         repo_url = package.ssh_url_to_repo
         repo = Repo.clone_from(repo_url, package_name)
         author = repo.index.commit("Initialize package").author
-        repo.remotes.origin.push()
-        return author
+        return author, repo
 
     @staticmethod
     def create_debian_package_template(package_name, author):
@@ -142,9 +144,7 @@ class CreateCommand(Command):
         CreateCommand.add_default_debian_control(package_name, author, debian_control)
         CreateCommand.add_default_debian_format(debian_format)
 
-        logger.info(
-            "Created debian package template, please adjust the rules and control file as needed"
-        )
+        logger.info("Created debian package template, please adjust the rules and control file as needed")
 
     @staticmethod
     def add_default_debian_format(debian_format_path):

@@ -2,12 +2,21 @@ import logging
 import os
 import random
 import subprocess
-from typing import Optional
 
-import git
+from rich.panel import Panel
+
 from lichoscli.commands.base import Command
-from lichoscli.pkg import PkgGroupHandler
-from lichoscli.utils import BuildUtils, GitUtils
+from lichoscli.core.di import DIContainer
+from lichoscli.core.models import BuildParameters
+from lichoscli.core.services import (
+    ContainerConfig,
+    ContainerService,
+    EditorConfig,
+    EnvironmentService,
+    PackageService,
+)
+from lichoscli.core.services.editor import EditorStrategy
+from lichoscli.utils import BuildUtils, ContainerUtils, GitUtils, ProgressUtils
 
 logger = logging.getLogger(__name__)
 
@@ -15,27 +24,14 @@ logger = logging.getLogger(__name__)
 class BuildCommand(Command):
     """Build a package locally"""
 
-    def __init__(self, pkg_group_handler: PkgGroupHandler, args):
-        super().__init__(pkg_group_handler, args)
-        self.ci_project_dir = self._determine_project_dir(args.shell)
+    def __init__(self, di_container: DIContainer, args):
+        super().__init__(di_container, args)
 
-        self.package_name = BuildUtils.get_package_name(args.package)
-        self.package = self.pkg_group_handler.get_package(self.package_name)
-        self.group = args.pkg_group or GitUtils.get_group()
-        self.branch = BuildUtils.get_branch_name(args.branch)
-        self.shell = args.shell
-        self.architecture = BuildUtils.normalize_architecture(args.architecture)
-        self.enable_cross = args.enable_cross
-        self.build_arch = BuildUtils.normalize_architecture(os.uname().machine)
-
-        if self.enable_cross: 
-            self.platform = f"linux/{self.build_arch}"
-        else:
-            self.platform = f"linux/{self.architecture}"
-            
-        self.branch_ref_slug = GitUtils.get_ref_slug(self.branch)
-        self.build_env = self._build_environment()
-        self.network = args.network
+        self.package_service = di_container.obtain_ref(PackageService)
+        self.container_service = di_container.obtain_ref(ContainerService)
+        self.environment_service = di_container.obtain_ref(EnvironmentService)
+        self.buildparam = self._create_build_config(args)
+        self.package = self.package_service.get_package(self.buildparam.package_name)
 
     @classmethod
     def add_arguments(cls, sp):
@@ -59,170 +55,219 @@ class BuildCommand(Command):
             help="option to enable cross compilation setup",
         )
         sp.add_argument("--network", nargs="?", help="docker network to use for the container")
-        sp.add_argument("--profile", help="debian profile to build")
+        sp.add_argument(
+            "--mount",
+            nargs="?",
+            help="additional docker mount point (e.g., /host/path:/container/path)",
+        )
+        sp.add_argument("--profile", nargs="?", help="DEB_BUILD_PROFILES to set for the build")
+        sp.add_argument(
+            "--editor",
+            nargs="?",
+            choices=["code"],
+            help="launch editor with remote development support (currently only 'code' supported)",
+        )
+        sp.add_argument(
+            "--no-cache",
+            action="store_true",
+            default=False,
+            help="delete old container and start a new one",
+        )
+
+    def _create_build_config(self, args) -> BuildParameters:
+        """Create BuildConfig from command arguments."""
+        package_name = BuildUtils.get_package_name(args.package)
+        branch = BuildUtils.get_branch_name(args.branch)
+        architecture = BuildUtils.normalize_architecture(args.architecture)
+        project_dir = self._determine_project_dir(args.shell, args.editor)
+        group = args.pkg_group or GitUtils.get_group()
+        build_arch = BuildUtils.normalize_architecture(os.uname().machine)
+        if self.args.enable_cross:
+            platform = f"linux/{build_arch}"
+        else:
+            platform = f"linux/{architecture}"
+
+        return BuildParameters(
+            package_name=package_name,
+            architecture=architecture,
+            branch=branch,
+            group=group,
+            project_dir=project_dir,
+            enable_cross=args.enable_cross,
+            profile=args.profile,
+            network=args.network,
+            mount=args.mount,
+            shell_mode=args.shell,
+            editor_mode=args.editor,
+            no_cache=args.no_cache,
+            custom_script=args.script,
+            platform=platform,
+        )
 
     def execute(self):
         if not self.package:
-            logger.error("Package '%s' not found", self.package_name)
+            logger.error("Package '%s' not found", self.buildparam.package_name)
             return 1
-            
-        print(f"Building package: {self.package.name}")
-        print(f"Architecture: {self.architecture}")
 
+        self.console.print(f"Building package: [bold cyan]{self.package.name}[/bold cyan]")
+        self.console.print(f"Architecture: [bold cyan]{self.buildparam.architecture}[/bold cyan]")
+
+        if not self._initialize_submodules():
+            return 1
+
+        try:
+            package_variables = {}
+            if self.package:
+                package_variables = self.package.variables.to_dict()
+            base_environment = self.environment_service.create_build_environment_from_config(
+                self.buildparam, package_variables
+            )
+
+            build_environment = self.environment_service.prepare_build_environment(
+                self.buildparam.package_name, self.buildparam.branch, base_environment
+            )
+
+            if not build_environment:
+                logger.error("Failed to prepare build environment")
+                return 1
+
+            env_file = self.environment_service.create_environment_file(build_environment.variables)
+            if not env_file:
+                logger.error("Failed to create environment file")
+                return 1
+
+            pull_result = ProgressUtils.execute_with_progress(
+                business_logic=lambda: self.container_service.pull_image(build_environment.image),
+                description=f"Pulling Docker image: {build_environment.image}",
+                console=self.console,
+                success_message=f"Successfully pulled Docker image: {build_environment.image}",
+                error_message=f"Failed to pull Docker image: {build_environment.image}",
+            )
+            if pull_result != 0:
+                return pull_result
+
+            container_config = self._build_container_config(build_environment, env_file)
+
+            if self.buildparam.editor_mode:
+                return self._execute_with_editor(container_config, build_environment)
+            else:
+                result = self.container_service.run_container(container_config)
+                return result.return_code
+
+        finally:
+            if "env_file" in locals() and env_file:
+                try:
+                    os.unlink(env_file.name)
+                except OSError:
+                    pass
+
+    def _initialize_submodules(self) -> bool:
+        """Initialize git submodules if they exist."""
         repo = GitUtils.get_git_repo()
         if repo and GitUtils.has_submodules(repo):
             print("Submodules detected, initializing...")
             if not GitUtils.initialize_submodules(repo):
                 logger.error("Failed to initialize submodules")
-                return 1
+                return False
+        return True
 
+    def _execute_with_editor(self, container_config: ContainerConfig, build_environment) -> int:
+        """Execute container with editor integration."""
         try:
-            env_file = self._prepare_build_environment()
-            if not env_file:
+            editor_strategy: EditorStrategy = self.di_container.get_editor_strategy(self.buildparam.editor_mode)
+
+            ssh_port = editor_strategy.find_free_port()
+            container_config.ports = {ssh_port: 22}
+            container_config.detached = True
+
+            container_config.command = ContainerUtils.build_ssh_enabled_command()
+
+            ssh_keys_mount = f"{os.path.expanduser('~/.ssh')}:/tmp/ssh_keys:ro"
+            container_config.volumes.append(ssh_keys_mount)
+
+            editor_config = EditorConfig(
+                project_path=self.buildparam.project_dir, ssh_port=ssh_port, container_name=container_config.name
+            )
+
+            if not editor_strategy.setup_remote_connection(editor_config):
+                logger.error("Failed to setup editor remote connection")
                 return 1
 
-            docker_config = self._extract_docker_config(env_file)
-            if not docker_config:
-                return 1
+            result = self.container_service.run_container(container_config)
 
-            cmd = self._build_docker_command(docker_config)
+            if result.return_code == 0:
+                launch_result = editor_strategy.launch_editor(editor_config)
 
-            pull_result = BuildUtils.pull_docker_image(image=docker_config["image"])
-            if pull_result != 0:
-                print(f"Failed to pull Docker image: {docker_config['image']}")
-                return pull_result
+                if launch_result.success:
+                    content_lines = [
+                        f"Container name: [cyan]{container_config.name}[/cyan]",
+                        f"SSH access: [cyan]ssh root@localhost -p {ssh_port}[/cyan]",
+                        "Authentication: SSH key or password '[yellow]root[/yellow]'",
+                        "Editor should open automatically",
+                        "",
+                        f"Build script available: [green]{build_environment.full_script}[/green]",
+                        "",
+                        "To stop the container:",
+                        f"  [cyan]docker stop {container_config.name}[/cyan]",
+                    ]
 
-            return subprocess.run(cmd, check=False).returncode
+                    panel = Panel(
+                        "\n".join(content_lines),
+                        title="[bold green]CONTAINER RUNNING IN BACKGROUND[/bold green]",
+                        border_style="green",
+                        padding=(1, 2),
+                    )
+                    self.console.print()
+                    self.console.print(panel)
+                else:
+                    self.console.print(f"[red]✗[/red] Editor launch failed: {launch_result.error_message}")
 
-        finally:
-            env_file = locals().get("env_file")
-            if env_file:
-                os.unlink(env_file.name)
+            return result.return_code
 
-    def _determine_project_dir(self, is_shell_mode: bool) -> str:
-        """Determine the project directory path based on shell mode."""
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.error("Failed to execute with editor: %s", e)
+            return 1
+
+    def _build_container_config(self, build_environment, env_file) -> ContainerConfig:
+        """Build container configuration from environment and BuildConfig."""
+        sanitized_package = BuildUtils.sanitize_container_name(self.buildparam.package_name)
+        sanitized_workspace = BuildUtils.sanitize_container_name(self.buildparam.branch)
+        container_name = f"devcontainer-{sanitized_package}-{sanitized_workspace}"
+
+        volumes = [f"{os.getcwd()}:{self.buildparam.project_dir}"]
+        if self.buildparam.mount:
+            volumes.append(self.buildparam.mount)
+
+        config = ContainerConfig(
+            image=build_environment.image,
+            name=container_name,
+            command=build_environment.full_script,
+            working_dir=self.buildparam.project_dir,
+            environment={},
+            volumes=volumes,
+            network=self.buildparam.network,
+            platform=self.buildparam.platform,
+            interactive=self.buildparam.shell_mode,
+            remove_on_exit=not self.buildparam.editor_mode,
+        )
+
+        config.env_file = env_file.name
+
+        if self.buildparam.shell_mode:
+            config.command = "/usr/bin/bash"
+            config.interactive = True
+            self.console.print(f"Container name: [cyan]{container_name}[/cyan]")
+
+            self.console.print()
+            self.console.print("[bold yellow]RUN THIS TO BUILD THE PACKAGE:[/bold yellow]")
+            self.console.print(f"[green]{build_environment.full_script}[/green]")
+            self.console.print()
+
+        return config
+
+    def _determine_project_dir(self, is_shell_mode: bool, is_editor_mode: bool = False) -> str:
+        """Determine the project directory path based on shell or editor mode."""
         shell_project_dir = "/build"
-        if is_shell_mode:
+        if is_shell_mode or is_editor_mode:
             return shell_project_dir
-        else:
-            return "/" + "".join(
-                random.sample(shell_project_dir[1:], k=len(shell_project_dir[1:]))
-            )
-
-    def _build_environment(self) -> dict:
-        """Build the complete environment dictionary for the build process."""
-        env = self.pkg_group_handler.get_package_variables(self.package)
-
-        base_env = {
-            "CI_PROJECT_DIR": self.ci_project_dir,
-            "CI_COMMIT_BRANCH": self.branch,
-            "CI_COMMIT_REF_NAME": self.branch,
-            "CI_COMMIT_REF_SLUG": self.branch_ref_slug,
-            "CI_PROJECT_NAMESPACE": self.group,
-            "ARCHITECTURE": self.architecture,
-        }
-
-        cross_compilation_env = (
-            self._get_cross_compilation_env() if self.enable_cross else {}
-        )
-        profile_env = self._get_profile_env()
-
-        env.update(base_env)
-        env.update(cross_compilation_env)
-        env.update(profile_env)
-
-        return env
-
-    def _get_cross_compilation_env(self) -> dict:
-        """Get environment variables for cross-compilation setup."""
-        return {"ARCHITECTURE": self.build_arch, "DEB_HOST_ARCH": self.architecture}
-
-    def _get_profile_env(self) -> dict:
-        """Get environment variables for build profile."""
-        if self.args.profile:
-            logger.info("profile %s", self.args.profile)
-            return {"DEB_BUILD_PROFILES": self.args.profile}
-        return {}
-
-    def _prepare_build_environment(self):
-        """Prepare the build environment by fetching artifacts and creating env file."""
-        if not self.package:
-            logger.error("Package '%s' not found", self.package_name)
-            return None
-            
-        tmpdir = self.pkg_group_handler.get_job_artifacts(
-            branch_name=self.branch, package=self.package, job_name="calculate-env"
-        )
-        if not tmpdir:
-            logger.error("Failed to download build artifacts for package '%s' on branch '%s'" % (self.package.name, self.branch))
-            logger.error("This usually means no pipeline has been triggered for this branch.")
-            logger.error("Please ensure a pipeline exists for branch '%s' in the GitLab project." % self.branch)
-            logger.error("Project URL: %s" % self.package.web_url)
-            return None
-
-        env = BuildUtils.update_environment_from_file(self.build_env, tmpdir)
-        env = BuildUtils.expand_var(env)
-        env_file = BuildUtils.create_tmp_env_file(env)
-
-        if not env_file:
-            logger.error("Failed to save environment to temporary file.")
-            return None
-
-        return env_file
-
-    def _extract_docker_config(self, env_file) -> Optional[dict]:
-        """Extract and validate Docker configuration from environment file."""
-        with open(env_file.name, "r", encoding="utf-8") as f:
-            env_content = f.read()
-
-        env_dict = {}
-        for line in env_content.strip().split("\n"):
-            if "=" in line:
-                key, value = line.split("=", 1)
-                env_dict[key] = value
-
-        image = env_dict.get("IMAGE")
-        repo_setup = env_dict.get("REPO_SETUP_CMD")
-        build_cmd = env_dict.get("BUILD_CMD")
-
-        if not all([image, repo_setup, build_cmd]):
-            logger.error(
-                "Missing required environment variables (IMAGE, REPO_SETUP_CMD, BUILD_CMD)."
-            )
-            return None
-
-        return {
-            "image": image,
-            "script": f"{repo_setup} ; {build_cmd}",
-            "env_file": env_file,
-        }
-
-    def _build_docker_command(self, docker_config: dict) -> list:
-        """Build the Docker command based on configuration and shell mode."""
-        cmd = [
-            "docker",
-            "run",
-            "--env-file",
-            docker_config["env_file"].name,
-            "--rm",
-            "-v",
-            f"{os.getcwd()}:{self.ci_project_dir}",
-            "--platform",
-            self.platform,
-            "-w",
-            self.ci_project_dir,
-        ]
-
-        if self.network:
-            cmd.extend(["--network", self.network])
-
-
-        if self.shell:
-            cmd.extend(["-it", docker_config["image"], "/usr/bin/bash"])
-            BuildUtils.print_build_info(docker_config["script"])
-        else:
-            cmd.extend(
-                [docker_config["image"], "/usr/bin/bash", "-c", docker_config["script"]]
-            )
-
-        return cmd
+        return "/" + "".join(random.sample(shell_project_dir[1:], k=len(shell_project_dir[1:])))

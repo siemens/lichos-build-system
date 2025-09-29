@@ -1,10 +1,13 @@
 import logging
 import time
-from lichoscli.commands.base import Command
-from lichoscli.pkg import PkgGroupHandler
-from lichoscli.utils import BuildUtils
-from rich.console import Console
+
+from rich.panel import Panel
+from rich.rule import Rule
 from rich.text import Text
+
+from lichoscli.commands.base import Command
+from lichoscli.core.services import PackageService
+from lichoscli.utils import BuildUtils
 
 logger = logging.getLogger(__name__)
 
@@ -12,13 +15,14 @@ logger = logging.getLogger(__name__)
 class LogCommand(Command):
     """Show log file of job"""
 
-    def __init__(self, pkg_group_handler: PkgGroupHandler, args):
-        super().__init__(pkg_group_handler=pkg_group_handler, args=args)
+    def __init__(self, di_container, args):
+        super().__init__(di_container, args)
         self.package_name = BuildUtils.get_package_name(args.package)
         self.jobname = args.jobname
         self.wait = args.wait
         self.follow = args.follow
         self.branch = args.branch
+        self.package_service = di_container.obtain_ref(PackageService)
 
     @classmethod
     def add_arguments(cls, sp):
@@ -36,33 +40,34 @@ class LogCommand(Command):
             help="follow log output in real-time (stream live log as it's generated)",
         )
 
-    def _wait_for_job_transition(
-        self, pkg, job, target_states, message, update_message=True
-    ):
+    def _wait_for_job_transition(self, pkg, job, target_states, message, update_message=True):
         """Wait for job to transition to one of the target states."""
         if job.status in target_states:
             return job
 
-        print(message.format(job_name=job.name, status=job.status))
+        self.console.print(message.format(job_name=job.name, status=job.status))
 
         last_status = job.status
-        spinner = "|/-\\"
-        spinner_index = 0
 
-        while job and job.status not in target_states:
-            print(f"\r{spinner[spinner_index]} Waiting...", end="", flush=True)
-            spinner_index = (spinner_index + 1) % len(spinner)
-            time.sleep(1)
-            job = self.pkg_group_handler.get_job_by_id(pkg, job.id)
-            if job is None:
-                print("\nJob not found.")
-                return None
+        with self.console.status("[bold blue]Waiting for job status change...") as status:
+            while job and job.status not in target_states:
+                time.sleep(1)
+                latest_pipeline = pkg.pipelines.get_latest()
+                if latest_pipeline:
+                    job = latest_pipeline.jobs.get_by_id(job.id)
+                else:
+                    job = None
+                if job is None:
+                    self.console.print("[red]Job not found.[/red]")
+                    return None
 
-            if update_message and job.status != last_status:
-                print(f"\nJob status changed to: {job.status}")
-                last_status = job.status
+                if update_message and job.status != last_status:
+                    status.stop()
+                    self.console.print(f"[yellow]Job status changed to: {job.status}[/yellow]")
+                    last_status = job.status
+                    status.start()
 
-        print(f"\nJob reached target state with status: {job.status}")
+        self.console.print(f"[green]Job reached target state with status: {job.status}[/green]")
         return job
 
     def _wait_for_job_start(self, pkg, job):
@@ -85,7 +90,6 @@ class LogCommand(Command):
 
     def _stream_job_log(self, pkg, job):
         """Stream job log in real-time."""
-        console = Console()
         seen_lines = 0
 
         self._print_header(job)
@@ -96,16 +100,20 @@ class LogCommand(Command):
 
         try:
             while not self._is_job_complete(job.status):
-                refreshed_job = self.pkg_group_handler.get_job_by_id(pkg, job.id)
+                latest_pipeline = pkg.pipelines.get_latest()
+                if latest_pipeline:
+                    refreshed_job = latest_pipeline.jobs.get_by_id(job.id)
+                else:
+                    refreshed_job = None
                 if refreshed_job is None:
                     logger.error("Failed to refresh job status, stopping stream")
                     break
                 job = refreshed_job
 
-                new_lines = self._get_new_log_lines(pkg, job, seen_lines)
+                new_lines = self._get_new_log_lines(job, seen_lines)
 
                 if new_lines:
-                    self._display_lines(console, new_lines)
+                    self._display_lines(new_lines)
                     seen_lines += len(new_lines)
 
                 time.sleep(2)
@@ -119,10 +127,9 @@ class LogCommand(Command):
         """Check if job has completed."""
         return status in ("success", "failed", "canceled", "skipped")
 
-    def _get_new_log_lines(self, pkg, job, seen_lines):
+    def _get_new_log_lines(self, job, seen_lines):
         """Fetch and return new log lines since last check."""
-        full_job = pkg.jobs.get(job.id)
-        trace = full_job.trace()
+        trace = job.get_trace()
 
         if not trace:
             return []
@@ -135,31 +142,39 @@ class LogCommand(Command):
 
     def _decode_trace(self, trace):
         """Decode trace to string."""
-        return (
-            trace.decode("utf-8", errors="replace")
-            if isinstance(trace, bytes)
-            else trace
-        )
+        return trace.decode("utf-8", errors="replace") if isinstance(trace, bytes) else trace
 
-    def _display_lines(self, console, lines):
+    def _display_lines(self, lines):
         """Display lines to console with ANSI support."""
         for line in lines:
-            console.print(Text.from_ansi(line))
+            self.console.print(Text.from_ansi(line))
 
     def _print_header(self, job):
         """Print job streaming header."""
-        print(f"Streaming log for job '{job.name}' (status: {job.status})")
-        print("=" * 50)
+        self.console.print(
+            Panel(
+                f"[bold cyan]Job:[/bold cyan] {job.name}\n[bold yellow]Status:[/bold yellow] {job.status}",
+                title="[bold blue]Log Stream[/bold blue]",
+                border_style="blue",
+            )
+        )
 
     def _print_footer(self, status):
         """Print job completion footer."""
-        print("=" * 50)
-        print(f"Job completed with status: {status}")
+        status_color = {
+            "success": "green",
+            "failed": "red",
+            "canceled": "yellow",
+            "skipped": "dim",
+        }.get(status, "white")
+
+        self.console.print(Rule())
+        self.console.print(f"[bold {status_color}]Job completed with status: {status}[/bold {status_color}]")
 
     def _print_interrupted(self):
         """Print interruption message."""
-        print("\n" + "=" * 50)
-        print("Log streaming interrupted by user")
+        self.console.print(Rule())
+        self.console.print("[bold yellow]Log streaming interrupted by user[/bold yellow]")
 
     def normalize_gitlab_log(self, raw_log: str) -> str:
         # line endings: replace \r (carriage return) with \n
@@ -167,47 +182,41 @@ class LogCommand(Command):
         return raw_log.replace("\r\n", "\n").replace("\r", "\n")
 
     def execute(self):
-        pkg = self.pkg_group_handler.get_package(self.package_name)
+        pkg = self.package_service.get_package(self.package_name)
         if pkg is None:
-            logger.error("Package %s not found.", self.package_name)
+            self.console.print(f"[red]Error: Package {self.package_name} not found.[/red]")
             return 1
 
-        job = self.pkg_group_handler.get_job_by_name_from_mr(
-            pkg, self.jobname, self.args.branch
-        )
+        job = pkg.merge_requests.get_job_by_name_from_mr(self.jobname, self.args.branch)
         if job is not None:
-            logger.info(
-                "Found job '%s' in merge request pipeline for branch %s",
-                self.jobname,
-                self.branch or "default",
+            self.console.print(
+                f"[green]Found job '{self.jobname}' in merge request pipeline for branch {self.branch or 'default'}[/green]"
             )
         else:
-            logger.debug("No job found in merge request, checking branch pipeline")
-            job = self.pkg_group_handler.get_job_by_name(pkg, self.jobname)
-            if job is not None:
-                logger.info("Found job '%s' in branch pipeline", self.jobname)
+            self.console.print("[dim]No job found in merge request, checking branch pipeline...[/dim]")
+            latest_pipeline = pkg.pipelines.get_latest()
+            if latest_pipeline:
+                job = latest_pipeline.jobs.get_by_name(self.jobname)
+                if job is not None:
+                    self.console.print(f"[green]Found job '{self.jobname}' in branch pipeline[/green]")
 
         if job is None:
-            logger.error(
-                "Job '%s' not found in merge request or branch pipeline", self.jobname
-            )
+            self.console.print(f"[red]Error: Job '{self.jobname}' not found in merge request or branch pipeline[/red]")
             return 1
 
         if self.wait:
             job = self._wait_for_job_start(pkg, job)
             if job is None:
-                logger.error("Job %s did not start.", self.jobname)
+                self.console.print(f"[red]Error: Job {self.jobname} did not start.[/red]")
                 return 1
 
         # Handle different modes
         if self.follow:
-            # Stream live log (regardless of wait flag)
             self._stream_job_log(pkg, job)
         elif self.wait:
-            # Wait for completion then show full log (only if not following)
             job = self._wait_for_job_completion(pkg, job)
             if job is None:
-                logger.error("Failed to wait for job completion.")
+                self.console.print("[red]Error: Failed to wait for job completion.[/red]")
                 return 1
 
             self._show_static_log(pkg)
@@ -218,20 +227,25 @@ class LogCommand(Command):
 
     def _show_static_log(self, pkg):
         """Show the current static log content."""
-        log = self.pkg_group_handler.extract_log_from_job_mr(
-            pkg, self.jobname, self.branch
-        )
+        log = pkg.merge_requests.extract_log_from_job_mr(self.jobname, self.branch)
 
         if log is None:
-            log = self.pkg_group_handler.extract_log_from_job(pkg, self.jobname)
+            latest_pipeline = pkg.pipelines.get_latest()
+            if latest_pipeline:
+                log = latest_pipeline.jobs.extract_log_from_job(self.jobname)
 
         if log is None:
             logger.error("Failed to extract log from job %s", self.jobname)
             return
         log = self.normalize_gitlab_log(log)
-        console = Console()
         if not log.strip():
-            console.print(Text("No log output available.", style="italic"))
+            self.console.print(
+                Panel(
+                    "[italic dim]No log output available.[/italic dim]",
+                    title="[bold blue]Job Log[/bold blue]",
+                    border_style="dim",
+                )
+            )
         else:
             text = Text.from_ansi(log)
-            console.print(text)
+            self.console.print(text)

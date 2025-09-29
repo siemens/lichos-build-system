@@ -4,7 +4,8 @@ from pathlib import Path
 from git import GitCommandError
 
 from lichoscli.commands.base import Command
-from lichoscli.pkg import PkgGroupHandler
+from lichoscli.core.di import DIContainer
+from lichoscli.core.services import PackageService
 from lichoscli.utils import GitUtils
 
 logger = logging.getLogger(__name__)
@@ -13,8 +14,9 @@ logger = logging.getLogger(__name__)
 class SubmoduleCommand(Command):
     """Manage git submodule projects with all packages in a flattened hierarchy"""
 
-    def __init__(self, pkg_group_handler: PkgGroupHandler, args):
-        super().__init__(pkg_group_handler=pkg_group_handler, args=args)
+    def __init__(self, di_container: DIContainer, args):
+        super().__init__(di_container, args)
+        self.package_service = di_container.obtain_ref(PackageService)
         self.subcommand = getattr(args, "subcommand", None)
         if self.subcommand == "create":
             self.project_name = args.project_name
@@ -29,26 +31,35 @@ class SubmoduleCommand(Command):
         # Create subcommand
         create_parser = subparsers.add_parser("create", help="create a new submodule project")
         create_parser.add_argument("project_name", help="name of the submodule project to create")
-        create_parser.add_argument("--output-dir", "-o", default=".", 
-                                   help="output directory for the project (default: current directory)")
-        create_parser.add_argument("--push", action="store_true",
-                                   help="push changes to remote repository after creating the project")
+        create_parser.add_argument(
+            "--output-dir",
+            "-o",
+            default=".",
+            help="output directory for the project (default: current directory)",
+        )
+        create_parser.add_argument(
+            "--push",
+            action="store_true",
+            help="push changes to remote repository after creating the project",
+        )
 
-        # Update subcommand  
+        # Update subcommand
         update_parser = subparsers.add_parser("update", help="update existing submodule project")
         update_parser.add_argument("path", help="path to existing submodule project to update")
-        update_parser.add_argument("--push", action="store_true",
-                                   help="push changes to remote repository after updating")
+        update_parser.add_argument(
+            "--push",
+            action="store_true",
+            help="push changes to remote repository after updating",
+        )
 
     def execute(self):
         """Execute the submodule command based on the specified subcommand."""
         if self.subcommand == "create":
             return self._execute_create()
-        elif self.subcommand == "update":
+        if self.subcommand == "update":
             return self._execute_update()
-        else:
-            logger.error("Invalid subcommand: %s. Use 'create' or 'update'", self.subcommand)
-            return 1
+        logger.error("Invalid subcommand: %s. Use 'create' or 'update'", self.subcommand)
+        return 1
 
     def _execute_create(self):
         """Execute the create subcommand to create a new submodule project."""
@@ -62,17 +73,17 @@ class SubmoduleCommand(Command):
             logger.error("Project directory '%s' already exists", project_path)
             logger.error("Please choose a different project name or remove the existing directory")
             return 1
-        
+
         logger.info("Creating submodule project: %s", project_path)
         project_path.mkdir(parents=True, exist_ok=True)
 
         # Initialize repository
         initial_branch = self.args.branch
-        origin_url = f"git@{self.args.host}:{self.pkg_group_handler.group_rpath}/{self.project_name}.git"
+        origin_url = f"git@{self.args.host}:{self.di_container.group_rpath}/{self.project_name}.git"
         repo = GitUtils.initialize_repository(project_path, initial_branch, origin_url)
 
         # Get packages and add as submodules
-        packages = self.pkg_group_handler.get_all_packages()
+        packages = self.package_service.get_all_packages()
         if not packages:
             logger.warning("No packages found to add as submodules")
             return 0
@@ -82,7 +93,12 @@ class SubmoduleCommand(Command):
 
         for package in sorted(packages, key=lambda p: p.name):
             success = GitUtils.add_package_as_submodule(
-                repo, project_path, package.name, package.ssh_url_to_repo, package.default_branch)
+                repo,
+                project_path,
+                package.name,
+                package.ssh_url_to_repo,
+                package.default_branch,
+            )
             (added_submodules if success else failed_submodules).append(package.name)
 
         if added_submodules and not GitUtils.commit_submodules_file(repo):
@@ -99,7 +115,10 @@ class SubmoduleCommand(Command):
 
         gitmodules_path = self.target_path / ".gitmodules"
         if not gitmodules_path.exists():
-            logger.warning("No .gitmodules file found in '%s' - no submodules to update", self.target_path)
+            logger.warning(
+                "No .gitmodules file found in '%s' - no submodules to update",
+                self.target_path,
+            )
             return 0
 
         logger.info("Found git repository with submodules at: %s", self.target_path)
@@ -113,7 +132,11 @@ class SubmoduleCommand(Command):
             updated_names = []
             for submodule in submodules:
                 if GitUtils.update_submodule_with_latest_commit(
-                    repo, submodule, self.pkg_group_handler, getattr(self.args, 'branch', None)):
+                    repo,
+                    submodule,
+                    self.di_container,
+                    getattr(self.args, "branch", None),
+                ):
                     updated_names.append(submodule.name)
 
             # Commit and push if needed
@@ -176,16 +199,19 @@ class SubmoduleCommand(Command):
             if not GitUtils.push_changes_and_tags(repo):
                 logger.error("Failed to push changes to remote repository")
                 logger.error("Please ensure the remote repository exists and you have push permissions:")
-                origin_url = f"git@{self.args.host}:{self.pkg_group_handler.group_rpath}/{self.project_name}.git"
+                origin_url = f"git@{self.args.host}:{self.di_container.group_rpath}/{self.project_name}.git"
                 logger.error("  Remote URL: %s", origin_url)
                 logger.error("You can create the repository manually and push later with:")
                 logger.error("  cd %s", project_path)
-                logger.error("  git push -u origin %s", getattr(self.args, 'branch', None) or "main")
+                logger.error(
+                    "  git push -u origin %s",
+                    getattr(self.args, "branch", None) or "main",
+                )
                 return 2
         else:
             logger.info("Changes have been committed locally. Use --push to push to remote repository.")
             logger.info("To push manually:")
             logger.info("  cd %s", project_path)
-            logger.info("  git push -u origin %s", getattr(self.args, 'branch', None) or "main")
+            logger.info("  git push -u origin %s", getattr(self.args, "branch", None) or "main")
 
         return 0 if not failed_submodules else 2

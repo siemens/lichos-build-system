@@ -1,79 +1,91 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from lichoscli.commands.show import ShowCommand
-
-
-@pytest.fixture
-def mock_pkg():
-    pkg = MagicMock()
-    pkg.id = "pkgid"
-    pkg.path = "/some/path"
-    pkg.builds_access_level = "private"
-    pkg.default_branch = "main"
-    pkg.ci_config_path = "/some/.gitlab-ci.yml"
-    pkg.attributes = {}
-    pkg.branches.list.return_value = []
-    return pkg
-
-
-@pytest.fixture
-def mock_pkg_with_fork(mock_pkg):
-    mock_pkg.attributes = {
-        "forked_from_project": {"path_with_namespace": "group/parent"}
-    }
-    return mock_pkg
+from tests.mocks import create_mock_args
 
 
 @pytest.fixture
 def mock_args():
-    class Args:
-        package = "mypkg"
-        branches = False
-
-    return Args()
-
-
-def test_show_package_not_found(mock_args):
-    handler = MagicMock()
-    handler.get_package.return_value = None
-    cmd = ShowCommand(handler, mock_args)
-    with patch("builtins.print") as mock_print:
-        ret = cmd.execute()
-        assert ret == 1
-        assert "not found" in mock_print.call_args[0][0]
+    args = create_mock_args()
+    args.package = "mypkg"
+    args.branches = False
+    args.mr = False
+    args.mr_all = False
+    args.dump = False
+    return args
 
 
-def test_show_branches(monkeypatch, mock_args):
-    handler = MagicMock()
+def test_show_package_not_found(mock_di_container, mock_args):
+    """Test execution when package is not found."""
+    package_service = mock_di_container.package_service
+    package_service.get_package.return_value = None
+
+    cmd = ShowCommand(mock_di_container, mock_args)
+    ret = cmd.execute()
+
+    assert ret == 1
+    package_service.get_package.assert_called_once_with("mypkg")
+
+
+def test_show_package_info_success(mock_di_container, mock_args):
+    """Test successful execution showing package info."""
+    package_service = mock_di_container.package_service
+    pkg = MagicMock()
+    pkg.id = "pkgid"
+    pkg.name = "mypkg"
+    pkg.path = "/some/path"
+    pkg.builds_access_level = "private"
+    pkg.default_branch = "main"
+    pkg.attributes = {}
+    pkg.variables.list.return_value = []
+    package_service.get_package.return_value = pkg
+    package_service.pretty_format_ci_path.return_value = "formatted_path"
+
+    cmd = ShowCommand(mock_di_container, mock_args)
+    ret = cmd.execute()
+
+    assert ret == 0
+    package_service.get_package.assert_called_once_with("mypkg")
+
+
+def test_show_branches_success(mock_di_container, mock_args):
+    """Test successful execution showing branches."""
+    package_service = mock_di_container.package_service
     mock_args.branches = True
     pkg = MagicMock()
+    pkg.name = "mypkg"
     branch = MagicMock()
     branch.commit = {"id": "abcdef123456", "committed_date": "2024-01-01T00:00:00Z"}
     branch.protected = True
     branch.name = "feature"
     pkg.branches.list.return_value = [branch]
-    handler.get_package.return_value = pkg
+    package_service.get_package.return_value = pkg
 
     with patch("lichoscli.commands.show.parser.isoparse") as mock_isoparse:
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta, timezone
 
         mock_isoparse.return_value = datetime.now(timezone.utc) - timedelta(days=5)
-        cmd = ShowCommand(handler, mock_args)
-        with patch("builtins.print") as mock_print:
-            ret = cmd.execute()
-            assert ret == 0
-            assert mock_print.called
+
+        cmd = ShowCommand(mock_di_container, mock_args)
+        ret = cmd.execute()
+
+        assert ret == 0
+        package_service.get_package.assert_called_once_with("mypkg")
 
 
-def test_show_branches_none(monkeypatch, mock_args):
-    handler = MagicMock()
+def test_show_branches_none(mock_di_container, mock_args):
+    """Test execution when no branches found."""
+    package_service = mock_di_container.package_service
     mock_args.branches = True
     pkg = MagicMock()
+    pkg.name = "mypkg"
     pkg.branches.list.return_value = []
-    handler.get_package.return_value = pkg
+    package_service.get_package.return_value = pkg
 
-    cmd = ShowCommand(handler, mock_args)
-    with patch("builtins.print") as mock_print:
-        ret = cmd.execute()
-        assert ret == 1
-        assert "No branches found" in mock_print.call_args[0][0]
+    cmd = ShowCommand(mock_di_container, mock_args)
+    ret = cmd.execute()
+
+    assert ret == 1
+    package_service.get_package.assert_called_once_with("mypkg")

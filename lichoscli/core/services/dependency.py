@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, List, NamedTuple
+from typing import NamedTuple
 
 from ..models import BuildDependency, DependencyGraph, Project
 
@@ -20,9 +20,13 @@ class DependencyService(ABC):
     """Abstract interface for dependency management operations."""
 
     @abstractmethod
-    def get_forward_dependencies(
-        self, package: Project, branch: str = None, wait_for_completion: bool = True
-    ) -> List[BuildDependency]:
+    def fetch_build_dependencies(
+        self,
+        package: Project,
+        branch: str | None = None,
+        wait_for_completion: bool = True,
+        architecture: str | None = None,
+    ) -> list[BuildDependency]:
         """Get forward dependencies (build dependencies) for a package."""
 
     @abstractmethod
@@ -95,10 +99,8 @@ class DependencyService(ABC):
     @abstractmethod
     def check_all_dependency_versions_from_dag(
         self,
-        dag: DependencyGraph,
-        branch: str = None,
-        wait_for_completion: bool = True,
-    ) -> List[VersionCheckResult]:
+        dag: DependencyGraph
+    ) -> list[VersionCheckResult]:
         """
         Check dependency versions for all packages using the DAG for optimization.
 
@@ -118,9 +120,10 @@ class DependencyService(ABC):
     @abstractmethod
     def build_dependency_dag(
         self,
-        all_packages: List[Project],
-        branch: str = None,
+        all_packages: list[Project],
+        branch: str | None = None,
         wait_for_completion: bool = True,
+        architecture: str | None = None,
     ) -> DependencyGraph:
         """
         Build a directed acyclic graph (DAG) of all package dependencies.
@@ -129,6 +132,7 @@ class DependencyService(ABC):
             all_packages: All packages to include in the DAG
             branch: Branch to get buildinfo from. If None, uses each package's default branch
             wait_for_completion: Whether to wait for pipeline completion. If False, uses latest available pipeline.
+            architecture: Architecture to fetch buildinfo for. If None, uses host architecture.
 
         Returns:
             DAG representation of all package dependencies
@@ -136,7 +140,7 @@ class DependencyService(ABC):
 
     @abstractmethod
     def display_dependency_version_verification(
-        self, version_check_results: List[VersionCheckResult], console
+        self, version_check_results: list[VersionCheckResult], console
     ) -> None:
         """
         Display comprehensive dependency version verification results in a table format.
@@ -157,7 +161,7 @@ class DependencyService(ABC):
         """
 
     @abstractmethod
-    def get_dag_changed_packages(self, old_dag: DependencyGraph, new_dag: DependencyGraph) -> Dict[str, tuple]:
+    def get_dag_changed_packages(self, old_dag: DependencyGraph, new_dag: DependencyGraph) -> dict[str, tuple]:
         """
         Get packages with changed commits between two DAG states.
 
@@ -168,4 +172,23 @@ class DependencyService(ABC):
         Returns:
             Dict mapping package names to (project, old_commit, new_commit) tuples
             where project has path_with_namespace attribute, old_commit may be None for new packages
+        """
+
+    @abstractmethod
+    def has_dag_state_changed(self, old_dag: DependencyGraph, new_dag: DependencyGraph) -> bool:
+        """
+        Check if the DAG state has changed in a meaningful way.
+
+        Compares:
+        - Number of packages
+        - Dependencies between packages
+        - Commit hashes of each package
+        - Status of each package (derived from pipeline status)
+
+        Args:
+            old_dag: Previous DAG state
+            new_dag: Current DAG state
+
+        Returns:
+            True if the graph state has changed, False otherwise
         """

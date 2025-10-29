@@ -1,6 +1,6 @@
 """GitLab implementation of workspace model."""
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 from lichoscli.core.models.workspace import Workspace
 
@@ -14,7 +14,7 @@ class GitLabWorkspace(Workspace):
     def __init__(
         self,
         name: str,
-        packages: List["Project"],
+        packages: list["Project"],
     ):
         """Initialize GitLab workspace.
 
@@ -31,7 +31,7 @@ class GitLabWorkspace(Workspace):
         return self._name
 
     @property
-    def packages(self) -> List["Project"]:
+    def packages(self) -> list["Project"]:
         """List of package objects that have branches with this workspace name."""
         return self._packages.copy()
 

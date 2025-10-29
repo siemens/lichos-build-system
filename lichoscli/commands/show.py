@@ -63,11 +63,10 @@ class ShowCommand(Command):
     def show_package_info(self, pkg):
         table = Table(
             title=f"Package Information: {pkg.name}",
-            show_header=True,
-            header_style="bold magenta",
+            show_header=True
         )
-        table.add_column("Setting", style="cyan", width=20)
-        table.add_column("Value", style="white")
+        table.add_column("Setting", width=20)
+        table.add_column("Value")
 
         table.add_row("id", str(pkg.id))
         table.add_row("path", pkg.path)
@@ -90,17 +89,17 @@ class ShowCommand(Command):
         try:
             variables = pkg.variables.list()
             if variables:
-                var_table = Table(title="Variables", show_header=True, header_style="bold cyan")
-                var_table.add_column("Type", style="green")
-                var_table.add_column("Key", style="yellow")
-                var_table.add_column("Value", style="white")
-                var_table.add_column("Hidden", style="red")
-                var_table.add_column("Protected", style="blue")
-                var_table.add_column("Masked", style="red")
-                var_table.add_column("Raw", style="dim")
-                var_table.add_column("Scope", style="magenta")
-                var_table.add_column("Level", style="orange1")
-                var_table.add_column("Description", style="dim")
+                var_table = Table(title="Variables", show_header=True)
+                var_table.add_column("Type")
+                var_table.add_column("Key")
+                var_table.add_column("Value")
+                var_table.add_column("Hidden")
+                var_table.add_column("Protected")
+                var_table.add_column("Masked")
+                var_table.add_column("Raw")
+                var_table.add_column("Scope")
+                var_table.add_column("Level")
+                var_table.add_column("Description")
 
                 for var in variables:
                     inherited_icon = "Inherited" if var.inherited else "Project Level"

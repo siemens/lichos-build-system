@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .job import Job
@@ -17,7 +17,7 @@ class Jobs(ABC):
         """Get a job by its ID."""
 
     @abstractmethod
-    def list(self) -> List["Job"]:
+    def list(self) -> list["Job"]:
         """Get all jobs in this pipeline."""
 
     @abstractmethod

@@ -125,14 +125,9 @@ class ReleaseCommand(Command):
 
     def _create_new_tag(self, package, tag: str, branch: str, package_name: str) -> bool:
         """Create a new tag for the package"""
-        tag_data = {
-            "tag_name": tag,
-            "ref": branch,
-            "message": f"Release snapshot {tag}",
-        }
 
         try:
-            package.tags.create(tag_data)
+            package.tags.create(name=tag, target=branch, message=f"Release snapshot {tag}")
             logger.info("Successfully created tag '%s' for package '%s'", tag, package_name)
             return True
         except GitlabError as e:

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from tempfile import NamedTemporaryFile
-from typing import Dict, Optional
+from typing import Optional
 
 from lichoscli.core.models.build import BuildParameters
 
@@ -10,7 +10,7 @@ from lichoscli.core.models.build import BuildParameters
 class BuildEnvironment:
     """Build environment configuration."""
 
-    variables: Dict[str, str]
+    variables: dict[str, str]
     image: str
     repo_setup_cmd: str
     build_cmd: str
@@ -26,7 +26,7 @@ class EnvironmentService(ABC):
 
     @abstractmethod
     def prepare_build_environment(
-        self, package_name: str, branch: str, base_environment: Dict[str, str]
+        self, package_name: str, branch: str, base_environment: dict[str, str]
     ) -> Optional[BuildEnvironment]:
         """
         Prepare the complete build environment for a package.
@@ -41,19 +41,22 @@ class EnvironmentService(ABC):
         """
 
     @abstractmethod
-    def create_environment_file(self, environment: Dict[str, str]) -> Optional[NamedTemporaryFile]:
+    def create_environment_file(
+        self, environment: dict[str, str], quote_values: bool = False
+    ) -> Optional[NamedTemporaryFile]:
         """
         Create a temporary file containing environment variables.
 
         Args:
             environment: Dictionary of environment variables
+            quote_values: Whether to quote values for shell sourcing (needed for SSH sessions)
 
         Returns:
             NamedTemporaryFile with environment variables, or None if creation failed
         """
 
     @abstractmethod
-    def expand_environment_variables(self, environment: Dict[str, str]) -> Dict[str, str]:
+    def expand_environment_variables(self, environment: dict[str, str]) -> dict[str, str]:
         """
         Expand environment variables that reference other variables.
 
@@ -66,8 +69,8 @@ class EnvironmentService(ABC):
 
     @abstractmethod
     def create_build_environment_from_config(
-        self, build_config: BuildParameters, package_variables: Dict[str, str] = None
-    ) -> Dict[str, str]:
+        self, build_config: BuildParameters, package_variables: dict[str, str] = None
+    ) -> dict[str, str]:
         """
         Create environment variables from BuildConfig in a provider-agnostic way.
 

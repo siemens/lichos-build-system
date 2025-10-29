@@ -1,7 +1,7 @@
 """Abstract dependency injection container interface."""
 
 from abc import ABC, abstractmethod
-from typing import Type, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 
@@ -10,7 +10,7 @@ class DIContainer(ABC):
     """Abstract interface for dependency injection container."""
 
     @abstractmethod
-    def obtain_ref(self, ref_type: Type[T]) -> T:
+    def obtain_ref(self, ref_type: type[T]) -> T:
         """
         Resolve a reference instance by its type.
 
@@ -26,7 +26,7 @@ class DIContainer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def register_reference(self, reference_type: Type[T], implementation: T) -> None:
+    def register_reference(self, reference_type: type[T], implementation: T) -> None:
         """
         Register a reference implementation for a given type.
 

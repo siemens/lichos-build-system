@@ -1,6 +1,6 @@
 """GitLab Tags collection wrapper."""
 
-from typing import List, Optional
+from typing import Optional
 
 from gitlab import GitlabError
 from gitlab.v4.objects import Project as GitLabProject
@@ -16,7 +16,7 @@ class GitLabTags(Tags):
     def __init__(self, gitlab_project: GitLabProject):
         self._project = gitlab_project
 
-    def list(self) -> List[Tag]:
+    def list(self) -> list[Tag]:
         """Get all tags in this collection."""
         return [GitLabTag(tag) for tag in self._project.tags.list(all=True)]
 

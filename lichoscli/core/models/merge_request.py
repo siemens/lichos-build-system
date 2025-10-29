@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any
 
 
 class MergeRequest(ABC):
@@ -17,7 +17,7 @@ class MergeRequest(ABC):
 
     @property
     @abstractmethod
-    def author(self) -> Dict[str, Any]:
+    def author(self) -> dict[str, Any]:
         """MR author information."""
 
     @property
@@ -51,4 +51,12 @@ class MergeRequest(ABC):
 
         Returns:
             Pipeline ID on success, raises exception on failure.
+        """
+
+    @abstractmethod
+    def merge(self) -> bool:
+        """Merge this merge request.
+
+        Returns:
+            True if merge was successful, False otherwise.
         """

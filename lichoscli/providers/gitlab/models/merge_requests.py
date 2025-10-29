@@ -1,7 +1,7 @@
 """GitLab merge requests collection implementation."""
 
 import logging
-from typing import List, Optional
+from typing import Optional
 
 from gitlab import GitlabError
 
@@ -24,7 +24,7 @@ class GitLabMergeRequests(MergeRequests):
         state: str = "opened",
         branch_name: Optional[str] = None,
         get_all: bool = False,
-    ) -> List[MergeRequest]:
+    ) -> list[MergeRequest]:
         """Get merge requests in this collection."""
         try:
             filters = {"state": state}
@@ -74,7 +74,7 @@ class GitLabMergeRequests(MergeRequests):
                 return None
 
             # Use the first (most recent) merge request
-            mr_partial = mrs[0].gitlab_mr
+            mr_partial = mrs[0]._mr
             logger.debug(
                 "Found merge request #%s for branch %s",
                 mr_partial.iid,

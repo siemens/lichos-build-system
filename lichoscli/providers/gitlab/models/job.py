@@ -21,8 +21,8 @@ class GitLabJob(Job):
         self,
         gitlab_job: GitLabJobModel,
         project: GitLabProject,
-        ref_name: str = None,
-        pipeline_ref: "Pipeline" = None,
+        ref_name: str | None = None,
+        pipeline_ref: "Pipeline | None" = None,
     ):
         self._job = gitlab_job
         self._project = project

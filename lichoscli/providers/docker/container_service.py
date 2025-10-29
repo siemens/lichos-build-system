@@ -1,6 +1,5 @@
 import logging
 import subprocess
-from typing import List
 
 from lichoscli.core.services import ContainerConfig, ContainerResult, ContainerService
 
@@ -124,11 +123,11 @@ class DockerContainerService(ContainerService):
             logger.error("Error checking if container is running %s: %s", container_name, e)
             return False
 
-    def _build_docker_command(self, config: ContainerConfig) -> List[str]:
+    def _build_docker_command(self, config: ContainerConfig) -> list[str]:
         """Build the Docker command from configuration."""
         cmd = ["docker", "run", "--name", config.name]
 
-        if hasattr(config, "env_file") and getattr(config, "env_file", None):
+        if config.env_file:
             cmd.extend(["--env-file", config.env_file])
 
         for key, value in config.environment.items():
@@ -153,6 +152,8 @@ class DockerContainerService(ContainerService):
             cmd.append("-d")
         if config.interactive:
             cmd.append("-it")
+        if config.privileged:
+            cmd.append("--privileged")
         if config.remove_on_exit and not config.detached:
             cmd.append("--rm")
 

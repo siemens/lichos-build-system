@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Optional
 
 
 @dataclass
@@ -19,16 +19,15 @@ class BuildParameters:
     shell_mode: bool = False
     editor_mode: bool = False
     no_cache: bool = False
+    privileged: bool = False
     custom_script: Optional[str] = None
-
-
 
 
 @dataclass
 class BuildDependency:
     """Represents a build dependency with version information."""
 
-    package: str
+    package_name: str
     version: str
     architecture: str
 
@@ -49,10 +48,10 @@ class BuildInfo:
 
     format: str
     source: str
-    binary: List[str]
+    binary: list[str]
     architecture: str
     version: str
-    installed_build_depends: Dict[str, BuildDependency]
+    installed_build_depends: dict[str, BuildDependency]
 
     def has_build_dependency(self, package_name: str) -> bool:
         """Check if a package is in build dependencies (fast O(1) lookup)."""

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from .merge_requests import MergeRequests
@@ -78,12 +78,12 @@ class Project(ABC):
 
     @property
     @abstractmethod
-    def attributes(self) -> Dict[str, Any]:
+    def attributes(self) -> dict[str, Any]:
         """Project attributes including forked_from_project."""
 
     @property
     @abstractmethod
-    def namespace(self) -> Dict[str, Any]:
+    def namespace(self) -> dict[str, Any]:
         """Project namespace information."""
 
     @property
@@ -162,3 +162,7 @@ class Project(ABC):
         Returns:
             The latest commit SHA if successful, None otherwise
         """
+
+    @abstractmethod
+    def has_protected_branches_with_push_access(self) -> list[str]:
+        """Get list of protected branches that allow direct push access."""

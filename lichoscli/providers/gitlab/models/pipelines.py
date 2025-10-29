@@ -1,7 +1,6 @@
 """GitLab Pipelines collection wrapper."""
 
 import logging
-from typing import List, Optional
 
 import requests
 from gitlab import GitlabError
@@ -22,19 +21,24 @@ class GitLabPipelines(Pipelines):
         self._project = gitlab_project
         self._core_project_ref = core_project
         self.id = gitlab_project.id
+        self._cache: dict[str, Pipeline | None] = {}
 
     # demeters law
-    def get_latest(self, branch: str = None) -> Optional[Pipeline]:
-        """Get the latest pipeline for a branch."""
+    def get_latest(self, branch: str | None = None, use_cache: bool = True) -> Pipeline | None:
+        """Return the most recent pipeline for a branch (or default branch)."""
         target_branch = branch if branch else self._project.default_branch
 
+        if use_cache and target_branch in self._cache:
+            logger.debug("Using cached pipeline for %s on branch %s", self._project.name, target_branch)
+            return self._cache[target_branch]
+
         try:
-            pipelines = self._project.pipelines.list(
-                ref=target_branch, per_page=1, order_by="id", sort="desc", get_all=False
+            pipelines = self.list(
+                target_branch, per_page=40, get_all=True
             )
-            if pipelines:
-                return GitLabPipeline(pipelines[0], self._core_project_ref)
-            return None
+            result = pipelines[0] if pipelines else None
+            self._cache[target_branch] = result
+            return result
         except (GitlabError, requests.exceptions.RequestException) as e:
             logger.warning(
                 "Failed to get pipeline for %s on branch %s (will retry): %s",
@@ -44,9 +48,10 @@ class GitLabPipelines(Pipelines):
             )
             return None
 
-    def list(self, branch: str = None, **kwargs) -> List[Pipeline]:
+    def list(self, branch: str | None = None, **kwargs) -> list[Pipeline]:
         """List pipelines for a branch with optional filters."""
-        list_params = {}
+        list_params = {"order_by": "id", "sort": "desc"}
+        
         if branch:
             list_params["ref"] = branch
         list_params.update(kwargs)
@@ -62,7 +67,7 @@ class GitLabPipelines(Pipelines):
             )
             return []
 
-    def trigger_build(self, branch_name: str = None) -> int:
+    def trigger_build(self, branch_name: str = None) -> Pipeline | None:
         """Trigger a build for a branch.
 
         If there's an open merge request for the branch, triggers an MR pipeline.
@@ -85,17 +90,20 @@ class GitLabPipelines(Pipelines):
                         ref,
                         mr.iid,
                     )
-                    return 0
+                    gitlab_pipeline = self._project.pipelines.get(pipeline_id)
+                    pipeline = GitLabPipeline(gitlab_pipeline, self._core_project_ref)
+                    return pipeline
 
             # Fallback to regular branch pipeline
-            pipeline = self._project.pipelines.create({"ref": ref})
+            gitlab_pipeline = self._project.pipelines.create({"ref": ref})
             logger.info(
                 "Triggered branch pipeline %s for %s on branch %s",
-                pipeline.id,
+                gitlab_pipeline.id,
                 self._project.name,
                 ref,
             )
-            return 0
+            pipeline = GitLabPipeline(gitlab_pipeline, self._core_project_ref)
+            return pipeline
         except (GitlabError, requests.exceptions.RequestException) as e:
             logger.error(
                 "Failed to trigger pipeline for %s on branch %s: %s",
@@ -103,14 +111,14 @@ class GitLabPipelines(Pipelines):
                 branch_name,
                 str(e),
             )
-            return 1
+            return None
 
     def verify_builds_success(self) -> bool:
         """Verify builds and tests for this project."""
         latest_pipeline = self.get_latest()
         return latest_pipeline.status.is_successful if latest_pipeline else False
 
-    def get_some_latest_pipeline(self, branch: str = None) -> Pipeline:
+    def get_some_latest_pipeline(self, branch: str | None = None) -> Pipeline | None:
         """Get the most up-to-date successful pipeline.
 
         Returns the latest successful pipeline from the project. First tries the specified
@@ -128,32 +136,29 @@ class GitLabPipelines(Pipelines):
         target_branch = branch if branch else self._project.default_branch
 
         try:
-            pipelines = self._project.pipelines.list(
-                ref=target_branch,
-                per_page=20,
-                order_by="id",
-                sort="desc",
+            pipelines = self.list(
+                target_branch,
+                per_page=40,
                 get_all=False,
             )
 
             for pipeline in pipelines:
-                if pipeline.status == "success":
-                    wrapped_pipeline = GitLabPipeline(pipeline, self._core_project_ref)
-                    return wrapped_pipeline
+                if pipeline.status.is_successful:
+                    return pipeline
             # No successful pipeline found on target branch, try default branch
-            if target_branch != self._project.default_branch:
-                pipelines = self._project.pipelines.list(per_page=20, order_by="id", sort="desc", get_all=False)
+            if target_branch != self._project.default_branch and pipelines is not None:
+                pipelines = self.list(self._project.default_branch, per_page=40, get_all=True)
                 for pipeline in pipelines:
-                    if pipeline.status == "success":
-                        wrapped_pipeline = GitLabPipeline(pipeline, self._core_project_ref)
-                        logger.info(
+                    if pipeline.status.is_successful:
+                        logger.debug(
                             "Falling back to successful pipeline %s on branch %s for project %s",
-                            wrapped_pipeline.id,
-                            wrapped_pipeline.ref,
+                            pipeline.id,
+                            pipeline.ref,
                             self._project.name,
                         )
-                        return wrapped_pipeline
-            raise ValueError("No successful pipelines found for project %s" % self._project.name)
+                        return pipeline
+            logger.debug("No successful pipelines found for project %s", self._project.name)
+            return None
 
         except (GitlabError, requests.exceptions.RequestException) as e:
             logger.error(
@@ -161,4 +166,4 @@ class GitLabPipelines(Pipelines):
                 self._project.name,
                 str(e),
             )
-            raise ValueError("Could not retrieve successful pipeline for %s: %s" % (self._project.name, str(e))) from e
+            raise ValueError(f"Could not retrieve successful pipeline for {self._project.name}: {str(e)}") from e

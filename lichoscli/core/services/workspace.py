@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from ..models.workspace import Workspace
@@ -16,7 +16,7 @@ class WorkspaceService(ABC):
     def create_workspace(
         self,
         name: str,
-        package_names: List[str],
+        package_names: list[str],
     ) -> "Workspace":
         """Create a new workspace by creating branches in specified packages.
 
@@ -64,7 +64,7 @@ class WorkspaceService(ABC):
         """
 
     @abstractmethod
-    def list_workspaces(self) -> List["Workspace"]:
+    def list_workspaces(self) -> list["Workspace"]:
         """List all workspaces by finding all unique branch names across packages."""
 
     @abstractmethod
@@ -83,7 +83,7 @@ class WorkspaceService(ABC):
         """Get the currently active workspace based on LICHOS_BRANCH environment variable or current git branch."""
 
     @abstractmethod
-    def get_workspaces_by_package(self, package_name: str) -> List["Workspace"]:
+    def get_workspaces_by_package(self, package_name: str) -> list["Workspace"]:
         """Get list of workspaces that contain the specified package.
 
         Args:

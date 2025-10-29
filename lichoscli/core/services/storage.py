@@ -82,7 +82,7 @@ class StorageService(ABC):
                 return None
 
             return self.load_state(storage_id)
-        except (IOError, ValueError):
+        except (OSError, ValueError):
             return None
 
     def save_workspace_state(self, workspace_name: str, dag: DependencyGraph) -> bool:
@@ -107,5 +107,5 @@ class StorageService(ABC):
                 storage_id = self.create_storage(title, description)
 
             return self.save_state(storage_id, dag)
-        except (IOError, ValueError):
+        except (OSError, ValueError):
             return False

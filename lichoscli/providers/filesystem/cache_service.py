@@ -60,7 +60,7 @@ class DiskCacheService(CacheService):
             if value is None:
                 logger.debug("Cache miss for key: %s", key)
             return value
-        except (OSError, IOError, ValueError) as e:
+        except (OSError, ValueError) as e:
             logger.warning("Error reading from cache for key %s: %s", key, str(e))
             return None
 
@@ -80,7 +80,7 @@ class DiskCacheService(CacheService):
             success = self.cache.set(key, value, expire=ttl)
             if not success:
                 logger.warning("Failed to cache value for key: %s", key)
-        except (OSError, IOError, ValueError) as e:
+        except (OSError, ValueError) as e:
             logger.warning("Error writing to cache for key %s: %s", key, str(e))
 
     def delete(self, key: str) -> bool:
@@ -95,7 +95,7 @@ class DiskCacheService(CacheService):
         """
         try:
             return self.cache.delete(key)
-        except (OSError, IOError, ValueError) as e:
+        except (OSError, ValueError) as e:
             logger.warning("Error deleting cache key %s: %s", key, str(e))
             return False
 
@@ -104,7 +104,7 @@ class DiskCacheService(CacheService):
         try:
             self.cache.clear()
             logger.debug("Cleared all cache entries")
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.warning("Error clearing cache: %s", str(e))
 
     def stats(self) -> dict:
@@ -122,7 +122,7 @@ class DiskCacheService(CacheService):
                 "size_limit": self.cache.size_limit,
                 "default_ttl": self.default_ttl,
             }
-        except (OSError, IOError, AttributeError) as e:
+        except (OSError, AttributeError) as e:
             logger.warning("Error getting cache stats: %s", str(e))
             return {}
 
@@ -131,5 +131,5 @@ class DiskCacheService(CacheService):
         try:
             self.cache.close()
             logger.debug("Closed cache connection")
-        except (OSError, IOError, AttributeError) as e:
+        except (OSError, AttributeError) as e:
             logger.warning("Error closing cache: %s", str(e))

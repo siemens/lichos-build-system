@@ -1,8 +1,10 @@
 """GitLab dependency service implementation."""
 
 import logging
-from typing import TYPE_CHECKING, Dict, List
+import os
+from typing import TYPE_CHECKING
 
+from gitlab import GitlabError
 from packaging import version
 from rich import box
 from rich.table import Table
@@ -17,6 +19,7 @@ from lichoscli.core.models import (
     Project,
 )
 from lichoscli.core.services import DependencyService, VersionCheckResult
+from lichoscli.utils.build import BuildUtils
 
 if TYPE_CHECKING:
     from lichoscli.core.services import BuildInfoService
@@ -31,12 +34,19 @@ class GitLabDependencyService(DependencyService):
         """Initialize the GitLab dependency service."""
         self._buildinfo_service = buildinfo_service
 
-    def get_forward_dependencies(
-        self, package: Project, branch: str = None, wait_for_completion: bool = True
-    ) -> List[BuildDependency]:
+    def fetch_build_dependencies(
+        self,
+        package: Project,
+        branch: str | None = None,
+        wait_for_completion: bool = True,
+        architecture: str | None = None,
+    ) -> list[BuildDependency]:
         """Get forward dependencies (build dependencies) for a package."""
 
-        buildinfo = self._buildinfo_service.get_buildinfo(package, branch, wait_for_completion)
+        if architecture is None:
+            architecture = BuildUtils.normalize_architecture(os.uname().machine)
+
+        buildinfo = self._buildinfo_service.get_buildinfo(package, branch, wait_for_completion, architecture)
         if not buildinfo or not buildinfo.installed_build_depends:
             return []
 
@@ -150,10 +160,8 @@ class GitLabDependencyService(DependencyService):
 
     def check_all_dependency_versions_from_dag(
         self,
-        dag: DependencyGraph,
-        branch: str = None,
-        wait_for_completion: bool = True,
-    ) -> List[VersionCheckResult]:
+        dag: DependencyGraph
+    ) -> list[VersionCheckResult]:
         """
         Check dependency versions for all packages using the DAG for optimization.
 
@@ -161,10 +169,6 @@ class GitLabDependencyService(DependencyService):
         relationships without redundant buildinfo fetches or dependency lookups.
         Uses embedded project references from DAG nodes instead of external lookups.
         """
-        logger.info(
-            "Checking dependency versions for all packages using DAG optimization (%d packages)",
-            len(dag.nodes),
-        )
 
         results = []
 
@@ -208,14 +212,14 @@ class GitLabDependencyService(DependencyService):
                             )
                         )
 
-        logger.info("Found %d dependency version checks using DAG optimization", len(results))
         return results
 
     def build_dependency_dag(
         self,
-        all_packages: List[Project],
-        branch: str = None,
+        all_packages: list[Project],
+        branch: str | None = None,
         wait_for_completion: bool = True,
+        architecture: str | None = None,
     ) -> DependencyGraph:
         """
         Build a directed acyclic graph (DAG) of all package dependencies.
@@ -224,30 +228,45 @@ class GitLabDependencyService(DependencyService):
             all_packages: All packages to include in the DAG
             branch: Branch to get buildinfo from. If None, uses each package's default branch
             wait_for_completion: Whether to wait for pipeline completion. If False, uses latest available pipeline.
+            architecture: Architecture to fetch buildinfo for. If None, uses host architecture.
 
         Returns:
             DAG representation of all package dependencies
         """
+        if architecture is None:
+            architecture = BuildUtils.normalize_architecture(os.uname().machine)
+
         logger.info(
-            "Building dependency DAG for %d packages on branch %s (wait_for_completion=%s)",
+            "Building dependency DAG for %d packages on branch %s (wait_for_completion=%s, architecture=%s)",
             len(all_packages),
             branch or "default",
             wait_for_completion,
+            architecture,
         )
 
-        if branch:
-            self._buildinfo_service.get_buildinfo_bulk(all_packages, branch, wait_for_completion)
-        else:
-            self._buildinfo_service.get_buildinfo_bulk(all_packages, wait_for_completion)
+        buildinfo_map = self._buildinfo_service.get_buildinfo_bulk(
+            all_packages, branch, wait_for_completion, architecture
+        )
 
-        nodes = {}
+        nodes: dict[str, DAGNode] = {}
         dag = DependencyGraph(nodes={})
 
         for package in all_packages:
-            buildinfo = self._buildinfo_service.get_buildinfo(package, branch, wait_for_completion)
+            buildinfo = buildinfo_map.get(package.id)
+            if not buildinfo:
+                logger.debug("No buildinfo for package %s, skipping node creation", package.name)
+                continue
             pkg_version = buildinfo.version if buildinfo else "unknown"
             target_branch = branch if branch else package.default_branch
             commit_sha = package.get_latest_commit_sha(target_branch)
+    
+            node_status = DAGNodeStatus.PENDING
+            try:
+                latest_pipeline = package.pipelines.get_latest(target_branch)
+                if latest_pipeline:
+                    node_status = DAGNodeStatus.from_pipeline_status(latest_pipeline.status)
+            except GitlabError as e:
+                logger.debug("Could not get pipeline status for %s: %s", package.name, e)
 
             node = DAGNode(
                 package=package.name,
@@ -255,7 +274,7 @@ class GitLabDependencyService(DependencyService):
                 architecture="all",
                 reverse_dependencies={},
                 direct_dependencies={},
-                status=DAGNodeStatus.PENDING,
+                status=node_status,
                 buildinfo=buildinfo,
                 commit_sha=commit_sha,
                 project=package,
@@ -263,41 +282,41 @@ class GitLabDependencyService(DependencyService):
             nodes[package.name] = node
             dag.add_node(node)
 
-        for package in all_packages:
-            package_node = nodes[package.name]
+        for dependent_node in nodes.values():
+            dependent_package = dependent_node.project
+            if not dependent_package:
+                continue
 
-            forward_deps = self.get_forward_dependencies(package, branch, wait_for_completion)
+            build_dependencies = list(dependent_node.buildinfo.installed_build_depends.values())
+            # we search the name of the source package for each of the deps found in buildinfo installed deps
+            for build_dep in build_dependencies:
+                source_package_name = None
 
-            filtered_deps = list(forward_deps)
-
-            for dep in filtered_deps:
-                target_source_package = None
-
-                if dep.package in nodes:
-                    target_source_package = dep.package
+                if build_dep.package_name in nodes:
+                    source_package_name = build_dep.package_name
                 else:
-                    target_source_package = dag.find_source_for_binary(dep.package)
+                    source_package_name = dag.find_source_for_binary(build_dep.package_name)
 
-                if target_source_package:
-                    dep_node = nodes[target_source_package]
-                    package_node.add_dependency(dep_node)
-                    dep_node.add_dependent(package_node)
+                if source_package_name:
+                    dependency_node = nodes[source_package_name]
+                    dependent_node.add_dependency(dependency_node)
+                    dependency_node.add_dependent(dependent_node)
                     logger.debug(
                         "Added dependency: %s depends on %s (via binary package %s)",
-                        package.name,
-                        target_source_package,
-                        dep.package,
+                        dependent_package.name,
+                        source_package_name,
+                        build_dep.package_name,
                     )
 
         logger.info("Built DAG with %d nodes and dependency relationships", len(nodes))
         return dag
 
     def display_dependency_version_verification(
-        self, version_check_results: List[VersionCheckResult], console
+        self, version_check_results: list[VersionCheckResult], console
     ) -> None:
         """Display comprehensive dependency version verification results in a table format."""
         if not version_check_results:
-            console.print("\n[dim]No dependency version checks performed[/dim]")
+            console.print("\n[dim]All dependency versions match the expected values — no mismatches found.[/dim]")
             return
 
         console.print(
@@ -314,9 +333,9 @@ class GitLabDependencyService(DependencyService):
         incorrect_count = len(version_check_results) - correct_count
 
         if incorrect_count == 0:
-            console.print(f"[green]✓ All {correct_count} dependency version checks passed![/green]")
+            console.print(f"[green] All {correct_count} dependency version checks passed![/green]")
         else:
-            console.print(f"[yellow]⚠ {incorrect_count} version mismatches found, {correct_count} correct[/yellow]")
+            console.print(f"[yellow] {incorrect_count} version mismatches found, {correct_count} correct[/yellow]")
 
         table = Table(box=box.ROUNDED, title="Dependency Version Verification Details")
         table.add_column("Dependent Package", style="bold cyan")
@@ -349,13 +368,6 @@ class GitLabDependencyService(DependencyService):
                 )
 
         console.print(table)
-
-        if incorrect_count == 0:
-            console.print("\n[bold green]: All packages have correct dependency versions![/bold green]")
-        else:
-            console.print(
-                f"\n[bold yellow]⚠ WARNING: {incorrect_count} packages have outdated dependencies and need rebuilding[/bold yellow]"
-            )
 
     def print_dag_tree(self, dag: DependencyGraph, console) -> None:
         """Print the DAG as a tree structure using Rich library."""
@@ -412,7 +424,7 @@ class GitLabDependencyService(DependencyService):
         status_str = status.value if hasattr(status, "value") else str(status)
         return status_colors.get(status_str.lower(), "white")
 
-    def get_dag_changed_packages(self, old_dag: DependencyGraph, new_dag: DependencyGraph) -> Dict[str, tuple]:
+    def get_dag_changed_packages(self, old_dag: DependencyGraph, new_dag: DependencyGraph) -> dict[str, tuple]:
         """Get packages with changed commits between two DAG states."""
         changed_packages = {}
 
@@ -431,3 +443,67 @@ class GitLabDependencyService(DependencyService):
                 changed_packages[package_name] = (new_node.project, None, new_node.commit_sha)
 
         return changed_packages
+
+    def has_dag_state_changed(self, old_dag: DependencyGraph, new_dag: DependencyGraph) -> bool:
+        """
+        Check if the DAG state has changed in a meaningful way.
+
+        This checks for changes in:
+        1. Number of packages in the graph
+        2. Dependencies between packages (direct and reverse)
+        3. Commit hashes of each package
+        4. Status of each package (derived from pipeline status)
+
+        Args:
+            old_dag: Previous DAG state
+            new_dag: Current DAG state
+
+        Returns:
+            True if the graph state has changed, False otherwise
+        """
+        # Check if number of packages changed
+        if len(old_dag.nodes) != len(new_dag.nodes):
+            logger.info("DAG state changed: number of packages differs (%d vs %d)",
+                       len(old_dag.nodes), len(new_dag.nodes))
+            return True
+
+        # Check if package set changed
+        old_packages = set(old_dag.nodes.keys())
+        new_packages = set(new_dag.nodes.keys())
+        if old_packages != new_packages:
+            added = new_packages - old_packages
+            removed = old_packages - new_packages
+            logger.info("DAG state changed: package set differs (added: %s, removed: %s)",
+                       added, removed)
+            return True
+
+        # Check each package for changes in commit hash, dependencies, or status
+        for package_name in old_packages:
+            old_node = old_dag.nodes[package_name]
+            new_node = new_dag.nodes[package_name]
+
+            # Check if commit hash changed
+            if old_node.commit_sha != new_node.commit_sha:
+                logger.info("DAG state changed: %s commit changed (%s -> %s)",
+                           package_name, old_node.commit_sha, new_node.commit_sha)
+                return True
+
+            old_deps = set(old_node.direct_dependencies.keys())
+            new_deps = set(new_node.direct_dependencies.keys())
+            if old_deps != new_deps:
+                logger.info("DAG state changed: %s dependencies changed", package_name)
+                return True
+
+            old_rev_deps = set(old_node.reverse_dependencies.keys())
+            new_rev_deps = set(new_node.reverse_dependencies.keys())
+            if old_rev_deps != new_rev_deps:
+                logger.info("DAG state changed: %s reverse dependencies changed", package_name)
+                return True
+
+            if old_node.status != new_node.status:
+                logger.info("DAG state changed: %s status changed (%s -> %s)",
+                           package_name, old_node.status.value, new_node.status.value)
+                return True
+
+        logger.info("DAG state unchanged: no differences detected")
+        return False

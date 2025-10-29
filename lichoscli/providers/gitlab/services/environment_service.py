@@ -1,7 +1,8 @@
-import os
 import logging
+import os
+import shlex
 import tempfile
-from typing import Dict, Optional
+from typing import Optional
 
 from lichoscli.core.models.build import BuildParameters
 from lichoscli.core.services import BuildEnvironment, EnvironmentService, PackageService
@@ -17,7 +18,7 @@ class GitLabEnvironmentService(EnvironmentService):
         self.package_service = package_service
 
     def prepare_build_environment(
-        self, package_name: str, branch: str, base_environment: Dict[str, str]
+        self, package_name: str, branch: str, base_environment: dict[str, str]
     ) -> Optional[BuildEnvironment]:
         """Prepare the complete build environment for a package."""
         try:
@@ -60,33 +61,39 @@ class GitLabEnvironmentService(EnvironmentService):
 
             return BuildEnvironment(variables=env, image=image, repo_setup_cmd=repo_setup, build_cmd=build_cmd)
 
-        except (OSError, IOError, AttributeError) as e:
+        except (OSError, AttributeError) as e:
             logger.error("Failed to prepare build environment: %s", e)
             return None
 
-    def create_environment_file(self, environment: Dict[str, str]) -> Optional[tempfile.NamedTemporaryFile]:
+    def create_environment_file(
+        self, environment: dict[str, str], quote_values: bool = False
+    ) -> Optional[tempfile.NamedTemporaryFile]:
         """Create a temporary file containing environment variables."""
         try:
-            env_file = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".env")
+            env_file = tempfile.NamedTemporaryFile(mode="w", delete=False, prefix=".build", suffix=".env", dir='.')
 
             for key, value in environment.items():
-                env_file.write(f"{key}={value}\n")
+                if quote_values:
+                    quoted_value = shlex.quote(value)
+                    env_file.write(f"{key}={quoted_value}\n")
+                else:
+                    env_file.write(f"{key}={value}\n")
 
             env_file.flush()
             logger.debug("Created environment file: %s", env_file.name)
             return env_file
 
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.error("Failed to create environment file: %s", e)
             return None
 
-    def expand_environment_variables(self, environment: Dict[str, str]) -> Dict[str, str]:
+    def expand_environment_variables(self, environment: dict[str, str]) -> dict[str, str]:
         """Expand environment variables that reference other variables."""
         return BuildUtils.expand_var(environment)
 
     def create_build_environment_from_config(
-        self, build_config: BuildParameters, package_variables: Dict[str, str] = None
-    ) -> Dict[str, str]:
+        self, build_config: BuildParameters, package_variables: dict[str, str] = None
+    ) -> dict[str, str]:
         """Create environment variables from BuildConfig for GitLab CI/CD compatibility."""
         env = {}
 

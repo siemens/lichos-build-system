@@ -61,6 +61,30 @@ if [ -f /root/.ssh/authorized_keys ]; then
     echo "SSH key authentication configured for root user"
 fi
 
+if [ -f /tmp/container_env ]; then
+    cat > /etc/profile.d/container-env.sh << 'ENVEOF'
+
+if [ -f /tmp/container_env ]; then
+    set -a  # automatically export all variables
+    . /tmp/container_env
+    set +a
+fi
+
+ENVEOF
+    chmod +x /etc/profile.d/container-env.sh
+
+    # Setup for root's bashrc as well
+    if ! grep -q "source /tmp/container_env" /root/.bashrc 2>/dev/null; then
+        echo '# Source container environment variables' >> /root/.bashrc
+        echo 'set -a' >> /root/.bashrc
+        echo '. /tmp/container_env' >> /root/.bashrc
+        echo 'set +a' >> /root/.bashrc
+    fi
+    echo "Environment variables configured for SSH sessions"
+else
+    echo "No container environment file found at /tmp/container_env"
+fi
+
 echo "Configuring SSH daemon..."
 mkdir -p /var/run/sshd /var/log
 
@@ -74,7 +98,7 @@ PasswordAuthentication yes
 UsePAM yes
 X11Forwarding yes
 PrintMotd no
-AcceptEnv LANG LC_*
+PermitUserEnvironment yes
 Subsystem sftp /usr/lib/openssh/sftp-server
 SSHEOF
 

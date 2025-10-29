@@ -1,7 +1,8 @@
 """GitLab Variables collection wrapper."""
 
+import builtins
 import logging
-from typing import List, Optional
+from typing import Optional
 
 import requests
 from gitlab import GitlabError
@@ -20,12 +21,15 @@ class GitLabVariables(Variables):
     def __init__(self, gitlab_project: GitLabProject):
         self._project = gitlab_project
 
-    def list(self) -> List[Variable]:
+    def list(self) -> list[Variable]:
         """Get all variables in this collection, including inherited ones from parent groups."""
         variables = []
-
-        project_vars = [GitLabVariable(var, inherited=False) for var in self._project.variables.list(all=True)]
-        variables.extend(project_vars)
+        try:
+            project_vars = [GitLabVariable(var, inherited=False) for var in self._project.variables.list(all=True)]
+            variables.extend(project_vars)
+        except GitlabError as e:
+            logger.debug("Failed to fetch project variables: %s", str(e))
+            return variables
 
         try:
             inherited_vars = self._get_inherited_variables()
@@ -35,7 +39,7 @@ class GitLabVariables(Variables):
 
         return variables
 
-    def _get_inherited_variables(self) -> List[Variable]:
+    def _get_inherited_variables(self) -> builtins.list[Variable]:
         """Get variables inherited from parent groups."""
         inherited_vars = []
         project_var_keys = {var.key for var in self._project.variables.list(all=True)}

@@ -3,7 +3,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
 from lichoscli.core.models.dag import DAGNodeStatus
 from lichoscli.core.services.notify import NotificationData, NotifyService
@@ -62,7 +62,7 @@ class GitLabNotifyService(NotifyService):
 
         return success
 
-    def get_subscriber_list(self, notification_id: str) -> List[str]:
+    def get_subscriber_list(self, notification_id: str) -> list[str]:
         """
         Get list of users subscribed to notifications via thumbs up emoji.
 
@@ -92,7 +92,7 @@ class GitLabNotifyService(NotifyService):
         logger.info("Created notification issue %s with title: %s", issue_id, title)
         return issue_id
 
-    def _build_notification_content(self, notification: NotificationData) -> List[str]:
+    def _build_notification_content(self, notification: NotificationData) -> list[str]:
         """Build the notification content for the issue."""
         lines = []
 

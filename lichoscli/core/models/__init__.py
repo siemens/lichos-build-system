@@ -1,5 +1,5 @@
 from .artifacts import Artifacts
-from .build import BuildParameters, BuildDependency, BuildInfo, ReverseDependency
+from .build import BuildDependency, BuildInfo, BuildParameters, ReverseDependency
 from .dag import DAGNode, DAGNodeStatus, DependencyGraph
 from .job import Job
 from .jobs import Jobs

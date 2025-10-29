@@ -57,7 +57,7 @@ class FilesystemStorageService(StorageService):
             latest_file = run_files[0]
             logger.debug("Loading latest scheduler run from %s", latest_file)
 
-            with open(latest_file, "r", encoding="utf-8") as f:
+            with open(latest_file, encoding="utf-8") as f:
                 dag_dict = json.load(f)
                 return DependencyGraph.from_dict(dag_dict)
 

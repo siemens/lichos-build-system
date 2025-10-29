@@ -67,7 +67,7 @@ class CreateCommand(Command):
         )
 
         print("Package created successfully!")
-        print("Remote URL: %s" % package.web_url)
+        print(f"Remote URL: {package.web_url}")
 
         if self.package_type == "gbp":
             self.create_debian_package_template(self.package_name, author)

@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable
 
 from rich.table import Table
 
@@ -126,7 +126,7 @@ class VerifyCommand(Command):
         self.console.print("[green]All packages passed validation[/green]")
         return 0
 
-    def validate_package_settings(self, package) -> List[str]:
+    def validate_package_settings(self, package) -> list[str]:
         """
         Validate a package against all defined settings.
         Returns a list of violation messages.
@@ -146,7 +146,7 @@ class VerifyCommand(Command):
 
         return violations
 
-    def get_settings_validations(self) -> Dict[str, Callable[[Any], Tuple[bool, str]]]:
+    def get_settings_validations(self) -> dict[str, Callable[[Any], tuple[bool, str]]]:
         """
         Define all validation rules here.
         Each validator function takes a package and returns (is_valid, error_message).
@@ -156,21 +156,22 @@ class VerifyCommand(Command):
             "default_branch_name": self._validate_default_branch_name,
             "default_branch_protected": self._validate_default_branch_protected,
             "default_branch_force_push": self._validate_default_branch_force_push,
+            "protected_branches_no_push": self._validate_protected_branches_no_push,
             "ci_config_path": self._validate_ci_config_path,
         }
 
-    def _validate_default_branch_name(self, package) -> Tuple[bool, str]:
+    def _validate_default_branch_name(self, package) -> tuple[bool, str]:
         """Validate that the default branch is named 'Flocken'"""
         expected_branch = "flocken"
-        actual_branch = getattr(package, "default_branch", None)
+        actual_branch = package.default_branch
 
         if actual_branch != expected_branch:
             return False, f"expected '{expected_branch}', got '{actual_branch}'"
         return True, ""
 
-    def _validate_default_branch_protected(self, package) -> Tuple[bool, str]:
+    def _validate_default_branch_protected(self, package) -> tuple[bool, str]:
         """Validate that the default branch is protected"""
-        default_branch = getattr(package, "default_branch", None)
+        default_branch = package.default_branch
         if not default_branch:
             return False, "no default branch set"
 
@@ -184,9 +185,9 @@ class VerifyCommand(Command):
         except ProjectFetchingError as e:
             return False, f"could not check protected branches: {str(e)}"
 
-    def _validate_default_branch_force_push(self, package) -> Tuple[bool, str]:
+    def _validate_default_branch_force_push(self, package) -> tuple[bool, str]:
         """Validate that the default branch does not allow force push"""
-        default_branch = getattr(package, "default_branch", None)
+        default_branch = package.default_branch
         if not default_branch:
             return False, "no default branch set"
 
@@ -195,7 +196,7 @@ class VerifyCommand(Command):
 
             for pb in protected_branches:
                 if pb.name == default_branch:
-                    force_push_allowed = getattr(pb, "allow_force_push", True)
+                    force_push_allowed = pb.allow_force_push
 
                     if force_push_allowed:
                         return (
@@ -208,8 +209,23 @@ class VerifyCommand(Command):
         except ProjectFetchingError as e:
             return False, f"could not check force push settings: {str(e)}"
 
-    def _validate_ci_config_path(self, package) -> Tuple[bool, str]:
-        ci_config_path = getattr(package, "ci_config_path", None)
+    def _validate_protected_branches_no_push(self, package) -> tuple[bool, str]:
+        """Validate that protected branches do not allow direct push access"""
+        try:
+            branches_with_push = package.has_protected_branches_with_push_access()
+
+            if branches_with_push:
+                branch_list = ", ".join(f"'{b}'" for b in branches_with_push)
+                return (
+                    False,
+                    f"protected branches allow push access: {branch_list}",
+                )
+            return True, ""
+        except Exception as e:
+            return False, f"could not check protected branch push access: {str(e)}"
+
+    def _validate_ci_config_path(self, package) -> tuple[bool, str]:
+        ci_config_path = package.ci_config_path
 
         if not ci_config_path:
             return False, "CI config path is not set"

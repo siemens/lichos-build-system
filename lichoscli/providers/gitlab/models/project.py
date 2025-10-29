@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from gitlab import GitlabError
 from gitlab.v4.objects import Project as GitLabProjectObject
@@ -26,10 +26,10 @@ class GitLabProject(Project, CacheMixin):
 
     def __init__(self, gitlab_project: GitLabProjectObject):
         self._project = gitlab_project
-        self._variables: Optional["Variables"] = None
-        self._tags: Optional["Tags"] = None
-        self._pipelines: Optional["Pipelines"] = None
-        self._merge_requests: Optional["MergeRequests"] = None
+        self._variables: Optional[Variables] = None
+        self._tags: Optional[Tags] = None
+        self._pipelines: Optional[Pipelines] = None
+        self._merge_requests: Optional[MergeRequests] = None
 
     @property
     def id(self) -> int:
@@ -108,11 +108,11 @@ class GitLabProject(Project, CacheMixin):
         return None
 
     @property
-    def attributes(self) -> Dict[str, Any]:
+    def attributes(self) -> dict[str, Any]:
         return getattr(self._project, "attributes", {})
 
     @property
-    def namespace(self) -> Dict[str, Any]:
+    def namespace(self) -> dict[str, Any]:
         return getattr(self._project, "namespace", {})
 
     @property
@@ -293,7 +293,7 @@ class GitLabProject(Project, CacheMixin):
             The latest commit SHA if successful, None otherwise
         """
         try:
-            branch_obj = self._project.branches.get(branch)
+            branch_obj = self.branches.get(branch)
             if (
                 branch_obj
                 and hasattr(branch_obj, "commit")
@@ -308,3 +308,32 @@ class GitLabProject(Project, CacheMixin):
                 str(e),
             )
             return None
+
+    def has_protected_branches_with_push_access(self) -> list[str]:
+        """Get list of protected branches that allow direct push access."""
+
+        try:
+            protected_branches = self.protectedbranches.list()
+
+            if not protected_branches:
+                return []
+
+            branches_with_push = []
+            for pb in protected_branches:
+                push_access_levels = getattr(pb, 'push_access_levels', None)
+                
+                if not push_access_levels:
+                    # No push_access_levels means push is allowed by default
+                    branches_with_push.append(pb.name)
+                    continue
+                
+                for access in push_access_levels:
+                    access_level = getattr(access, 'access_level', None)
+                    if access_level is None or access_level > 0:
+                        branches_with_push.append(pb.name)
+                        break
+
+            return branches_with_push
+        except GitlabError as e:
+            logger.debug("Failed to check protected branch push access: %s", str(e))
+            return []

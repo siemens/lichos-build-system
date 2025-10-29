@@ -194,8 +194,7 @@ class TestGitUtils:
 
         result = GitUtils.initialize_submodules()
         assert result is True
-        mock_repo.git.submodule.assert_any_call("init")
-        mock_repo.git.submodule.assert_any_call("update", "--recursive")
+        mock_repo.git.submodule.assert_called_once_with("update", "--init", "--recursive", "--depth=1", "--single-branch")
 
     @patch("lichoscli.utils.GitUtils.has_submodules")
     @patch("lichoscli.utils.GitUtils.get_git_repo")

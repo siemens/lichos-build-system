@@ -8,21 +8,31 @@ logger = logging.getLogger(__name__)
 
 
 class TriggerCommand(Command):
-    """Trigger package build"""
+    """Trigger package build or retrigger specific job from latest pipeline"""
 
     def __init__(self, di_container, args):
         super().__init__(di_container, args)
         self.package_name = BuildUtils.get_package_name(args.package) if args.package else None
         self.all_packages = args.all
+        self.job_name = args.job
         self.branch = args.branch
         self.package_service = di_container.obtain_ref(PackageService)
 
     @classmethod
     def add_arguments(cls, sp):
         sp.add_argument("package", nargs="?", help="some package name")
+        sp.add_argument("job", nargs="?", help="specific job name to retrigger from latest pipeline")
         sp.add_argument("--all", action="store_true", help="trigger all packages")
 
+    def validate_args(self) -> None:
+        """Validate command-specific arguments."""
+        if self.job_name and not self.package_name:
+            raise ValueError("Job name specified but package name is missing. Usage: lichoscli trigger <package> <job>")
+
     def execute(self):
+        if self.package_name and self.job_name:
+            return self._retrigger_job()
+
         if self.package_name:
             return self._trigger_single_package()
 
@@ -32,10 +42,78 @@ class TriggerCommand(Command):
         logger.error("Please specify a package or use --all to trigger all packages.")
         return 1
 
+    def _retrigger_job(self):
+        """Retrigger a specific job from the latest pipeline."""
+        assert self.package_name is not None
+        assert self.job_name is not None
+        
+        package = self.package_service.get_package(self.package_name)
+        
+        if package is None:
+            logger.error("Package '%s' not found", self.package_name)
+            return 1
+        
+        latest_pipeline = package.pipelines.get_latest(self.branch)
+        
+        if latest_pipeline is None:
+            logger.error("No pipeline found for package %s on branch %s", self.package_name, self.branch)
+            return 1
+        
+        job = latest_pipeline.jobs.get_by_name(self.job_name)
+        
+        if job is None:
+            logger.error("Job '%s' not found in pipeline %s", self.job_name, latest_pipeline.id)
+            self._list_available_jobs(latest_pipeline)
+            return 1
+        
+        logger.info(
+            "Retriggering job '%s' (status: %s) from pipeline %s",
+            job.name,
+            job.status,
+            latest_pipeline.id,
+        )
+        
+        success = job.retry()
+        
+        if success:
+            self.console.print(
+                f"[green]✓[/green] Successfully retriggered job [cyan]{job.name}[/cyan] "
+                f"from pipeline {latest_pipeline.id}"
+            )
+            self.console.print(f"  Job URL: {job.web_url}")
+            return 0
+        else:
+            logger.error("Failed to retrigger job '%s'", job.name)
+            return 1
+    
+    def _list_available_jobs(self, pipeline):
+        """List available jobs in the pipeline to help user find the correct job name."""
+        jobs = pipeline.jobs.list()
+        if jobs:
+            self.console.print("\n[bold]Available jobs in this pipeline:[/bold]")
+            for job in jobs:
+                self.console.print(f"  • {job.name} (stage: {job.stage}, status: {job.status})")
+        else:
+            logger.warning("No jobs found in pipeline")
+
     def _trigger_single_package(self):
         """Trigger build for a single specified package."""
         package = self.package_service.get_package(self.package_name)
-        return package.pipelines.trigger_build(self.branch)
+        
+        if package is None:
+            logger.error("Package '%s' not found", self.package_name)
+            return 1
+        
+        pipeline = package.pipelines.trigger_build(self.branch)
+        if not pipeline:
+            logger.error("Failed to trigger pipeline for package %s", self.package_name)
+            return 1
+
+        self.console.print(
+            f"Successfully triggered pipeline for [cyan]{self.package_name}[/cyan]"
+        )
+        self.console.print(f"  Pipeline URL: {pipeline.web_url}")
+        return 0
 
     def _trigger_all_packages(self):
         """Trigger builds for all eligible packages."""
@@ -81,12 +159,19 @@ class TriggerCommand(Command):
 
     def _execute_builds(self, packages):
         """Execute builds for the given list of packages."""
-        result = 0
+        failed_count = 0
 
         for package in packages:
-            result += package.pipelines.trigger_build(self.branch)
+            pipeline = package.pipelines.trigger_build(self.branch)
+            
+            if pipeline:
+                self.console.print(
+                    f"[green]✓[/green] Triggered pipeline for [cyan]{package.name}[/cyan]: {pipeline.web_url}"
+                )
+            else:
+                failed_count += 1
 
-        if result != 0:
+        if failed_count != 0:
             logger.error("one or more packages failed to trigger build, please check the logs.")
 
-        return result
+        return failed_count

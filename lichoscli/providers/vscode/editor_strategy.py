@@ -31,14 +31,14 @@ class VSCodeEditorStrategy(EditorStrategy):
                 logger.error("SSH port is required for VS Code remote connection")
                 return False
 
-            ssh_config_path = self._setup_ssh_config(config.ssh_port)
+            ssh_config_path = self._setup_ssh_config(config.ssh_port, config.container_name)
             if not ssh_config_path:
                 return False
 
             config.ssh_config_path = ssh_config_path
             return True
 
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.error("Failed to setup VS Code remote connection: %s", e)
             return False
 
@@ -52,7 +52,7 @@ class VSCodeEditorStrategy(EditorStrategy):
                 logger.warning("SSH setup may not be complete, but attempting VS Code launch...")
 
             logger.info("Launching VS Code...")
-            vscode_cmd = ["code", "--remote", "ssh-remote+lichoscli-container", config.project_path]
+            vscode_cmd = ["code", "--remote", f"ssh-remote+{config.container_name}", config.project_path]
 
             logger.info("Launching VS Code with command: %s", " ".join(vscode_cmd))
 
@@ -78,8 +78,8 @@ class VSCodeEditorStrategy(EditorStrategy):
             logger.warning(error_msg)
 
             self.console.print("[red]✗[/red] VS Code launch failed. You can manually connect using:")
-            self.console.print(f"  [cyan]code --remote ssh-remote+lichoscli-container {config.project_path}[/cyan]")
-            self.console.print("Or use SSH directly: [cyan]ssh lichoscli-container[/cyan]")
+            self.console.print(f"  [cyan]code --remote ssh-remote+{config.container_name} {config.project_path}[/cyan]")
+            self.console.print(f"Or use SSH directly: [cyan]ssh {config.container_name}[/cyan]")
             if config.ssh_port:
                 self.console.print(f"Or with explicit port: [cyan]ssh root@localhost -p {config.ssh_port}[/cyan]")
 
@@ -141,7 +141,7 @@ class VSCodeEditorStrategy(EditorStrategy):
                     "UserKnownHostsFile=/dev/null",
                     "-o",
                     "LogLevel=ERROR",
-                    "lichoscli-container",
+                    config.container_name,
                     "echo",
                     "ready",
                 ]
@@ -174,7 +174,7 @@ class VSCodeEditorStrategy(EditorStrategy):
             port = s.getsockname()[1]
         return port
 
-    def _setup_ssh_config(self, ssh_port: int) -> Optional[str]:
+    def _setup_ssh_config(self, ssh_port: int, container_name: str = None) -> Optional[str]:
         """Create SSH configuration for VS Code remote connection."""
         try:
             ssh_dir = os.path.expanduser("~/.ssh")
@@ -182,8 +182,8 @@ class VSCodeEditorStrategy(EditorStrategy):
 
             ssh_config_path = os.path.join(ssh_dir, "config")
             host_entry = f"""
-# LichOS CLI Development Container
-Host lichoscli-container
+# LichOS CLI Development Container ({container_name if container_name else 'default'})
+Host {container_name}
     HostName localhost
     Port {ssh_port}
     User root
@@ -195,7 +195,7 @@ Host lichoscli-container
 
             existing_config = ""
             if os.path.exists(ssh_config_path):
-                with open(ssh_config_path, "r", encoding="utf-8") as f:
+                with open(ssh_config_path, encoding="utf-8") as f:
                     existing_config = f.read()
 
             lines = existing_config.split("\n")
@@ -203,7 +203,7 @@ Host lichoscli-container
             skip_block = False
 
             for line in lines:
-                if line.strip().startswith("Host lichoscli-container"):
+                if line.strip().startswith(f"Host {container_name}"):
                     skip_block = True
                     continue
                 elif line.strip().startswith("Host ") and skip_block:
@@ -223,6 +223,6 @@ Host lichoscli-container
             logger.info("Updated SSH config at %s", ssh_config_path)
             return ssh_config_path
 
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.error("Failed to setup SSH config: %s", e)
             return None

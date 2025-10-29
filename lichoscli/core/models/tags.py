@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .tag import Tag
@@ -9,7 +9,7 @@ class Tags(ABC):
     """Abstract representation of a project tags collection."""
 
     @abstractmethod
-    def list(self) -> List["Tag"]:
+    def list(self) -> list["Tag"]:
         """Get all tags in this collection."""
 
     @abstractmethod

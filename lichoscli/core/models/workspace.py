@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .project import Project
@@ -19,5 +19,5 @@ class Workspace(ABC):
 
     @property
     @abstractmethod
-    def packages(self) -> List["Project"]:
+    def packages(self) -> list["Project"]:
         """List of package objects that have branches with this workspace name."""

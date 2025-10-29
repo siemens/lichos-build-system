@@ -70,20 +70,51 @@ test = [
 dev = [
     "pylint",
     "black",
-    "isort"
+    "isort",
+    "ruff"
 ]
 
 [tool.pytest.ini_options]
 pythonpath = "src"
 testpaths = ["tests"]
-
 [tool.pylint.'MESSAGES CONTROL']
 disable = ["C0116", "C0115", "C0301", "C0114"]
+
+[tool.pylint.MAIN]
+load-plugins = ["pylint.extensions.typing"]
+py-version = "3.9" 
+
 
 [tool.black]
 line-length = 88
 target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
-
 [tool.isort]
 profile = "black"
 line_length = 88
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"  # Target Python 3.9+ for modern typing
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "UP",     # pyupgrade (detects deprecated typing imports)
+    "I",      # isort
+]
+ignore = [
+    "E501",   # line too long (handled by black)
+    "F403",   # star imports (used intentionally in utils/__init__.py)
+    "F405",   # undefined names from star imports
+]
+
+[tool.ruff.lint.pyupgrade]
+# Keep runtime typing imports even when using from __future__ import annotations
+keep-runtime-typing = false
+
+[dependency-groups]
+dev = [
+    "ruff (>=0.14.0,<0.15.0)"
+]

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .job import Job
@@ -15,7 +15,7 @@ class MergeRequests(ABC):
         state: str = "opened",
         branch_name: Optional[str] = None,
         get_all: bool = False,
-    ) -> List["MergeRequest"]:
+    ) -> list["MergeRequest"]:
         """Get merge requests in this collection."""
 
     @abstractmethod

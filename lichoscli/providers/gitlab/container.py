@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import Any, Dict, Type, TypeVar
+from typing import Any, TypeVar
 
 from lichoscli.core.di import DIContainer, ReferenceNotFoundError
 from lichoscli.core.services import (
@@ -58,12 +58,13 @@ class GitLabServiceContainer(DIContainer):
         self.group_id = gitlab.groups.get(group_rpath).id
         self.project_id = os.environ.get("CI_PROJECT_ID")
 
-        self._services: Dict[Type, Any] = {}
+        self._services: dict[type, Any] = {}
         self._initialize_services()
 
     def _initialize_services(self) -> None:
         """Initialize and register all GitLab services."""
 
+        # 60 seconds * 60 minutes * 24 hours = 1 day
         cache_service = DiskCacheService(default_ttl=60 * 60 * 24)
         package_service = GitLabPackageService(self.group_rpath, self.gitlab)
         buildinfo_service = GitLabBuildInfoService(self.gitlab, cache_service)
@@ -101,7 +102,7 @@ class GitLabServiceContainer(DIContainer):
             self._services[NotifyService] = notify_service
             logger.debug("Registered filesystem storage and notification services for local execution")
 
-    def obtain_ref(self, ref_type: Type[T]) -> T:
+    def obtain_ref(self, ref_type: type[T]) -> T:
         if ref_type not in self._services:
             raise ReferenceNotFoundError(f"Service {ref_type.__name__} is not registered")
 
@@ -125,7 +126,7 @@ class GitLabServiceContainer(DIContainer):
 
         return self._editor_strategies[editor_name]
 
-    def register_reference(self, reference_type: Type[T], implementation: T) -> None:
+    def register_reference(self, reference_type: type[T], implementation: T) -> None:
         """
         Register a service implementation for a given type.
 

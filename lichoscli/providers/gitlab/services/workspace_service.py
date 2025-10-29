@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import Dict, List, Optional
+from typing import Optional
 
 from gitlab import GitlabError
 
@@ -28,7 +28,7 @@ class GitLabWorkspaceService(WorkspaceService):
     def create_workspace(
         self,
         name: str,
-        package_names: List[str],
+        package_names: list[str],
     ) -> Workspace:
         """Create a new workspace by creating branches in specified packages.
 
@@ -187,14 +187,14 @@ class GitLabWorkspaceService(WorkspaceService):
             packages=packages,
         )
 
-    def _get_branch_to_packages_mapping(self) -> Dict[str, List[str]]:
+    def _get_branch_to_packages_mapping(self) -> dict[str, list[str]]:
         """Get mapping of branch names to packages that have those branches.
 
         Returns:
             Dict mapping branch names to list of package names
         """
         all_packages = self.package_service.get_all_packages()
-        branch_to_packages: Dict[str, List[str]] = {}
+        branch_to_packages: dict[str, list[str]] = {}
 
         for project in all_packages:
             try:
@@ -214,14 +214,14 @@ class GitLabWorkspaceService(WorkspaceService):
 
         return branch_to_packages
 
-    def _get_branch_to_packages_objects_mapping(self) -> Dict[str, List]:
+    def _get_branch_to_packages_objects_mapping(self) -> dict[str, list]:
         """Get mapping of branch names to package objects that have those branches.
 
         Returns:
             Dict mapping branch names to list of package objects
         """
         all_packages = self.package_service.get_all_packages()
-        branch_to_packages: Dict[str, List] = {}
+        branch_to_packages: dict[str, list] = {}
 
         for project in all_packages:
             try:
@@ -241,7 +241,7 @@ class GitLabWorkspaceService(WorkspaceService):
 
         return branch_to_packages
 
-    def list_workspaces(self) -> List[Workspace]:
+    def list_workspaces(self) -> list[Workspace]:
         """List all workspaces by finding all unique branch names across packages."""
 
         branch_to_packages = self._get_branch_to_packages_objects_mapping()
@@ -296,7 +296,7 @@ class GitLabWorkspaceService(WorkspaceService):
 
         return self.get_workspace(branch_name)
 
-    def _get_packages_in_workspace(self, workspace_name: str) -> List:
+    def _get_packages_in_workspace(self, workspace_name: str) -> list:
         """Get list of package objects that have branches with the workspace name.
 
         Args:
@@ -310,8 +310,8 @@ class GitLabWorkspaceService(WorkspaceService):
 
         for project in all_packages:
             try:
-                branches = project.branches.list(all=True)
-                if any(branch.name == workspace_name for branch in branches):
+                branch = project.branches.get(workspace_name)
+                if branch:
                     packages.append(project)
             except GitlabError as e:
                 logger.debug("Error checking branches for package '%s': %s", project.name, str(e))
@@ -319,7 +319,7 @@ class GitLabWorkspaceService(WorkspaceService):
 
         return sorted(packages, key=lambda p: p.name)
 
-    def get_workspaces_by_package(self, package_name: str) -> List[Workspace]:
+    def get_workspaces_by_package(self, package_name: str) -> list[Workspace]:
         """Get list of workspaces that contain the specified package.
 
         Args:

@@ -1,10 +1,14 @@
 """GitLab MergeRequest model wrapper."""
 
-from typing import Any, Dict
+import logging
+from typing import Any
 
+from gitlab import GitlabError
 from gitlab.v4.objects import MergeRequest as GitLabMergeRequestModel
 
 from lichoscli.core.models import MergeRequest
+
+logger = logging.getLogger(__name__)
 
 
 class GitLabMergeRequest(MergeRequest):
@@ -26,7 +30,7 @@ class GitLabMergeRequest(MergeRequest):
         return self._mr.title
 
     @property
-    def author(self) -> Dict[str, Any]:
+    def author(self) -> dict[str, Any]:
         return getattr(self._mr, "author", {})
 
     @property
@@ -57,3 +61,16 @@ class GitLabMergeRequest(MergeRequest):
         """
         pipeline = self._mr.pipelines.create()
         return pipeline.id
+
+    def merge(self) -> bool:
+        """Merge this merge request.
+
+        Returns:
+            True if merge was successful, False otherwise.
+        """
+        try:
+            self._mr.merge()
+            return True
+        except GitlabError as e:
+            logger.error("Failed to merge MR !%s: %s", self.iid, str(e))
+            return False

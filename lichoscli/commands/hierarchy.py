@@ -1,5 +1,4 @@
 import logging
-from typing import List
 
 from gitlab import GitlabError
 
@@ -64,14 +63,14 @@ class HierarchyCommand(Command):
 
     def _create_target_hierarchy(self) -> bool:
         """Create the target hierarchy group structure."""
-        path_parts: List[str] = self.args.target_path.split("/")
+        path_parts: list[str] = self.args.target_path.split("/")
         current_path = ""
 
         for i, part in enumerate(path_parts):
             if i == 0:
                 current_path = part
             else:
-                current_path = "{}/{}".format(current_path, part)
+                current_path = f"{current_path}/{part}"
 
             existing_projects = self.projects.get_projects_for_namespace(current_path)
             if existing_projects:
@@ -86,7 +85,7 @@ class HierarchyCommand(Command):
             group_data = {
                 "name": part,
                 "path": part,
-                "description": "Auto-forked hierarchy group: {}".format(part),
+                "description": f"Auto-forked hierarchy group: {part}",
                 "visibility": "internal",
             }
             if parent_id:
@@ -120,22 +119,21 @@ class HierarchyCommand(Command):
     def _dry_run_preview(self) -> int:
         """Preview what would be done in a dry run."""
         print("DRY RUN PREVIEW:")
-        print("Target hierarchy: {}".format(self.args.target_path))
-        print("Source hierarchy: {}".format(self.di_container.group_rpath))
+        print(f"Target hierarchy: {self.args.target_path}")
+        print(f"Source hierarchy: {self.di_container.group_rpath}")
         print()
 
         if self.projects.hierarchy_exists(self.args.target_path):
-            print("NOTE: Hierarchy already exists at '{}', would use existing one".format(self.args.target_path))
+            print(f"NOTE: Hierarchy already exists at '{self.args.target_path}', would use existing one")
             print("Actions that would be performed:")
         else:
             print("Actions that would be performed:")
-            print("1. Create hierarchy group structure at: {}".format(self.args.target_path))
+            print(f"1. Create hierarchy group structure at: {self.args.target_path}")
 
         self._preview_package_forks()
         print("3. Note: You will need to manually set the following group variables:")
         for variable in self.GROUP_VARIABLES:
-            print("   - {}".format(variable))
-        print("   - CI_00CI_PROJECT_PATH: {}/{}".format(self.args.target_path, CI_PKG))
+            print(f"   - {variable}")
 
         return 0
 
@@ -144,16 +142,16 @@ class HierarchyCommand(Command):
         for package_name in CORE_PACKAGES:
             source_package = self.package_service.get_package(package_name)
             if source_package:
-                print("2. Fork {} from: {}".format(package_name, source_package.path_with_namespace))
-                print("   To: {}/{}".format(self.args.target_path, package_name))
+                print(f"2. Fork {package_name} from: {source_package.path_with_namespace}")
+                print(f"   To: {self.args.target_path}/{package_name}")
                 default_branch = getattr(source_package, "default_branch", None) or "main (fallback)"
-                print("   Default branch: {}".format(default_branch))
+                print(f"   Default branch: {default_branch}")
             else:
-                print("2. WARNING: {} not found in source hierarchy".format(package_name))
+                print(f"2. WARNING: {package_name} not found in source hierarchy")
 
     def _print_manual_setup_instructions(self) -> None:
         """Print instructions for manual group variable setup."""
         print("IMPORTANT: You must manually set the following group variables:")
         for variable in self.GROUP_VARIABLES:
-            print("  - {}".format(variable))
-        print("  - CI_00CI_PROJECT_PATH: {}/{}".format(self.args.target_path, CI_PKG))
+            print(f"  - {variable}")
+        print(f"  - CI_00CI_PROJECT_PATH: {self.args.target_path}/{CI_PKG}")

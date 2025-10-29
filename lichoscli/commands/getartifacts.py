@@ -2,7 +2,6 @@ import logging
 import os
 import shutil
 
-
 from lichoscli.commands.base import Command
 from lichoscli.core.services import PackageService
 from lichoscli.utils import BuildUtils, ProgressUtils
@@ -23,7 +22,7 @@ class GetartifactsCommand(Command):
     @classmethod
     def add_arguments(cls, sp):
         sp.add_argument("package", nargs="?", help="some package name")
-        sp.add_argument("--job", nargs="?", help="pipeline job name")
+        sp.add_argument("job", nargs="?", help="pipeline job name")
 
     def execute(self):
         pkg = self.package_service.get_package(self.package_name)
@@ -76,23 +75,16 @@ class GetartifactsCommand(Command):
             return 1
 
         jobs = latest_pipeline.jobs.list()
-        links = self.generate_links_from_jobs(jobs)
+        
+        if not jobs:
+            logger.warning("No jobs found in pipeline")
+            return 1
 
-        if links:
-            self.console.print("[bold]Artifacts links:[/bold]")
-            for link in links:
-                self.console.print(f"  {link}")
+        self.console.print("[bold]Artifacts links:[/bold]")
+        for job in jobs:
+            self.console.print(f"  {job.name}: {job.web_url}/artifacts/browse")
 
         return 0
-
-    def generate_links_from_jobs(self, jobs):
-        links = []
-        for job in jobs:
-            if "build" in job.name or "create" in job.name:
-                links.append(f"{job.name}: {job.web_url}/artifacts/browse")
-        if len(links) == 0:
-            logger.warning("No artifacts found")
-        return links
 
     def move_artifacts_to_directory(self, artifacts_dir, tempdir):
         os.makedirs(artifacts_dir, exist_ok=True)

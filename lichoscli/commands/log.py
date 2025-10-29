@@ -18,7 +18,7 @@ class LogCommand(Command):
     def __init__(self, di_container, args):
         super().__init__(di_container, args)
         self.package_name = BuildUtils.get_package_name(args.package)
-        self.jobname = args.jobname
+        self.jobname = args.job
         self.wait = args.wait
         self.follow = args.follow
         self.branch = args.branch
@@ -26,8 +26,8 @@ class LogCommand(Command):
 
     @classmethod
     def add_arguments(cls, sp):
-        sp.add_argument("jobname", help="job name")
         sp.add_argument("package", nargs="?", help="package name")
+        sp.add_argument("job", nargs="?", help="job name")
         sp.add_argument(
             "--wait",
             action="store_true",
@@ -52,7 +52,7 @@ class LogCommand(Command):
         with self.console.status("[bold blue]Waiting for job status change...") as status:
             while job and job.status not in target_states:
                 time.sleep(1)
-                latest_pipeline = pkg.pipelines.get_latest()
+                latest_pipeline = pkg.pipelines.get_latest(self.args.branch)
                 if latest_pipeline:
                     job = latest_pipeline.jobs.get_by_id(job.id)
                 else:
@@ -100,7 +100,7 @@ class LogCommand(Command):
 
         try:
             while not self._is_job_complete(job.status):
-                latest_pipeline = pkg.pipelines.get_latest()
+                latest_pipeline = pkg.pipelines.get_latest(self.args.branch)
                 if latest_pipeline:
                     refreshed_job = latest_pipeline.jobs.get_by_id(job.id)
                 else:
@@ -181,11 +181,34 @@ class LogCommand(Command):
         # This avoids "merged" log lines caused by terminal cursor tricks
         return raw_log.replace("\r\n", "\n").replace("\r", "\n")
 
+    def _list_available_jobs(self, pkg):
+        """List available jobs with log links for the package."""
+        latest_pipeline = pkg.pipelines.get_latest(self.branch)
+
+        if latest_pipeline is None:
+            logger.warning("No pipeline found for package %s", self.package_name)
+            return 1
+
+        jobs = latest_pipeline.jobs.list()
+        
+        if not jobs:
+            logger.warning("No jobs found in pipeline")
+            return 1
+
+        self.console.print("[bold]Job log links:[/bold]")
+        for job in jobs:
+            self.console.print(f"  {job.name}: {job.web_url}")
+
+        return 0
+
     def execute(self):
         pkg = self.package_service.get_package(self.package_name)
         if pkg is None:
             self.console.print(f"[red]Error: Package {self.package_name} not found.[/red]")
             return 1
+
+        if not self.jobname:
+            return self._list_available_jobs(pkg)
 
         job = pkg.merge_requests.get_job_by_name_from_mr(self.jobname, self.args.branch)
         if job is not None:
@@ -194,7 +217,7 @@ class LogCommand(Command):
             )
         else:
             self.console.print("[dim]No job found in merge request, checking branch pipeline...[/dim]")
-            latest_pipeline = pkg.pipelines.get_latest()
+            latest_pipeline = pkg.pipelines.get_latest(self.args.branch)
             if latest_pipeline:
                 job = latest_pipeline.jobs.get_by_name(self.jobname)
                 if job is not None:
@@ -230,7 +253,7 @@ class LogCommand(Command):
         log = pkg.merge_requests.extract_log_from_job_mr(self.jobname, self.branch)
 
         if log is None:
-            latest_pipeline = pkg.pipelines.get_latest()
+            latest_pipeline = pkg.pipelines.get_latest(self.args.branch)
             if latest_pipeline:
                 log = latest_pipeline.jobs.extract_log_from_job(self.jobname)
 

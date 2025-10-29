@@ -3,7 +3,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
 from git import InvalidGitRepositoryError
 from git.exc import GitCommandError, NoSuchPathError
@@ -137,9 +137,9 @@ class GitUtils:
 
     @staticmethod
     def generate_package_comparison_urls(
-        changed_packages: Dict[str, tuple[Optional[str], str]],
-        project_mapping: Dict[str, tuple[str, str, Optional[str]]],
-    ) -> Dict[str, str]:
+        changed_packages: dict[str, tuple[Optional[str], str]],
+        project_mapping: dict[str, tuple[str, str, Optional[str]]],
+    ) -> dict[str, str]:
         """
         Generate GitLab comparison URLs for packages with changed commits.
 
@@ -173,9 +173,9 @@ class GitUtils:
 
     @staticmethod
     def generate_package_comparison_urls_from_projects(
-        changed_packages: Dict[str, tuple],  # (project, old_commit, new_commit)
+        changed_packages: dict[str, tuple],  # (project, old_commit, new_commit)
         gitlab_host: str,
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """
         Generate GitLab comparison URLs for packages with changed commits using project info.
 
@@ -236,8 +236,7 @@ class GitUtils:
 
         try:
             logger.info("Initializing and updating submodules...")
-            repo.git.submodule("init")
-            repo.git.submodule("update", "--recursive")
+            repo.git.submodule("update", "--init", "--recursive", "--depth=1", "--single-branch")
             return True
         except GitCommandError as e:
             logger.error("Failed to initialize submodules: %s", str(e))

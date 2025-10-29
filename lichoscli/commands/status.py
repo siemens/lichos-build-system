@@ -42,12 +42,20 @@ class StatusCommand(Command):
 
         packages_sorted = sorted(packages, key=lambda p: p.path_with_namespace)
 
+        all_successful = True
+        failed_packages = []
+
         for package in packages_sorted:
             date = "-"
 
             pipeline = package.pipelines.get_latest(self.args.branch)
             if pipeline:
                 status_display = pipeline.status.to_display_string()
+                if not pipeline.status.is_successful:
+                    all_successful = False
+                    if pipeline.status.is_failed:
+                        failed_packages.append(self.package_service.get_display_name(package))
+                
                 if pipeline.updated_at:
                     try:
                         date = f"{datetime.fromisoformat(pipeline.updated_at):%Y-%m-%d %H:%M:%S}"
@@ -55,6 +63,7 @@ class StatusCommand(Command):
                         date = f"(Invalid date: {pipeline.updated_at})"
             else:
                 status_display = "-"
+                all_successful = False  
 
             table.add_row(
                 self.package_service.get_display_name(package),
@@ -65,6 +74,10 @@ class StatusCommand(Command):
             )
 
         self.console.print(table)
+        
+        if not all_successful:
+            return 1
+
         return 0
 
     def print_package_status(self):

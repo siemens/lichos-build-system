@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .variable import Variable
@@ -9,7 +9,7 @@ class Variables(ABC):
     """Abstract representation of a project variables collection."""
 
     @abstractmethod
-    def list(self) -> List["Variable"]:
+    def list(self) -> list["Variable"]:
         """Get all variables in this collection."""
 
     @abstractmethod

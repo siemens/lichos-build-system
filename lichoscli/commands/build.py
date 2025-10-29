@@ -73,6 +73,12 @@ class BuildCommand(Command):
             default=False,
             help="delete old container and start a new one",
         )
+        sp.add_argument(
+            "--privileged",
+            action="store_true",
+            default=False,
+            help="run container in privileged mode",
+        )
 
     def _create_build_config(self, args) -> BuildParameters:
         """Create BuildConfig from command arguments."""
@@ -100,6 +106,7 @@ class BuildCommand(Command):
             shell_mode=args.shell,
             editor_mode=args.editor,
             no_cache=args.no_cache,
+            privileged=args.privileged,
             custom_script=args.script,
             platform=platform,
         )
@@ -131,7 +138,8 @@ class BuildCommand(Command):
                 logger.error("Failed to prepare build environment")
                 return 1
 
-            env_file = self.environment_service.create_environment_file(build_environment.variables)
+            quote_values: bool = self.buildparam.editor_mode is not None
+            env_file = self.environment_service.create_environment_file(build_environment.variables, quote_values)
             if not env_file:
                 logger.error("Failed to create environment file")
                 return 1
@@ -185,6 +193,10 @@ class BuildCommand(Command):
             ssh_keys_mount = f"{os.path.expanduser('~/.ssh')}:/tmp/ssh_keys:ro"
             container_config.volumes.append(ssh_keys_mount)
 
+            if container_config.env_file:
+                env_file_mount = f"{container_config.env_file}:/tmp/container_env:ro"
+                container_config.volumes.append(env_file_mount)
+
             editor_config = EditorConfig(
                 project_path=self.buildparam.project_dir, ssh_port=ssh_port, container_name=container_config.name
             )
@@ -232,7 +244,7 @@ class BuildCommand(Command):
         """Build container configuration from environment and BuildConfig."""
         sanitized_package = BuildUtils.sanitize_container_name(self.buildparam.package_name)
         sanitized_workspace = BuildUtils.sanitize_container_name(self.buildparam.branch)
-        container_name = f"devcontainer-{sanitized_package}-{sanitized_workspace}"
+        container_name = f"{sanitized_package}-{sanitized_workspace}"
 
         volumes = [f"{os.getcwd()}:{self.buildparam.project_dir}"]
         if self.buildparam.mount:
@@ -248,6 +260,7 @@ class BuildCommand(Command):
             network=self.buildparam.network,
             platform=self.buildparam.platform,
             interactive=self.buildparam.shell_mode,
+            privileged=self.buildparam.privileged,
             remove_on_exit=not self.buildparam.editor_mode,
         )
 

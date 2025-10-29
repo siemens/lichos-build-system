@@ -1,7 +1,7 @@
 """Abstract notification service interface for scheduler notifications."""
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from lichoscli.core.models.dag import DAGNode
@@ -12,11 +12,11 @@ class NotificationData:
 
     def __init__(
         self,
-        failed_packages: List[str],
-        successful_packages: List[str],
-        dag_nodes: Optional[Dict[str, "DAGNode"]] = None,
-        pipeline_urls: Optional[Dict[str, str]] = None,
-        package_comparison_urls: Optional[Dict[str, str]] = None,
+        failed_packages: list[str],
+        successful_packages: list[str],
+        dag_nodes: Optional[dict[str, "DAGNode"]] = None,
+        pipeline_urls: Optional[dict[str, str]] = None,
+        package_comparison_urls: Optional[dict[str, str]] = None,
     ):
         self.failed_packages = failed_packages
         self.successful_packages = successful_packages
@@ -43,7 +43,7 @@ class NotifyService(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_subscriber_list(self, notification_id: str) -> List[str]:
+    def get_subscriber_list(self, notification_id: str) -> list[str]:
         """
         Get list of users subscribed to notifications.
 
@@ -103,5 +103,5 @@ class NotifyService(ABC):
                 notification_id = self.create_notification_target(title, description)
 
             return self.send_notification(notification_id, data)
-        except (IOError, ValueError):
+        except (OSError, ValueError):
             return False

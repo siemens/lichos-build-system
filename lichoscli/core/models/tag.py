@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 
 class Tag(ABC):
@@ -33,12 +33,12 @@ class Tag(ABC):
 
     @property
     @abstractmethod
-    def commit(self) -> Dict[str, Any]:
+    def commit(self) -> dict[str, Any]:
         """Commit information for this tag."""
 
     @property
     @abstractmethod
-    def release(self) -> Optional[Dict[str, Any]]:
+    def release(self) -> Optional[dict[str, Any]]:
         """Release information if this tag has an associated release."""
 
     @abstractmethod

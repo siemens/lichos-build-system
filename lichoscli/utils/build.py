@@ -49,7 +49,7 @@ class BuildUtils:
         env_file = tempfile.NamedTemporaryFile(prefix=".gitlab_env.", dir=".", mode="w", delete=False)
         for key in env:
             logger.debug("%s=%s", key, env[key])
-            env_file.write("{0}={1}\n".format(key, env[key]))
+            env_file.write(f"{key}={env[key]}\n")
         env_file.close()
         return env_file
 
@@ -96,7 +96,7 @@ class BuildUtils:
     @staticmethod
     def update_environment_from_file(env, tmpdir):
         try:
-            with open(os.path.join(tmpdir.name, "variables.env"), "r", encoding="utf-8") as f:
+            with open(os.path.join(tmpdir.name, "variables.env"), encoding="utf-8") as f:
                 variables = f.read()
                 env |= dict(line.split("=", 1) for line in variables.splitlines() if "=" in line)
         finally:

@@ -1,11 +1,11 @@
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Optional
+from .pipeline_status import PipelineStatus
 
 if TYPE_CHECKING:
     from lichoscli.core.models.project import Project
-
     from .build import BuildInfo
 
 
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 class DependencyGraph:
     """representation of a directed acyclic graph (DAG) for project dependencies."""
 
-    nodes: Dict[str, "DAGNode"]
+    nodes: dict[str, "DAGNode"]
 
     def add_node(self, node: "DAGNode") -> None:
         """Add a node to the DAG."""
@@ -28,7 +28,7 @@ class DependencyGraph:
         if package in self.nodes:
             del self.nodes[package]
 
-    def get_build_order(self) -> List[str]:
+    def get_build_order(self) -> list[str]:
         """
         Get the optimal build order for packages based on dependency DAG.
 
@@ -37,7 +37,7 @@ class DependencyGraph:
         """
         return self.topological_sort()
 
-    def topological_sort(self) -> List[str]:
+    def topological_sort(self) -> list[str]:
         """
         Perform topological sort on the dependency DAG using Kahn's algorithm.
 
@@ -72,9 +72,9 @@ class DependencyGraph:
 
         return result
 
-    def get_transitive_dependents(self, package_name: str) -> List["DAGNode"]:
+    def get_transitive_dependents(self, package_name: str) -> list["DAGNode"]:
         """Get all packages that transitively depend on the given package."""
-        dependent_nodes = set()
+        dependent_nodes = {}
         to_visit = [package_name]
         visited = set()
 
@@ -88,12 +88,12 @@ class DependencyGraph:
                 node = self.nodes[current]
                 for dependent_name in node.reverse_dependencies:
                     if dependent_name not in visited and dependent_name in self.nodes:
-                        dependent_nodes.add(self.nodes[dependent_name])
+                        dependent_nodes[dependent_name] = self.nodes[dependent_name]
                         to_visit.append(dependent_name)
 
-        return list(dependent_nodes)
+        return list(dependent_nodes.values())
 
-    def calculate_build_levels(self, nodes_to_include: Optional[List["DAGNode"]] = None) -> Dict[int, List["DAGNode"]]:
+    def calculate_build_levels(self, nodes_to_include: Optional[list["DAGNode"]] = None) -> dict[int, list["DAGNode"]]:
         """
         Calculate build levels ensuring dependencies are built before dependents.
 
@@ -123,7 +123,7 @@ class DependencyGraph:
 
         return levels
 
-    def calculate_build_levels_by_name(self, package_names: Optional[List[str]] = None) -> Dict[int, List[str]]:
+    def calculate_build_levels_by_name(self, package_names: Optional[list[str]] = None) -> dict[int, list[str]]:
         """
         Calculate build levels by package names (legacy interface).
 
@@ -149,7 +149,7 @@ class DependencyGraph:
 
         return levels_by_name
 
-    def _calculate_package_depth(self, package_name: str, memo: Dict[str, int]) -> int:
+    def _calculate_package_depth(self, package_name: str, memo: dict[str, int]) -> int:
         """Calculate the dependency depth of a package (memoized)."""
         if package_name in memo:
             return memo[package_name]
@@ -171,11 +171,11 @@ class DependencyGraph:
         memo[package_name] = max_depth
         return max_depth
 
-    def get_packages_by_status(self, status: str) -> List[str]:
+    def get_packages_by_status(self, status: str) -> list[str]:
         """Get list of package names with the specified status."""
         return [name for name, node in self.nodes.items() if node.status == status]
 
-    def get_nodes_by_status(self, status: "DAGNodeStatus") -> List["DAGNode"]:
+    def get_nodes_by_status(self, status: "DAGNodeStatus") -> list["DAGNode"]:
         """Get list of DAGNodes with the specified status."""
         return [node for node in self.nodes.values() if node.status == status]
 
@@ -191,7 +191,7 @@ class DependencyGraph:
         """
         return self._calculate_package_depth(node.package, {})
 
-    def get_reverse_deps(self, package_name: str) -> List["DAGNode"]:
+    def get_reverse_deps(self, package_name: str) -> list["DAGNode"]:
         """
         Get reverse dependencies for a package using the DAG structure.
 
@@ -206,7 +206,7 @@ class DependencyGraph:
         """
         if package_name not in self.nodes:
             return []
-        
+
         transitive_dependents = self.get_transitive_dependents(package_name)
         return list(transitive_dependents)
 
@@ -225,7 +225,7 @@ class DependencyGraph:
                 return source_package_name
         return None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert the DAG to a dictionary for serialization."""
         return {
             "nodes": {
@@ -243,7 +243,7 @@ class DependencyGraph:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "DependencyGraph":
+    def from_dict(cls, data: dict) -> "DependencyGraph":
         """Create a DAG from a dictionary."""
         nodes = {}
 
@@ -279,6 +279,34 @@ class DAGNodeStatus(Enum):
     SUCCESS = "success"
     FAILED = "failed"
 
+    @classmethod
+    def from_pipeline_status(cls, pipeline_status: "PipelineStatus") -> "DAGNodeStatus":
+        
+        if pipeline_status in {
+            PipelineStatus.CREATED,
+            PipelineStatus.WAITING_FOR_RESOURCE,
+            PipelineStatus.PREPARING,
+            PipelineStatus.PENDING,
+            PipelineStatus.SCHEDULED,
+        }:
+            return cls.PENDING
+        
+        if pipeline_status in {PipelineStatus.RUNNING, PipelineStatus.MANUAL}:
+            return cls.BUILDING
+        
+        if pipeline_status == PipelineStatus.SUCCESS:
+            return cls.SUCCESS
+        
+        if pipeline_status in {
+            PipelineStatus.FAILED,
+            PipelineStatus.CANCELED,
+            PipelineStatus.CANCELING,
+            PipelineStatus.SKIPPED,
+        }:
+            return cls.FAILED
+        
+        return cls.PENDING
+
 
 @dataclass
 class DAGNode:
@@ -287,12 +315,12 @@ class DAGNode:
     package: str
     version: str
     architecture: str
-    reverse_dependencies: Dict[str, "DAGNode"]
-    direct_dependencies: Dict[str, "DAGNode"]
+    reverse_dependencies: dict[str, "DAGNode"]
+    direct_dependencies: dict[str, "DAGNode"]
+    project: Optional["Project"] = None
     status: DAGNodeStatus = DAGNodeStatus.PENDING
     buildinfo: Optional["BuildInfo"] = None
     commit_sha: Optional[str] = None
-    project: Optional["Project"] = None
 
     def add_dependent(self, node: "DAGNode") -> None:
         """Add a dependent node."""
@@ -303,7 +331,7 @@ class DAGNode:
         self.direct_dependencies[node.package] = node
 
     @property
-    def binary_packages(self) -> List[str]:
+    def binary_packages(self) -> list[str]:
         """Get list of binary packages produced by this source package."""
         if not self.buildinfo or not self.buildinfo.binary:
             return []
@@ -312,3 +340,6 @@ class DAGNode:
     def provides_binary_package(self, binary_package_name: str) -> bool:
         """Check if this node provides a specific binary package."""
         return binary_package_name in self.binary_packages
+
+    def set_status(self, new_status: "DAGNodeStatus") -> None:
+        self.status = new_status

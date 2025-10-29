@@ -55,7 +55,7 @@ class CloneCommand(Command):
         fn = os.path.join(self.package_name, "debian/upstream/metadata")
         if os.path.exists(fn):
             logger.debug("Found upstream metadata %s", fn)
-            with open(fn, "r", encoding="utf-8") as fh:
+            with open(fn, encoding="utf-8") as fh:
                 y = yaml.safe_load(fh)
                 if u := y.get("Repository", None):
                     logger.debug("Adding upstream %s", u)

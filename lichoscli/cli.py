@@ -72,9 +72,6 @@ def main() -> int:
 
     if args.debug:
         root_logger.setLevel(logging.DEBUG)
-        logging.getLogger("urllib3.connectionpool").setLevel(logging.INFO)
-        logging.getLogger("requests.packages.urllib3.connectionpool").setLevel(logging.INFO)
-        logging.getLogger("gitlab").setLevel(logging.INFO)
     elif args.verbose:
         root_logger.setLevel(logging.INFO)
     else:
@@ -105,9 +102,8 @@ def main() -> int:
         logger.error("Please specify branch manually or set LICHOS_BRANCH environment variable")
         return 1
 
-    gl = GitLabClientFactory(args.host).create()
-
     try:
+        gl = GitLabClientFactory(args.host).create()
         di_container = GitLabServiceContainer(args.pkg_group, gl)
         executor = CommandExecutor(di_container, args)
         result = executor.execute(args)

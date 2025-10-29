@@ -2,7 +2,7 @@
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional
+from typing import Optional
 
 from gitlab import GitlabError
 
@@ -22,14 +22,14 @@ class GitLabPackageService(PackageService):
         self.group_rpath = group_rpath
         self.gitlab = gitlab
         self.group_id = gitlab.groups.get(group_rpath).id
-        self._packages_cache: Dict[str, GitLabProject] = {}
+        self._packages_cache: dict[str, GitLabProject] = {}
         self._all_packages_cached: bool = False
 
     def get_projects(self) -> Projects:
         """Get the projects collection for this service's group."""
         return GitLabProjects(self.group_rpath, self.gitlab)
 
-    def _fetch_all_projects(self) -> List[GitLabProject]:
+    def _fetch_all_projects(self) -> list[GitLabProject]:
         """Fetch all projects from GitLab API, excluding archived projects."""
         group = self.gitlab.groups.get(self.group_rpath)
         logger.debug(
@@ -98,7 +98,7 @@ class GitLabPackageService(PackageService):
             logger.error("Error fetching package %s: %s", package_name, str(e))
             return None
 
-    def get_all_packages(self, with_cache=True) -> List[Project]:
+    def get_all_packages(self, with_cache=True) -> list[Project]:
         """Get all packages, using cache when possible."""
         if with_cache and self._all_packages_cached:
             logger.info("Returning %d packages from complete cache", len(self._packages_cache))
@@ -115,7 +115,7 @@ class GitLabPackageService(PackageService):
         logger.info("Cached %d packages (complete)", len(self._packages_cache))
         return list(self._packages_cache.values())
 
-    def get_packages_by_branch(self, branch: str) -> List[Project]:
+    def get_packages_by_branch(self, branch: str) -> list[Project]:
         """Get all packages that have the specified branch."""
         logger.debug("Getting packages with branch: %s", branch)
         all_packages = self.get_all_packages()

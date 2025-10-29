@@ -1,7 +1,7 @@
 """GitLab Jobs collection wrapper."""
 
 import logging
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 from gitlab import GitlabError
 from gitlab.v4.objects import ProjectPipeline as GitLabPipeline
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class GitLabJobs(Jobs):
     """Wrapper for GitLab Pipeline Jobs collection."""
 
-    def __init__(self, gitlab_pipeline: GitLabPipeline, project, pipeline_ref: "Pipeline" = None):
+    def __init__(self, gitlab_pipeline: GitLabPipeline, project, pipeline_ref: Optional["Pipeline"] = None):
         self._pipeline = gitlab_pipeline
         self._project = project
         self._ref_name = gitlab_pipeline.ref  # Store pipeline ref for job creation
@@ -29,21 +29,13 @@ class GitLabJobs(Jobs):
         """Find a job by name in this pipeline."""
         try:
             jobs = self._pipeline.jobs.list(all=True)
-            job = next((job for job in jobs if job.name == job_name), None)
+            job = next((j for j in jobs if j.name == job_name or j.name.startswith(f"{job_name}")), None)
             if job:
-                return GitLabJob(
-                    job,
-                    self._project,
-                    ref_name=self._ref_name,
-                    pipeline_ref=self._pipeline_ref,
-                )
+                gitlab_job = self._project.jobs.get(job.id)
+                return GitLabJob(gitlab_job, self._project, ref_name=self._ref_name, pipeline_ref=self._pipeline_ref)
             return None
         except GitlabError as e:
-            logger.error(
-                "Failed to get job %s for pipeline: %s",
-                job_name,
-                str(e),
-            )
+            logger.error("Failed to get job %s for pipeline: %s", job_name, str(e))
             return None
 
     def get_by_id(self, job_id: str) -> Optional[Job]:
@@ -64,13 +56,13 @@ class GitLabJobs(Jobs):
             )
             return None
 
-    def list(self) -> List[Job]:
+    def list(self) -> list[Job]:
         """Get all jobs in this pipeline."""
         try:
             jobs = self._pipeline.jobs.list(all=True)
             return [
                 GitLabJob(
-                    job,
+                    self._project.jobs.get(job.id),
                     self._project,
                     ref_name=self._ref_name,
                     pipeline_ref=self._pipeline_ref,
@@ -78,10 +70,7 @@ class GitLabJobs(Jobs):
                 for job in jobs
             ]
         except GitlabError as e:
-            logger.error(
-                "Failed to get jobs for pipeline: %s",
-                str(e),
-            )
+            logger.error("Failed to get jobs for pipeline: %s", str(e))
             return []
 
     def extract_log_from_job(self, job_name: str) -> Optional[str]:

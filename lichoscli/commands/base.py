@@ -1,10 +1,9 @@
 import argparse
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, Type
 
-from rich.console import Console
 from gitlab import GitlabError
+from rich.console import Console
 
 from lichoscli.core.di import DIContainer
 
@@ -28,7 +27,7 @@ class Command(ABC):
 
 
 class CommandRegister:
-    _commands: Dict[str, Type["Command"]] = {}
+    _commands: dict[str, type["Command"]] = {}
 
     @classmethod
     def get_command(cls, command_name: str) -> Command:

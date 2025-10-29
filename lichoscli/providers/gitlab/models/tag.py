@@ -1,7 +1,7 @@
 """GitLab Tag model wrapper."""
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from gitlab.v4.objects import ProjectTag as GitLabTag
 
@@ -41,11 +41,11 @@ class GitLabTag(Tag):
         return None
 
     @property
-    def commit(self) -> Dict[str, Any]:
+    def commit(self) -> dict[str, Any]:
         return getattr(self._tag, "commit", {})
 
     @property
-    def release(self) -> Optional[Dict[str, Any]]:
+    def release(self) -> Optional[dict[str, Any]]:
         return getattr(self._tag, "release", None)
 
     def delete(self):

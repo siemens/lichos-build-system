@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import Optional
 
 from ..models import Project, Projects
 
@@ -16,11 +16,11 @@ class PackageService(ABC):
         """Get a package by name."""
 
     @abstractmethod
-    def get_all_packages(self) -> List[Project]:
+    def get_all_packages(self) -> list[Project]:
         """Get all packages in the group."""
 
     @abstractmethod
-    def get_packages_by_branch(self, branch: str) -> List[Project]:
+    def get_packages_by_branch(self, branch: str) -> list[Project]:
         """Get all packages that have the specified branch as their default branch."""
 
     @abstractmethod

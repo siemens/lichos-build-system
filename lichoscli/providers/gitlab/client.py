@@ -10,11 +10,15 @@ logger = logging.getLogger(__name__)
 
 
 class GitLabClientFactory:
-    """Factory for creating authenticated GitLab clients from glab config."""
+    """Factory for creating authenticated GitLab clients from environment variables/glab config."""
 
     def __init__(self, host: Optional[str] = None):
         """
-        If host is not provided, uses the default host from glab config.
+        Initialize the factory.
+
+        Args:
+            host: GitLab host URL. If not provided, will try environment variables
+                  or fall back to glab config.
         """
         self.host = host
 
@@ -22,7 +26,39 @@ class GitLabClientFactory:
         """
         Create and return an authenticated GitLab client.
         """
+        env_token = self._get_token_from_env()
+        env_host = self._get_host_from_env()
+
+        host_to_use = self.host or env_host
+        if env_token and host_to_use:
+            return self._init_from_env(env_token, host_to_use)
+
         return self._init_from_glab_config(self.host)
+
+    def _get_token_from_env(self) -> Optional[str]:
+        token = os.getenv("LICHOS_GITLAB_TOKEN")
+        if token:
+            logger.debug("Using GitLab token from environment variable: LICHOS_GITLAB_TOKEN")
+            return token
+        return None
+
+    def _get_host_from_env(self) -> Optional[str]:
+        host = os.getenv("LICHOS_GITLAB_HOST")
+        if host:
+            logger.debug("Using GitLab host from environment variable: LICHOS_GITLAB_HOST")
+            return host
+        return None
+
+    def _init_from_env(self, token: str, host: str) -> gitlab.Gitlab:
+        gitlab_url = self._ensure_url_scheme(host)
+        try:
+            gl = gitlab.Gitlab(url=gitlab_url, private_token=token, api_version="4")
+            gl.auth()
+            logger.info("Successfully authenticated with GitLab at %s using environment token", gitlab_url)
+            return gl
+        except gitlab.GitlabAuthenticationError:
+            logger.error("Failed to authenticate with GitLab using environment token")
+            raise
 
     def _ensure_url_scheme(self, url: str) -> str:
         """
@@ -49,7 +85,7 @@ class GitLabClientFactory:
             if not os.path.exists(config_path):
                 raise FileNotFoundError(f"glab config not found at {config_path}")
 
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f)
 
             hosts = config.get("hosts", {})

@@ -2,8 +2,8 @@
 
 import logging
 import os
-import subprocess
 import tempfile
+import zipfile
 from typing import Optional
 
 from gitlab import GitlabError
@@ -56,16 +56,16 @@ class GitLabArtifacts(Artifacts):
 
             downloaded = self._try_download_artifacts()
             if downloaded is None:
-                logger.error(
+                logger.debug(
                     "Failed to download artifacts for job '%s' on ref '%s'",
                     self._job_name,
                     self._ref_name,
                 )
-                logger.error(
+                logger.debug(
                     "Please ensure a pipeline exists for ref '%s' in the GitLab project.",
                     self._ref_name,
                 )
-                logger.error("Project URL: %s", self._project.web_url)
+                logger.debug("Project URL: %s", self._project.web_url)
                 return None
 
             safe_ref_name = self._ref_name.replace("/", "_").replace("\\", "_")
@@ -76,15 +76,16 @@ class GitLabArtifacts(Artifacts):
             logger.debug("Successfully wrote artifact to %s", zipfn)
 
             if os.path.getsize(zipfn) == 0:
-                logger.error("Downloaded artifact file is empty for job: %s", self._job_name)
+                logger.warning("Downloaded artifact file is empty for job: %s", self._job_name)
                 return None
 
-            subprocess.run(["unzip", "-qq", "-bo", zipfn, "-d", temp_dir], check=True)
+            with zipfile.ZipFile(zipfn, "r") as zip_ref:
+                zip_ref.extractall(temp_dir)
             os.unlink(zipfn)
 
             return temp_dir_obj
         except GitlabError as e:
-            logger.error(
+            logger.debug(
                 "Error processing artifacts: ref=%s, job=%s - %s",
                 self._ref_name,
                 self._job_name,
@@ -132,7 +133,7 @@ class GitLabArtifacts(Artifacts):
             return None
 
         except GitlabError as e:
-            logger.error(
+            logger.debug(
                 "Error downloading artifacts for job: %s, ref: %s: %s",
                 self._job_name,
                 self._ref_name,

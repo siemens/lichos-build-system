@@ -1,7 +1,7 @@
 """Filesystem implementation of notification service for local console output."""
 
 import logging
-from typing import List, Optional
+from typing import Optional
 
 from rich.console import Console
 from rich.panel import Panel
@@ -61,7 +61,7 @@ class FilesystemNotifyService(NotifyService):
                 status = dag_node.status.value if dag_node and dag_node.status else "failed"
                 pipeline_url = data.pipeline_urls.get(pkg_name, "N/A")
                 content_parts.append(
-                    f"  • [red]{pkg_name}[/red] ([dim]{status}[/dim]) - Pipeline: [link={pipeline_url}]{pipeline_url}[/link]"
+                    f"  • [red]{pkg_name}[/red] ([dim]{status}[/dim]) - Pipeline: {pipeline_url}"
                 )
 
         if data.package_comparison_urls:
@@ -69,14 +69,14 @@ class FilesystemNotifyService(NotifyService):
                 content_parts.append("")
             content_parts.append("[bold yellow]📊 PACKAGES WITH CHANGES:[/bold yellow]")
             for pkg_name, url in data.package_comparison_urls.items():
-                content_parts.append(f"  • [yellow]{pkg_name}[/yellow]: [link={url}]{url}[/link]")
+                content_parts.append(f"  • [yellow]{pkg_name}[/yellow]: {url}")
 
         if not actual_failed_packages and not data.successful_packages:
             content_parts.append("[dim]ℹ️  No package status information available[/dim]")
 
         return "\n".join(content_parts)
 
-    def get_subscriber_list(self, notification_id: str) -> List[str]:
+    def get_subscriber_list(self, notification_id: str) -> list[str]:
         """
         Get list of users subscribed to notifications.
 

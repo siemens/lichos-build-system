@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Optional
 
 
 @dataclass
@@ -11,14 +11,16 @@ class ContainerConfig:
     name: str
     command: str
     working_dir: str
-    environment: Dict[str, str] = None
-    volumes: List[str] = None
-    ports: Dict[int, int] = None
+    environment: dict[str, str] = None
+    volumes: list[str] = None
+    ports: dict[int, int] = None
     network: Optional[str] = None
     platform: Optional[str] = None
     detached: bool = False
     interactive: bool = False
     remove_on_exit: bool = True
+    privileged: bool = False
+    env_file: Optional[str] = None
 
     def __post_init__(self):
         if self.environment is None:

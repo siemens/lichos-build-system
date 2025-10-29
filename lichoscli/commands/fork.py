@@ -1,6 +1,5 @@
 import logging
 
-
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
 from lichoscli.core.models import Project
@@ -103,11 +102,9 @@ class ForkCommand(Command):
         ci_config_path = self._configure_forked_package_ci(forked_package, destination_projects)
 
         self.console.print(
-            "[green]Successfully forked package[/green] '{}' to '{}'".format(
-                self.args.package, self.destination_namespace
-            )
+            f"[green]Successfully forked package[/green] '{self.args.package}' to '{self.destination_namespace}'"
         )
-        self.console.print("Forked package CI/CD configured to use: {}".format(ci_config_path))
+        self.console.print(f"Forked package CI/CD configured to use: {ci_config_path}")
         return 0
 
     def _configure_forked_package_ci(self, forked_package: "Project", destination_projects) -> str:

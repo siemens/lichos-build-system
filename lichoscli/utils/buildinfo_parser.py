@@ -1,7 +1,7 @@
 """Buildinfo file parser for the deb822 .buildinfo format."""
 
 import logging
-from typing import Dict, Optional
+from typing import Optional
 
 from lichoscli.core.models import BuildDependency, BuildInfo
 
@@ -19,14 +19,14 @@ class BuildinfoParser:
             logger.error("Failed to parse buildinfo: no fields found")
             return None
 
-        installed_build_depends: Dict[str, BuildDependency] = {}
+        installed_build_depends: dict[str, BuildDependency] = {}
         for entry in fields.get("installed-build-depends", "").split(","):
             # Entries look like "name[:arch] (= version)"; buildinfo always pins with "=".
             package, _, version = entry.partition("(")
             name, _, arch = package.strip().partition(":")
             if name:
                 installed_build_depends[name] = BuildDependency(
-                    package=name, version=version.strip(" =)"), architecture=arch
+                    package_name=name, version=version.strip(" =)"), architecture=arch
                 )
 
         return BuildInfo(
@@ -39,9 +39,9 @@ class BuildinfoParser:
         )
 
     @staticmethod
-    def _parse_fields(content: str) -> Dict[str, str]:
+    def _parse_fields(content: str) -> dict[str, str]:
         """Return the first paragraph's fields keyed by lowercase name, continuation lines joined by spaces."""
-        fields: Dict[str, str] = {}
+        fields: dict[str, str] = {}
         key = None
         for line in content.splitlines():
             if line.startswith("-----BEGIN PGP SIGNED MESSAGE-----") or line.startswith("Hash:"):

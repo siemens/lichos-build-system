@@ -1,7 +1,6 @@
 """Pipeline status enumeration and utilities."""
 
 from enum import Enum
-from typing import Set
 
 
 class PipelineStatus(Enum):
@@ -67,7 +66,7 @@ class PipelineStatus(Enum):
         }
 
     @classmethod
-    def waiting_states(cls) -> Set["PipelineStatus"]:
+    def waiting_states(cls) -> set["PipelineStatus"]:
         """Get all waiting/preparation status values."""
         return {
             cls.CREATED,
@@ -78,7 +77,7 @@ class PipelineStatus(Enum):
         }
 
     @classmethod
-    def active_states(cls) -> Set["PipelineStatus"]:
+    def active_states(cls) -> set["PipelineStatus"]:
         """Get all active status values."""
         return {
             cls.RUNNING,
@@ -86,7 +85,7 @@ class PipelineStatus(Enum):
         }
 
     @classmethod
-    def final_states(cls) -> Set["PipelineStatus"]:
+    def final_states(cls) -> set["PipelineStatus"]:
         """Get all final status values."""
         return {
             cls.SUCCESS,

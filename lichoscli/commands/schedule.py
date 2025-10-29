@@ -1,10 +1,8 @@
 import logging
 import time
-from typing import Dict, List
 
 from rich import box
 from rich.panel import Panel
-from rich.status import Status
 from rich.table import Table
 
 from lichoscli.commands.base import Command
@@ -50,18 +48,13 @@ class ScheduleCommand(Command):
             default=10,
             help="Interval in seconds to check build status (default: 10)",
         )
+        # TODO: remove this after deleting it from 00ci
         sp.add_argument(
             "--persist",
             action="store_true",
             help="Enable state persistence using storage service",
         )
 
-    def validate_args(self) -> None:
-        """Validate command-specific arguments"""
-        if self.args.persist and not self.storage_service:
-            self.console.print("[bold red]Error:[/bold red] Persistence requested but storage service not available")
-            self.console.print("Storage service requires project configuration in the DI container")
-            raise ValidationError("Persistence requested but storage service not available")
 
     def execute(self) -> int:
         """Execute the schedule command"""
@@ -75,16 +68,18 @@ class ScheduleCommand(Command):
             return 0
 
         self.console.print(f"Scheduling builds for workspace '[cyan]{self.args.branch}[/cyan]' packages:")
-        valid_projects = workspace.packages
 
-        if not valid_projects:
-            self.console.print(f"No valid packages found in workspace '{self.args.branch}'")
-            return 0
-
-        current_dag: DependencyGraph = self.dependency_service.build_dependency_dag(valid_projects, self.args.branch)
+        current_dag: DependencyGraph = self.dependency_service.build_dependency_dag(
+            workspace.packages, self.args.branch
+        )
         if not current_dag:
             self.console.print("[red]Error:[/red] Could not build dependency DAG")
             return 1
+
+        if self.previous_dag and not self.args.skip_version_check:
+            if not self.dependency_service.has_dag_state_changed(self.previous_dag, current_dag):
+                self.console.print("\n[yellow]Skipping rebuild - no changes to build graph state since last run[/yellow]")
+                return 0
 
         if self.args.skip_version_check:
             self.console.print("[yellow]Warning:[/yellow] Skipping version checking - building all packages")
@@ -99,9 +94,8 @@ class ScheduleCommand(Command):
             if all(len(nodes) == 0 for nodes in dependencies_by_build_level.values()):
                 self.console.print("[green]All packages are up to date![/green] No builds needed.")
 
-                if self.args.persist and not self.previous_dag:
-                    self.storage_service.save_workspace_state(self.args.branch, current_dag)
-                    self.console.print("[green]✓[/green] No previous DAG found - persisted current DAG state")
+                self.storage_service.save_workspace_state(self.args.branch, current_dag)
+                self.console.print("[green]✓[/green] Persisted current DAG state")
 
                 return 0
 
@@ -122,7 +116,7 @@ class ScheduleCommand(Command):
             self.console.print(f"[bold red]Error:[/bold red] {str(e)}")
             return 1
 
-    def _build_dependency_schedule(self, dag: DependencyGraph) -> Dict[int, List[DAGNode]]:
+    def _build_dependency_schedule(self, dag: DependencyGraph) -> dict[int, list[DAGNode]]:
         """
         Build a dependency-aware schedule that only includes packages needing rebuilds.
 
@@ -143,14 +137,22 @@ class ScheduleCommand(Command):
 
         packages_needing_rebuild = set()
         version_mismatch_details = []
-        all_version_check_results = []
+        failed_pipeline_packages = []
 
-        self.console.print(
-            "\n[bold blue]Checking dependency versions for all packages using DAG optimization...[/bold blue]"
-        )
+        self.console.print("\n[bold blue]Checking for packages with failed pipelines...[/bold blue]")
+        for package_name, node in dag.nodes.items():
+            pipeline = node.project.pipelines.get_latest(self.args.branch, use_cache=False)
+            if pipeline and pipeline.status.is_failed:
+                packages_needing_rebuild.add(package_name)
+                failed_pipeline_packages.append(package_name)
+
+        if failed_pipeline_packages:
+            self.console.print(
+                f"[yellow]Found {len(failed_pipeline_packages)} packages with failed pipelines:[/yellow]"
+            )
 
         all_version_check_results = self.dependency_service.check_all_dependency_versions_from_dag(
-            dag, self.args.branch
+            dag
         )
 
         for result in all_version_check_results:
@@ -166,39 +168,35 @@ class ScheduleCommand(Command):
                     result.expected_version,
                 )
 
-        self.dependency_service.display_dependency_version_verification(all_version_check_results, self.console)
+        mismatch_results = [r for r in all_version_check_results if not r.is_correct]
+        self.dependency_service.display_dependency_version_verification(mismatch_results, self.console)
 
         initial_rebuild_packages = packages_needing_rebuild.copy()
         for package_name in initial_rebuild_packages:
             transitive_dependents = dag.get_transitive_dependents(package_name)
             packages_needing_rebuild.update(node.package for node in transitive_dependents)
 
-        if version_mismatch_details:
-            self.console.print(f"\n[yellow]Found {len(version_mismatch_details)} version mismatches:[/yellow]")
-            for result in version_mismatch_details[:5]:  # Show first 5
-                self.console.print(
-                    f"  • {result.dependent_package} using {result.binary_package} v{result.used_version}, "
-                    f"expected v{result.expected_version}"
-                )
-            if len(version_mismatch_details) > 5:
-                self.console.print(f"  ... and {len(version_mismatch_details) - 5} more")
+        for package_name, node in dag.nodes.items():
+            if package_name not in packages_needing_rebuild:
+                node.set_status(DAGNodeStatus.SUCCESS)
 
         if not packages_needing_rebuild:
-            self.console.print("\n[green]All packages have correct dependency versions![/green]")
+            self.console.print(
+                "\n[green]All packages have correct dependency versions and no failed pipelines![/green]"
+            )
             return {}
 
         filtered_nodes = [dag.get_node(pkg_name) for pkg_name in packages_needing_rebuild if dag.get_node(pkg_name)]
-
         build_levels_by_nodes = dag.calculate_build_levels(filtered_nodes)
 
         total_packages = len([node.project for node in dag.nodes.values() if node.project])
         self.console.print(
-            f"\n[cyan]Packages needing rebuild:[/cyan] {len(packages_needing_rebuild)} of {total_packages}"
+            f"\n[cyan]Packages needing rebuild:[/cyan] {len(packages_needing_rebuild)} of {total_packages})"
         )
 
         return build_levels_by_nodes
 
-    def _display_build_schedule(self, dependencies_by_build_level: Dict[int, List[DAGNode]]) -> None:
+    def _display_build_schedule(self, dependencies_by_build_level: dict[int, list[DAGNode]]) -> None:
         """Display the planned build schedule"""
         self.console.print(Panel.fit("Build Schedule", style="bold blue"))
 
@@ -226,37 +224,39 @@ class ScheduleCommand(Command):
         self.console.print()
 
     def _execute_build_schedule(
-        self, dependencies_by_build_level: Dict[int, List[DAGNode]], dag: DependencyGraph
+        self, dependencies_by_build_level: dict[int, list[DAGNode]], dag: DependencyGraph
     ) -> int:
         """Execute the build schedule level by level with sequential waiting"""
+        # Reset all scheduled packages to PENDING before starting builds
+        for level_nodes in dependencies_by_build_level.values():
+            for node in level_nodes:
+                node.set_status(DAGNodeStatus.PENDING)
+
         total_builds = 0
         failed_builds = 0
 
         for level in sorted(dependencies_by_build_level.keys()):
             nodes = dependencies_by_build_level[level]
-            valid_nodes = [node for node in nodes if node.project]
-            self.console.print(f"\n[bold]Executing Level {level} builds ({len(valid_nodes)} packages)...[/bold]")
+            self.console.print(f"\n[bold]Executing Level {level} builds ({len(nodes)} packages)...[/bold]")
 
             triggered_packages = []
-            for node in valid_nodes:
+            for node in nodes:
                 pkg = node.project
                 self.console.print(
                     f"  Triggering build for [cyan]{pkg.name}[/cyan] on branch [cyan]{self.args.branch}[/cyan]..."
                 )
-                result = pkg.pipelines.trigger_build(self.args.branch)
+                pipeline = pkg.pipelines.trigger_build(self.args.branch)
 
-                if result == 0:
-                    pipeline = pkg.pipelines.get_latest(self.args.branch)
-                    pipeline_link = pipeline.web_url if pipeline else "N/A"
+                if pipeline:
                     self.console.print(f"  [green]✓[/green] Successfully triggered build for [cyan]{pkg.name}[/cyan]")
-                    self.console.print(f"    Pipeline: [link={pipeline_link}]{pipeline_link}[/link]")
+                    print("    Pipeline: " + pipeline.web_url)
                     triggered_packages.append(pkg)
                     total_builds += 1
-                    node.status = DAGNodeStatus.BUILDING
+                    node.set_status(DAGNodeStatus.BUILDING)
                 else:
                     self.console.print(f"  [red]✗[/red] Failed to trigger build for [cyan]{pkg.name}[/cyan]")
                     failed_builds += 1
-                    node.status = DAGNodeStatus.FAILED
+                    node.set_status(DAGNodeStatus.FAILED)
 
             if not triggered_packages:
                 self.console.print(f"Level {level} completed (no builds triggered)\n")
@@ -270,11 +270,11 @@ class ScheduleCommand(Command):
                 logger.error("Some builds failed at level %d. Stopping schedule.", level)
                 self.console.print(f"[bold red]Build schedule stopped at level {level} due to failures[/bold red]")
 
-                if self.args.persist and dag:
+                if dag:
                     self.storage_service.save_workspace_state(self.args.branch, dag)
                     if self.notify_service:
                         self._send_build_notification(dag)
-                return 1
+                return 0
 
             self.console.print(f"[green]All builds completed successfully for level {level}[/green]")
             self.console.print(f"Level {level} completed\n")
@@ -286,62 +286,78 @@ class ScheduleCommand(Command):
         if self.notify_service:
             self._send_build_notification(dag)
 
-        if self.args.persist:
-            self.storage_service.save_workspace_state(self.args.branch, dag)
+        self.storage_service.save_workspace_state(self.args.branch, dag)
 
-        return 0 if failed_builds == 0 else 1
+        return 0
 
-    def _wait_for_builds_completion(self, building_nodes: List[DAGNode]) -> bool:
+    def _wait_for_builds_completion(self, building_nodes: list[DAGNode]) -> bool:
         """Wait for all builds in the given building nodes to complete successfully."""
 
-        with Status("[bold blue]Monitoring builds...", console=self.console) as status:
+        current_building_nodes = [node for node in building_nodes if node.status == DAGNodeStatus.BUILDING]
+        previous_count = len(current_building_nodes)
+
+        package_names = [node.package for node in current_building_nodes]
+        if len(package_names) <= 3:
+            packages_text = ", ".join(package_names)
+        else:
+            packages_text = f"{', '.join(package_names[:3])}... ({len(package_names)} total)"
+
+        self.console.print(
+            f"[bold blue]Monitoring builds:[/bold blue] Waiting for {len(current_building_nodes)} packages: {packages_text}"
+        )
+        has_failures = False
+
+        while current_building_nodes:
+            for node in current_building_nodes:
+                pkg = node.project
+                if not pkg:
+                    continue
+
+                pipeline = pkg.pipelines.get_latest(self.args.branch, use_cache=False)
+                if not pipeline:
+                    continue
+                if pipeline.status.is_successful:
+                    self.console.print(f"  [green]✓[/green] [cyan]{node.package}[/cyan] completed successfully")
+                    print("    Pipeline: " + pipeline.web_url)
+                    node.set_status(DAGNodeStatus.SUCCESS)
+                elif pipeline.status.is_failed:
+                    self.console.print(
+                        f"  [red]✗[/red] [cyan]{node.package}[/cyan] failed with status: {pipeline.status.to_display_string()}"
+                    )
+                    print("    Pipeline: " + pipeline.web_url)
+                    node.set_status(DAGNodeStatus.FAILED)
+                    has_failures = True
+                elif pipeline.status.is_active or pipeline.status.is_waiting:
+                    pass
+                else:
+                    self.console.print(
+                        f"[yellow]W[/yellow] Unexpected pipeline status for [cyan]{node.package}[/cyan]: {pipeline.status.to_display_string()}"
+                    )
+
+            time.sleep(self.args.poll_interval)
             current_building_nodes = [node for node in building_nodes if node.status == DAGNodeStatus.BUILDING]
 
-            while current_building_nodes:
+            current_count = len(current_building_nodes)
+            if current_count != previous_count and current_count > 0:
                 package_names = [node.package for node in current_building_nodes]
-                status_text = f"Waiting for builds: {', '.join(package_names[:3])}"
-                if len(package_names) > 3:
-                    status_text += "..."
-                status.update(status_text)
+                if len(package_names) <= 3:
+                    packages_text = ", ".join(package_names)
+                else:
+                    packages_text = f"{', '.join(package_names[:3])}... ({len(package_names)} total)"
 
-                for node in current_building_nodes:
-                    pkg = node.project
-                    if not pkg:
-                        continue
+                self.console.print(f"[dim]Still waiting for {current_count} packages: {packages_text}[/dim]")
+                previous_count = current_count
 
-                    pipeline = pkg.pipelines.get_latest(self.args.branch)
-                    if not pipeline:
-                        # pipeline retrieval failed or no pipeline found - skip this iteration
-                        continue
-                    if pipeline.status.is_successful:
-                        self.console.print(f"  [green]✓[/green] [cyan]{node.package}[/cyan] completed successfully")
-                        self.console.print(f"    Pipeline: [link={pipeline.web_url}]{pipeline.web_url}[/link]")
-                        node.status = DAGNodeStatus.SUCCESS
-                    elif pipeline.status.is_failed:
-                        self.console.print(
-                            f"  [red]✗[/red] [cyan]{node.package}[/cyan] failed with status: {pipeline.status.to_display_string()}"
-                        )
-                        self.console.print(f"    Pipeline: [link={pipeline.web_url}]{pipeline.web_url}[/link]")
-                        node.status = DAGNodeStatus.FAILED
-                    elif pipeline.status.is_active or pipeline.status.is_waiting:
-                        pass
-                    else:
-                        self.console.print(
-                            f"[yellow]W[/yellow] Unexpected pipeline status for [cyan]{node.package}[/cyan]: {pipeline.status.to_display_string()}"
-                        )
+        if has_failures:
+            failed_nodes = [node for node in building_nodes if node.status == DAGNodeStatus.FAILED]
+            failed_package_names = [node.package for node in failed_nodes]
+            self.console.print(f"[bold red]Builds failed for:[/bold red] {', '.join(failed_package_names)}")
+            return False
 
-                failed_nodes = [node for node in building_nodes if node.status == DAGNodeStatus.FAILED]
-                if failed_nodes:
-                    failed_package_names = [node.package for node in failed_nodes]
-                    self.console.print(f"[bold red]Builds failed for:[/bold red] {', '.join(failed_package_names)}")
-                    return False
-
-                time.sleep(self.args.poll_interval)
-                current_building_nodes = [node for node in building_nodes if node.status == DAGNodeStatus.BUILDING]
-
+        self.console.print("[bold blue]All builds completed successfully[/bold blue]")
         return True
 
-    def _generate_failing_package_commit_urls(self, failed_nodes: List[DAGNode]) -> Dict[str, str]:
+    def _generate_failing_package_commit_urls(self, failed_nodes: list[DAGNode]) -> dict[str, str]:
         """
         Generate commit URLs for failing packages when no previous DAG is available.
 
@@ -359,7 +375,10 @@ class ScheduleCommand(Command):
                     project_path = node.project.path_with_namespace
                     project_id = str(node.project.id) if hasattr(node.project, "id") else None
 
-                    commit_url = f"https://{self.args.host}/{project_path}/-/commit/{node.commit_sha}"
+                    host = self.args.host
+                    if not host.startswith("https://"):
+                        host = f"https://{host}"
+                    commit_url = f"{host}/{project_path}/-/commit/{node.commit_sha}"
                     if project_id:
                         commit_url += f"?from_project_id={project_id}"
 
@@ -375,7 +394,7 @@ class ScheduleCommand(Command):
 
         for package_name, node in dag.nodes.items():
             if node.project:
-                pipeline = node.project.pipelines.get_latest(self.args.branch)
+                pipeline = node.project.pipelines.get_latest(self.args.branch, use_cache=False)
                 pipeline_urls[package_name] = pipeline.web_url if pipeline else "N/A"
 
         failed_nodes = dag.get_nodes_by_status(DAGNodeStatus.FAILED)

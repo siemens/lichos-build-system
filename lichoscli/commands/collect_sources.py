@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Optional
 
 import requests
 
@@ -111,8 +111,8 @@ class CollectSourcesCommand(Command):
         os.makedirs(os.path.join(self.output_dir, "lichos-sources"), exist_ok=True)
         os.makedirs(os.path.join(self.output_dir, "debian-sources"), exist_ok=True)
 
-    def _parse_packages_from_buildinfo(self, buildinfo_path: str) -> Tuple[List[Package], List[Package]]:
-        with open(buildinfo_path, "r", encoding="utf-8") as f:
+    def _parse_packages_from_buildinfo(self, buildinfo_path: str) -> tuple[list[Package], list[Package]]:
+        with open(buildinfo_path, encoding="utf-8") as f:
             content = f.read()
 
         build_depends_start = content.find("Installed-Build-Depends:")
@@ -169,7 +169,7 @@ class CollectSourcesCommand(Command):
                 return os.path.join(root, "repos")
         return None
 
-    def _parse_packages(self, artifacts_dir) -> Dict[str, Package]:
+    def _parse_packages(self, artifacts_dir) -> dict[str, Package]:
         repos_dir = self._find_repos_dir(artifacts_dir.name)
         if not repos_dir:
             return {}
@@ -185,11 +185,11 @@ class CollectSourcesCommand(Command):
 
         return package_lookup
 
-    def _parse_repo_file(self, filepath: str) -> List[Package]:
+    def _parse_repo_file(self, filepath: str) -> list[Package]:
         packages = []
         repository_url = None
 
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             content = f.read()
 
         lines = content.split("\n")
@@ -231,7 +231,7 @@ class CollectSourcesCommand(Command):
 
         return packages
 
-    def _create_package_from_entry(self, package_entry: Dict[str, str], repository_url: str) -> Package:
+    def _create_package_from_entry(self, package_entry: dict[str, str], repository_url: str) -> Package:
         binary_name = package_entry.get("Package", "")
         version = package_entry.get("Version", "")
         source_name = package_entry.get("Source", binary_name)
@@ -239,8 +239,8 @@ class CollectSourcesCommand(Command):
         return Package(binary_name, source_name, version, repository_url, is_lichos)
 
     def filter_relevant_packages(
-        self, installed_packages: List[Package], package_lookup: Dict[str, Package]
-    ) -> List[Package]:
+        self, installed_packages: list[Package], package_lookup: dict[str, Package]
+    ) -> list[Package]:
         relevant_packages = []
         for installed_pkg in installed_packages:
             if installed_pkg.unique_key in package_lookup:
@@ -265,7 +265,7 @@ class CollectSourcesCommand(Command):
             pass
         return False
 
-    def _download_debian_sources(self, packages: List[Package]):
+    def _download_debian_sources(self, packages: list[Package]):
         output_dir = os.path.join(self.output_dir, "debian-sources")
 
         for package in packages:
@@ -284,10 +284,10 @@ class CollectSourcesCommand(Command):
                     if not self._download_file(url, dest_path) and os.path.exists(dest_path):
                         os.remove(dest_path)
 
-    def _parse_dsc_files(self, dsc_path: str) -> List[str]:
+    def _parse_dsc_files(self, dsc_path: str) -> list[str]:
         files_to_download = []
 
-        with open(dsc_path, "r", encoding="utf-8") as f:
+        with open(dsc_path, encoding="utf-8") as f:
             content = f.read()
 
         lines = content.split("\n")
@@ -315,7 +315,7 @@ class CollectSourcesCommand(Command):
 
         return files_to_download
 
-    def _download_lichos_sources(self, packages: List[Package]):
+    def _download_lichos_sources(self, packages: list[Package]):
         output_dir = os.path.join(self.output_dir, "lichos-sources")
 
         for package in packages:
@@ -346,7 +346,7 @@ class CollectSourcesCommand(Command):
                     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
                     shutil.copy2(src_file, dest_file)
 
-    def _create_docs(self, lichos_packages: List[Package], debian_packages: List[Package]):
+    def _create_docs(self, lichos_packages: list[Package], debian_packages: list[Package]):
         for filename, packages, title, source_dir in [
             (
                 "lichos-packages.txt",
@@ -377,10 +377,10 @@ class CollectSourcesCommand(Command):
 
     def _process_buildinfo_recursively(
         self,
-        lichos_packages: List[Package],
-        package_lookup: Dict[str, Package],
-        processed_buildinfo_files: Set[str],
-    ) -> List[Package]:
+        lichos_packages: list[Package],
+        package_lookup: dict[str, Package],
+        processed_buildinfo_files: set[str],
+    ) -> list[Package]:
         lichos_src_dir = os.path.join(self.output_dir, "lichos-sources")
 
         new_buildinfo_files = [
@@ -424,14 +424,14 @@ class CollectSourcesCommand(Command):
                 return os.path.join(root, "installed-packages")
         return None
 
-    def _parse_installed_packages(self, artifacts_dir) -> List[Package]:
+    def _parse_installed_packages(self, artifacts_dir) -> list[Package]:
         packages_file = self._find_installed_packages_file(artifacts_dir.name)
         if not packages_file:
             return []
 
         installed_packages = []
 
-        with open(packages_file, "r") as f:
+        with open(packages_file) as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):

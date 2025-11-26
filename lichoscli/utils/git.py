@@ -425,6 +425,7 @@ class GitUtils:
                 path=str(submodule_path.relative_to(project_path)),
                 url=ssh_url,
                 branch=default_branch,
+                no_checkout=True,
             )
             logger.info("Added submodule: %s", package_name)
             return True

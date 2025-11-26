@@ -83,7 +83,7 @@ class SubmoduleCommand(Command):
         repo = GitUtils.initialize_repository(project_path, initial_branch, origin_url)
 
         # Get packages and add as submodules
-        packages = self.package_service.get_all_packages()
+        packages = self.package_service.get_packages_by_branch(initial_branch)
         if not packages:
             logger.warning("No packages found to add as submodules")
             return 0
@@ -97,7 +97,7 @@ class SubmoduleCommand(Command):
                 project_path,
                 package.name,
                 package.ssh_url_to_repo,
-                package.default_branch,
+                initial_branch,
             )
             (added_submodules if success else failed_submodules).append(package.name)
 

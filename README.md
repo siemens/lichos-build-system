@@ -22,7 +22,7 @@ hosts:
 **Get started with a project:**
 ```bash
 # Clone the 00ci package to set up project detection
-lichoscli --pkg-group your-group/platform-os/pkg --host gitlab.example.com clone 00ci
+lichoscli --host gitlab.example.com --pkg-group your-group/platform-os/pkg --branch main clone 00ci
 ```
 
 **List packages:**
@@ -34,97 +34,115 @@ lichoscli list
 lichoscli --pkg-group your-group/platform-os/pkg --host gitlab.example.com list
 ```
 
-**Check build status:**
-```bash
-lichoscli status
-```
-
 ## Common Workflows
-
-### Package Details
-
-**See package configuration:**
-```bash
-lichoscli show keyctl-caam
-```
-```
-Setting              Value
--------------------  -------------------------------------
-id                   431660
-path                 keyctl-caam
-builds_access_level  enabled
-ci_config_path       gbp.yml@your-group/platform-os/pkg/00ci
-default_branch       flocken
-
-Variables:
-type     key    value    hidden    protected    masked    raw    scope    description
--------  -----  -------  --------  -----------  --------  -----  -------  -------------
-env_var  TEST   BLUB     False     False        False     False  *        foo bar
-```
 
 ### Working with Packages
 
 **Clone a package:**
 ```bash
-lichoscli clone keyctl-caam
+lichoscli clone u-boot
 ```
 
 > **Pro tip:** lichoscli automatically sets up useful remotes when cloning. If it's a fork, you get a `parent` remote for the `pdiff` command. If there's a `Repository` in `debian/upstream/metadata`, that becomes the `upstream` remote.
 
-**Trigger a pipeline:**
+Now the there's a local git checkout of the specified package. You
+can enter the directory and execute lichoscli commands from there.
+When in such a local git checkout, it's possible to specify `.` as
+package name to refer to the currently checkout one one.
+
+Also, lichoscli will operate on the checked out branch by default
+unless entering a workspace. See below.
+
+**See package configuration:**
 ```bash
-cd keyctl-caam
-lichoscli trigger .
-# for a specific branch 
-lichoscli --branch flocken . 
+$ lichoscli show lichoscli
+   Package Information: lichoscli
+┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━┓
+┃ Setting              ┃ Value     ┃
+┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━┩
+│ id                   │ 438106    │
+│ path                 │ lichoscli │
+│ builds_access_level  │ enabled   │
+│ ci_config_path       │ gbp       │
+│ default_branch       │ flocken   │
+└──────────────────────┴───────────┘
 ```
+
+**Enter a namespace (ie work on branch):**
+```bash
+$ lichoscli workspace enter flocken
+```
+
+> **Pro tip:** Entering a workspace exports the environment variable `LICHOS_BRANCH`. You can add that to your `$PS1` to have a visual hint that the current shell is in a lichos workspace
+
+Now all commands operate on the given branch by default
 
 **Check pipeline status:**
 ```bash
- lichoscli status .   
-Setting    Value
----------  --------------------------------------------------------------------------------------
-sha        f0d0b325136d3ab0afcf01d7b6a27a49b77ca6f1
-ref        flocken
-status     success
-source     push
-web_url    https://github.com/samastek/lichoscli/-/pipelines/48675085
-
-Pipeline Jobs:
-
-       Id  Name           Stage    Status    Started
----------  -------------  -------  --------  -------------------------
-284018793  publish        deploy   success   2025-07-22 07:32:18 - 35s
-284018791  build-amd64    build    success   2025-07-22 07:31:31 - 24s
-284018789  build-arm64    build    success   2025-07-22 07:31:32 - 45s
-284018788  calculate-env  .pre     success   2025-07-22 07:31:16 - 14s
+$ lichoscli status .
+                                    Pipeline Details - lichoscli
+┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Setting ┃ Value                                                                                  ┃
+┡━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ sha     │ 8f243038e5f017a22108e9505191f8371069dddb                                               │
+│ ref     │ flocken                                                                                │
+│ status  │ success                                                                                │
+│ source  │ api                                                                                    │
+│ web_url │ https://github.com/samastek/lichoscli/actions/runs/55019024 │
+└─────────┴────────────────────────────────────────────────────────────────────────────────────────┘
+                               Pipeline Jobs
+┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Id        ┃ Name          ┃ Stage  ┃ Status  ┃ Started                   ┃
+┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ 320264317 │ publish       │ deploy │ success │ 2025-11-21 11:37:59 - 19s │
+│ 320264316 │ build-amd64   │ build  │ success │ 2025-11-21 11:36:27 - 80s │
+│ 320264315 │ build-arm64   │ build  │ success │ 2025-11-21 11:36:55 - 52s │
+│ 320264314 │ calculate-env │ .pre   │ success │ 2025-11-21 11:35:45 - 29s │
+└───────────┴───────────────┴────────┴─────────┴───────────────────────────┘
 ```
 
 **View job logs:**
 ```bash
-# Static log
-lichoscli log build-amd64
+$ lichoscli log . build-amd64
+[...]
+```
 
-# Live log (waits for job to start)
-lichoscli log --wait build-amd64
+To view the live log and wait for a job to start (e.g. after a
+recent push or trigger)
+```bash
+$ lichoscli log --wait --follow build-amd64
+```
+
+**Trigger a pipeline:**
+```bash
+$ cd lichoscli
+$ lichoscli trigger .
 ```
 
 ### Local Development
 
+Local package builds are performed inside a docker container that is
+pulled from the gitlab project you are working against. You may need
+to configure docker authentication to be able to build images from
+there.
+
 **Build packages locally:**
 ```bash
-lichoscli build . build-amd64
+lichoscli build
 ```
 
-**Drop into build environment:**
+**Open a shell in the build environment:**
 ```bash
-# Opens a shell in the build container
-lichoscli build . --shell
+lichoscli build --shell
+```
 
-# sometimes if you are behind zscalar, you need to use ipv4net form docker for that 
+sometimes if you are behind zscalar, you need to use ipv4net form docker for that 
+```bash
 lichoscli build . --shell --architecture arm64 --network <ip4 network name>
+```
 
-# Specify custom shell (use --shell= if followed by other options)
+Specify custom shell (use --shell= if followed by other options)
+```bash
 lichoscli build . --shell=/bin/zsh
 ```
 
@@ -132,7 +150,7 @@ lichoscli build . --shell=/bin/zsh
 
 **Create new packages:**
 ```bash
-lichoscli --branch 'feature/main' create my-new-package
+lichoscli --branch 'feature/flocken' create my-new-package
 ```
 
 This sets up the default branch, protection rules, and pipeline configuration.
@@ -146,10 +164,10 @@ This sets up the default branch, protection rules, and pipeline configuration.
 **Create a workspace:**
 ```bash
 # Create workspace with a package and its reverse dependencies
-lichoscli --branch feature/my-feature workspace create keyctl-caam
+lichoscli --branch feature/my-feature/flocken workspace create u-boot
 ```
 
-This automatically discovers packages that depend on `keyctl-caam` and lets you select which ones to include in the workspace.
+This automatically discovers packages that depend on `u-boot` and lets you select which ones to include in the workspace.
 
 **List available workspaces:**
 ```bash
@@ -157,7 +175,7 @@ This automatically discovers packages that depend on `keyctl-caam` and lets you 
 lichoscli workspace list
 
 # List workspaces containing a specific package
-lichoscli workspace list keyctl-caam
+lichoscli workspace list u-boot
 ```
 
 **Enter a workspace:**
@@ -220,19 +238,19 @@ The scheduler:
 
 **Show build dependencies:**
 ```bash
-lichoscli buildinfo keyctl-caam
+lichoscli buildinfo u-boot
 
 # Use latest available data (don't wait for pipeline completion)
-lichoscli buildinfo keyctl-caam --no-wait
+lichoscli buildinfo u-boot --no-wait
 ```
 
 **Check dependency versions:**
 ```bash
 # Verify reverse dependency versions
-lichoscli buildinfo keyctl-caam --check-versions
+lichoscli buildinfo u-boot --check-versions
 
-# Check if packages using keyctl-caam have correct versions
-lichoscli buildinfo keyctl-caam --check-versions --no-wait
+# Check if packages using u-boot have correct versions
+lichoscli buildinfo u-boot --check-versions --no-wait
 ```
 
 **Build dependency graph:**

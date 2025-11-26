@@ -173,6 +173,7 @@ class ReleaseCommand(Command):
             "repo_url": f"{nexus_url}/repository/{branch}/",
             "distribution": branch,
             "component": "main",
+            "blob_store": f"{branch}",
         }
 
         if dry_run:

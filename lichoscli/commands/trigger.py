@@ -16,7 +16,6 @@ class TriggerCommand(Command):
         self.all_packages = args.all
         self.job_name = args.job
         self.branch = args.branch
-        self.variables = self._parse_variables(args.variable) if hasattr(args, 'variable') and args.variable else None
         self.package_service = di_container.obtain_ref(PackageService)
 
     @classmethod
@@ -24,22 +23,6 @@ class TriggerCommand(Command):
         sp.add_argument("package", nargs="?", help="some package name")
         sp.add_argument("job", nargs="?", help="specific job name to retrigger from latest pipeline")
         sp.add_argument("--all", action="store_true", help="trigger all packages")
-        sp.add_argument(
-            "-v", "--variable",
-            action="append",
-            metavar="KEY=VALUE",
-            help="pipeline variable in KEY=VALUE format (can be used multiple times)"
-        )
-
-    def _parse_variables(self, variable_list: list[str]) -> dict[str, str]:
-        """Parse variable arguments from KEY=VALUE format into dict."""
-        variables = {}
-        for var in variable_list:
-            if '=' not in var:
-                raise ValueError(f"Invalid variable format: '{var}'. Expected KEY=VALUE")
-            key, value = var.split('=', 1)
-            variables[key.strip()] = value.strip()
-        return variables
 
     def validate_args(self) -> None:
         """Validate command-specific arguments."""
@@ -121,10 +104,7 @@ class TriggerCommand(Command):
             logger.error("Package '%s' not found", self.package_name)
             return 1
         
-        if self.variables:
-            logger.info("Triggering with variables: %s", ", ".join(f"{k}={v}" for k, v in self.variables.items()))
-        
-        pipeline = package.pipelines.trigger_build(self.branch, self.variables)
+        pipeline = package.pipelines.trigger_build(self.branch)
         if not pipeline:
             logger.error("Failed to trigger pipeline for package %s", self.package_name)
             return 1
@@ -132,8 +112,6 @@ class TriggerCommand(Command):
         self.console.print(
             f"Successfully triggered pipeline for [cyan]{self.package_name}[/cyan]"
         )
-        if self.variables:
-            self.console.print(f"  Variables: {', '.join(f'{k}={v}' for k, v in self.variables.items())}")
         self.console.print(f"  Pipeline URL: {pipeline.web_url}")
         return 0
 
@@ -182,12 +160,9 @@ class TriggerCommand(Command):
     def _execute_builds(self, packages):
         """Execute builds for the given list of packages."""
         failed_count = 0
-        
-        if self.variables:
-            logger.info("Triggering all packages with variables: %s", ", ".join(f"{k}={v}" for k, v in self.variables.items()))
 
         for package in packages:
-            pipeline = package.pipelines.trigger_build(self.branch, self.variables)
+            pipeline = package.pipelines.trigger_build(self.branch)
             
             if pipeline:
                 self.console.print(

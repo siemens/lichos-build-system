@@ -24,6 +24,7 @@ class WorkspaceCommand(Command):
         self.workspace_service = di_container.obtain_ref(WorkspaceService)
         self.package_service = di_container.obtain_ref(PackageService)
         self.dependency_service = di_container.obtain_ref(DependencyService)
+        self.package_name = BuildUtils.get_package_name(args.package)
 
     @classmethod
     def add_arguments(cls, sp):
@@ -141,9 +142,8 @@ class WorkspaceCommand(Command):
             return r.returncode
         
         workspaces = []
-        package_name = BuildUtils.get_package_name(self.args.package)
-        if package_name:
-            workspaces = self.workspace_service.get_workspaces_by_package(package_name)
+        if self.package_name:
+            workspaces = self.workspace_service.get_workspaces_by_package(self.package_name)
         else:
             workspaces = self.workspace_service.list_workspaces()
 
@@ -184,9 +184,8 @@ class WorkspaceCommand(Command):
         """List all workspaces."""
 
         workspaces = []
-        package_name = BuildUtils.get_package_name(self.args.package)
-        if package_name:
-            workspaces = self.workspace_service.get_workspaces_by_package(package_name)
+        if self.package_name:
+            workspaces = self.workspace_service.get_workspaces_by_package(self.package_name)
         else:
             workspaces = self.workspace_service.list_workspaces()
 
@@ -224,9 +223,8 @@ class WorkspaceCommand(Command):
                 self.console.print(f"[green]✓ Deleted workspace with branch '[cyan]{branch}[/cyan]'[/green]")
                 return 0
         workspaces = []
-        package_name = BuildUtils.get_package_name(self.args.package)
-        if package_name:
-            workspaces = self.workspace_service.get_workspaces_by_package(package_name)
+        if self.package_name:
+            workspaces = self.workspace_service.get_workspaces_by_package(self.package_name)
         else:
             workspaces = self.workspace_service.list_workspaces()
 
@@ -307,27 +305,11 @@ class WorkspaceCommand(Command):
         self.console.print(f"\n[bold]Workspace:[/bold] [cyan]{workspace.name}[/cyan]")
 
         package_count = len(workspace.packages) if workspace.packages else 0
-        self.console.print(f"[bold]Packages:[/bold] {package_count}\n")
+        self.console.print(f"[bold]Packages:[/bold] {package_count}")
 
         if workspace.packages:
-            table = Table(
-                title=f"Packages in workspace '{workspace.name}'",
-                box=box.ROUNDED,
-                show_header=True,
-                header_style="bold magenta",
-            )
-            table.add_column("Package Name", style="cyan")
-            table.add_column("Latest Pipeline", style="green")
-
             for package in workspace.packages:
-                latest_pipeline = package.pipelines.get_latest(branch)
-                if latest_pipeline:
-                    pipeline_link = latest_pipeline.web_url
-                    table.add_row(package.name, pipeline_link)
-                else:
-                    table.add_row(package.name, "[dim]No pipeline found[/dim]")
-
-            self.console.print(table)
+                self.console.print(f"  • [cyan]{package.name}[/cyan]")
         else:
             self.console.print("[yellow]No packages in workspace[/yellow]")
 

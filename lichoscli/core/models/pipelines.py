@@ -17,8 +17,8 @@ class Pipelines(ABC):
         """List pipelines for a branch with optional filters."""
 
     @abstractmethod
-    def trigger_build(self, branch_name: str = None, variables: dict[str, str] = None) -> "Pipeline | None":
-        """Trigger a build for a branch with optional variables."""
+    def trigger_build(self, branch_name: str = None) -> "Pipeline | None":
+        """Trigger a build for a branch."""
 
     @abstractmethod
     def verify_builds_success(self) -> bool:

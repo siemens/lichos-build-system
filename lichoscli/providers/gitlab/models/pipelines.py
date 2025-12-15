@@ -67,8 +67,8 @@ class GitLabPipelines(Pipelines):
             )
             return []
 
-    def trigger_build(self, branch_name: str = None, variables: dict[str, str] = None) -> Pipeline | None:
-        """Trigger a build for a branch with optional variables.
+    def trigger_build(self, branch_name: str = None) -> Pipeline | None:
+        """Trigger a build for a branch.
 
         If there's an open merge request for the branch, triggers an MR pipeline.
         Otherwise, triggers a regular branch pipeline.
@@ -90,22 +90,12 @@ class GitLabPipelines(Pipelines):
                         ref,
                         mr.iid,
                     )
-                    if variables:
-                        logger.warning(
-                            "Variables are not supported for MR pipelines, ignoring: %s",
-                            ", ".join(f"{k}={v}" for k, v in variables.items())
-                        )
                     gitlab_pipeline = self._project.pipelines.get(pipeline_id)
                     pipeline = GitLabPipeline(gitlab_pipeline, self._core_project_ref)
                     return pipeline
 
-            pipeline_data = {"ref": ref}
-            if variables:
-                pipeline_data["variables"] = [{"key": k, "value": v} for k, v in variables.items()]
-                logger.debug("Creating pipeline with variables: %s", variables)
-
             # Fallback to regular branch pipeline
-            gitlab_pipeline = self._project.pipelines.create(pipeline_data)
+            gitlab_pipeline = self._project.pipelines.create({"ref": ref})
             logger.info(
                 "Triggered branch pipeline %s for %s on branch %s",
                 gitlab_pipeline.id,

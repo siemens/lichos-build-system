@@ -234,7 +234,7 @@ class GitLabDependencyService(DependencyService):
             DAG representation of all package dependencies
         """
         if architecture is None:
-            architecture = "arm64"
+            architecture = BuildUtils.normalize_architecture(os.uname().machine)
 
         logger.info(
             "Building dependency DAG for %d packages on branch %s (wait_for_completion=%s, architecture=%s)",
@@ -337,12 +337,12 @@ class GitLabDependencyService(DependencyService):
         else:
             console.print(f"[yellow] {incorrect_count} version mismatches found, {correct_count} correct[/yellow]")
 
-        table = Table(box=box.ROUNDED, title="Dependency Version Verification Details", expand=True)
-        table.add_column("Dependent Package", style="bold cyan", no_wrap=False)
-        table.add_column("Dependency", style="white", no_wrap=False)
-        table.add_column("Used Version", style="dim", no_wrap=False)
-        table.add_column("Expected Version", style="dim", no_wrap=False)
-        table.add_column("Status", justify="center", width=12)
+        table = Table(box=box.ROUNDED, title="Dependency Version Verification Details")
+        table.add_column("Dependent Package", style="bold cyan")
+        table.add_column("Dependency", style="white")
+        table.add_column("Used Version", style="dim")
+        table.add_column("Expected Version", style="dim")
+        table.add_column("Status", justify="center")
 
         for package_name in sorted(results_by_package.keys()):
             results = results_by_package[package_name]

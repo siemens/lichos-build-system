@@ -94,9 +94,6 @@ class ScheduleCommand(Command):
             if all(len(nodes) == 0 for nodes in dependencies_by_build_level.values()):
                 self.console.print("[green]All packages are up to date![/green] No builds needed.")
 
-                if self.notify_service:
-                    self._send_build_notification(current_dag)
-
                 self.storage_service.save_workspace_state(self.args.branch, current_dag)
                 self.console.print("[green]✓[/green] Persisted current DAG state")
 
@@ -274,9 +271,9 @@ class ScheduleCommand(Command):
                 self.console.print(f"[bold red]Build schedule stopped at level {level} due to failures[/bold red]")
 
                 if dag:
+                    self.storage_service.save_workspace_state(self.args.branch, dag)
                     if self.notify_service:
                         self._send_build_notification(dag)
-                    self.storage_service.save_workspace_state(self.args.branch, dag)
                 return 0
 
             self.console.print(f"[green]All builds completed successfully for level {level}[/green]")

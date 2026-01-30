@@ -1,12 +1,10 @@
 import logging
 from pathlib import Path
 
-from git import GitCommandError
-
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
+from lichoscli.core.models.git_repo import GitRepo
 from lichoscli.core.services import PackageService
-from lichoscli.utils import GitUtils
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +21,7 @@ class SubmoduleCommand(Command):
             self.output_dir = args.output_dir or "."
         elif self.subcommand == "update":
             self.target_path = Path(args.path).resolve()
-
+            self.push = args.push
     @classmethod
     def add_arguments(cls, sp):
         subparsers = sp.add_subparsers(dest="subcommand", help="submodule operations")
@@ -40,6 +38,7 @@ class SubmoduleCommand(Command):
         create_parser.add_argument(
             "--push",
             action="store_true",
+            default=False,
             help="push changes to remote repository after creating the project",
         )
 
@@ -49,6 +48,7 @@ class SubmoduleCommand(Command):
         update_parser.add_argument(
             "--push",
             action="store_true",
+            default=False,
             help="push changes to remote repository after updating",
         )
 
@@ -80,7 +80,8 @@ class SubmoduleCommand(Command):
         # Initialize repository
         initial_branch = self.args.branch
         origin_url = f"git@{self.args.host}:{self.di_container.group_rpath}/{self.project_name}.git"
-        repo = GitUtils.initialize_repository(project_path, initial_branch, origin_url)
+        
+        repo = GitRepo.init(project_path, initial_branch, origin_url)
 
         # Get packages and add as submodules
         packages = self.package_service.get_packages_by_branch(initial_branch)
@@ -92,29 +93,32 @@ class SubmoduleCommand(Command):
         added_submodules, failed_submodules = [], []
 
         for package in sorted(packages, key=lambda p: p.name):
-            success = GitUtils.add_package_as_submodule(
-                repo,
-                project_path,
+            submodule_path = project_path / package.name
+            
+            success = repo.add_submodule(
                 package.name,
                 package.ssh_url_to_repo,
+                str(submodule_path.relative_to(project_path)),
                 initial_branch,
             )
             (added_submodules if success else failed_submodules).append(package.name)
 
-        if added_submodules and not GitUtils.commit_submodules_file(repo):
-            logger.error("Failed to create initial commit")
+        if added_submodules:
+            # Commit .gitmodules and added submodules
+            if not repo.commit("Initial commit: Add all pkg submodules"):
+                logger.error("Failed to create initial commit")
 
         self._log_create_summary(project_path, added_submodules, failed_submodules)
         return self._handle_push_if_requested(repo, project_path, added_submodules, failed_submodules)
 
     def _execute_update(self):
         """Execute the update subcommand to update an existing submodule project."""
-        repo = GitUtils.validate_repository_path(self.target_path)
-        if not repo:
+        repo = GitRepo(self.target_path)
+        if not repo.is_valid:
+            logger.error("Invalid git repository at %s", self.target_path)
             return 1
 
-        gitmodules_path = self.target_path / ".gitmodules"
-        if not gitmodules_path.exists():
+        if not repo.has_submodules:
             logger.warning(
                 "No .gitmodules file found in '%s' - no submodules to update",
                 self.target_path,
@@ -123,54 +127,69 @@ class SubmoduleCommand(Command):
 
         logger.info("Found git repository with submodules at: %s", self.target_path)
 
-        try:
-            # Update submodules
-            submodules = GitUtils.get_submodules(repo)
-            if not submodules:
-                return 0
-
-            updated_names = []
-            for submodule in submodules:
-                if GitUtils.update_submodule_with_latest_commit(
-                    repo,
-                    submodule,
-                    self.di_container,
-                    getattr(self.args, "branch", None),
-                ):
-                    updated_names.append(submodule.name)
-
-            # Commit and push if needed
-            committed = False
-            if updated_names:
-                commit_message = f"Update submodules: {', '.join(updated_names)}"
-                committed = GitUtils.commit_changes(repo, commit_message)
-                if committed:
-                    logger.info("Committed submodule updates: %s", commit_message)
-                else:
-                    logger.info("No changes detected after submodule updates")
-
-            if committed and self.args.push:
-                if not GitUtils.push_changes_and_tags(repo):
-                    logger.warning("Failed to push changes to remote repository")
-                    return 2
-            elif committed and not self.args.push:
-                logger.info("Changes have been committed locally. Use --push to push to remote repository.")
-
-            # Log summary
-            logger.info("Submodule update completed for: %s", self.target_path)
-            logger.info("Updated: %d submodules", len(updated_names))
-            if committed:
-                logger.info("Changes have been committed to the repository")
-            elif not updated_names:
-                logger.info("All submodules were already up to date")
-            else:
-                logger.info("No changes were committed (repository may be clean)")
-
+        submodules = repo.submodules
+        if not submodules:
             return 0
 
-        except GitCommandError as e:
-            logger.error("Git command failed while updating submodule project: %s", str(e))
-            return 1
+        updated_names = []
+        for submodule in submodules:
+            current_sha = submodule.hexsha
+            package = self.package_service.get_package(submodule.name)
+            
+            if not package:
+                logger.error("Package '%s' not found in hierarchy", submodule.name)
+                continue
+
+            branch = getattr(self.args, "branch", None)
+            branch_obj = self.package_service.get_package_branch(package, branch)
+            if not branch_obj:
+                logger.error("Branch '%s' not found for package '%s'", branch, package.name)
+                continue
+
+            latest_sha = branch_obj.commit["id"]
+
+            if current_sha == latest_sha:
+                continue
+
+            if repo.update_submodule_commit(submodule.path, latest_sha):
+                logger.info(
+                    "Updated submodule '%s': %s -> %s",
+                    submodule.name,
+                    current_sha[:8],
+                    latest_sha[:8],
+                )
+                updated_names.append(submodule.name)
+            else:
+                logger.error("Failed to update submodule '%s'", submodule.name)
+
+        committed = False
+        if updated_names:
+            commit_message = f"Update submodules: {', '.join(updated_names)}"
+            committed = repo.commit(commit_message)
+            if committed:
+                logger.info("Committed submodule updates: %s", commit_message)
+            else:
+                logger.info("No changes detected after submodule updates")
+
+        if committed and self.args.push:
+            branch_success = repo.push_branch()
+            tags_success = repo.push_tags()
+            if not (branch_success and tags_success):
+                logger.warning("Failed to push changes to remote repository")
+                return 2
+        elif committed and not self.args.push:
+            logger.info("Changes have been committed locally. Use --push to push to remote repository.")
+
+        logger.info("Submodule update completed for: %s", self.target_path)
+        logger.info("Updated: %d submodules", len(updated_names))
+        if committed:
+            logger.info("Changes have been committed to the repository")
+        elif not updated_names:
+            logger.info("All submodules were already up to date")
+        else:
+            logger.info("No changes were committed (repository may be clean)")
+
+        return 0
 
     def _log_create_summary(self, project_path, added_submodules, failed_submodules):
         """Print a summary of the submodule project creation."""
@@ -189,14 +208,17 @@ class SubmoduleCommand(Command):
         logger.info("  cd %s", project_path)
         logger.info("  git submodule update --remote --recursive")
 
-    def _handle_push_if_requested(self, repo, project_path, added_submodules, failed_submodules):
+    def _handle_push_if_requested(self, repo: GitRepo, project_path, added_submodules, failed_submodules):
         """Handle pushing changes if requested."""
         if not added_submodules:
             return 0 if not failed_submodules else 2
 
         if self.args.push:
             logger.info("Attempting to push submodule project to remote repository...")
-            if not GitUtils.push_changes_and_tags(repo):
+            branch_success = repo.push_branch()
+            tags_success = repo.push_tags()
+            
+            if not (branch_success and tags_success):
                 logger.error("Failed to push changes to remote repository")
                 logger.error("Please ensure the remote repository exists and you have push permissions:")
                 origin_url = f"git@{self.args.host}:{self.di_container.group_rpath}/{self.project_name}.git"

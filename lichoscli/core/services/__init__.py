@@ -6,6 +6,8 @@ from .editor import EditorConfig, EditorLaunchResult, EditorStrategy
 from .environment import BuildEnvironment, EnvironmentService
 from .notify import NotificationData, NotifyService
 from .package import PackageService
+from .repo_parser import RepoParserService
+from .source_collection import SourceCollectionService
 from .storage import StorageService
 from .workspace import WorkspaceService
 
@@ -17,6 +19,8 @@ __all__ = [
     "WorkspaceService",
     "CacheService",
     "StorageService",
+    "RepoParserService",
+    "SourceCollectionService",
     "NotifyService",
     "NotificationData",
     "ContainerService",

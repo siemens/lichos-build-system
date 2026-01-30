@@ -1,3 +1,4 @@
+import json
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
@@ -14,6 +15,20 @@ class DependencyGraph:
     """representation of a directed acyclic graph (DAG) for project dependencies."""
 
     nodes: dict[str, "DAGNode"]
+
+    def __str__(self) -> str:
+        """Return JSON representation of the DAG."""
+        dag_dict = {
+            pkg_name: {
+                "version": node.version,
+                "commit_sha": node.commit_sha,
+                "status": node.status.value if hasattr(node.status, 'value') else str(node.status),
+                "direct_dependencies": list(node.direct_dependencies.keys()),
+                "reverse_dependencies": list(node.reverse_dependencies.keys())
+            }
+            for pkg_name, node in self.nodes.items()
+        }
+        return json.dumps(dag_dict, indent=2)
 
     def add_node(self, node: "DAGNode") -> None:
         """Add a node to the DAG."""

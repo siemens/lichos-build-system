@@ -8,7 +8,9 @@ from gitlab import GitlabError
 from gitlab.v4.objects import Project as GitLabProjectObject
 
 from lichoscli.core.models import Project
+from lichoscli.utils import CIConfigUtils
 from lichoscli.utils.cache_decorators import CacheMixin, cached_property
+from lichoscli.utils.constants import CI_DEFAULT_PIPELINE_NAME
 
 from .merge_requests import GitLabMergeRequests
 from .pipelines import GitLabPipelines
@@ -106,6 +108,24 @@ class GitLabProject(Project, CacheMixin):
         if forked_from and isinstance(forked_from, dict):
             return forked_from.get("ssh_url_to_repo")
         return None
+
+    @property
+    def is_package(self) -> bool:
+        """Check if the project is a package."""
+        if not self.ci_config_path:
+            return False
+
+        parsed = CIConfigUtils.parse_ci_config_path(self.ci_config_path)
+        return parsed is not None and parsed.name == CI_DEFAULT_PIPELINE_NAME
+
+    @property
+    def is_image(self) -> bool:
+        """Check if the project is an image."""
+        if not self.ci_config_path:
+            return False
+
+        parsed = CIConfigUtils.parse_ci_config_path(self.ci_config_path)
+        return parsed is not None and parsed.name == "image"
 
     @property
     def attributes(self) -> dict[str, Any]:
@@ -282,6 +302,21 @@ class GitLabProject(Project, CacheMixin):
                 str(e),
             )
             return None
+
+    def get_commits(self, from_ref: str, to_ref: str) -> list[dict[str, Any]]:
+        """Get list of commits between two references using GitLab API."""
+        try:
+            comparison = self._project.repository_compare(from_ref, to_ref)
+            return comparison.get("commits", [])
+        except GitlabError as e:
+            logger.debug(
+                "Failed to get commits between %s and %s for project %s: %s",
+                from_ref,
+                to_ref,
+                self.name,
+                str(e),
+            )
+            return []
 
     def get_latest_commit_sha(self, branch: str) -> Optional[str]:
         """Get the latest commit SHA for a given branch.

@@ -2,13 +2,16 @@
 
 import logging
 import os
+import tempfile
 from datetime import datetime
+from pathlib import Path
 
 import requests
 from gitlab.exceptions import GitlabError
 
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
+from lichoscli.core.models.git_repo import GitRepo
 from lichoscli.core.services import PackageService
 from lichoscli.utils import CI_PKG, CORE_PACKAGES
 
@@ -38,6 +41,11 @@ class ReleaseCommand(Command):
             "--nexus-url",
             required=True,
             help="Nexus URL (required)",
+        )
+        sp.add_argument(
+            "-p",
+            "--submodule-project",
+            help="Path or URL to the git project containing package submodules",
         )
 
     def execute(self) -> int:
@@ -77,6 +85,64 @@ class ReleaseCommand(Command):
         tag = date_str
         logger.debug("Generated snapshot tag: %s", tag)
         return tag
+
+    def _update_and_tag_submodule_project(self, project_location: str, tag: str, branch: str) -> bool:
+        """Fetch/Update submodule project, update submodules to latest, and tag it"""
+        logger.info("Updating and tagging submodule project at %s", project_location)
+
+        git_repo = GitRepo.get_or_clone(project_location, branch)
+        if not git_repo:
+            return False
+
+        updated_names = self._update_submodules(git_repo, branch)
+
+        return self._commit_and_push_submodule_project(git_repo, updated_names, tag)
+
+    def _update_submodules(self, git_repo: GitRepo, branch: str) -> list[str]:
+        """Update all submodules to the latest commit on the specified branch"""
+        updated_names = []
+        for submodule in git_repo.submodules:
+            package = self.package_service.get_package(submodule.name)
+            if not package:
+                logger.warning("Package '%s' not found", submodule.name)
+                continue
+
+            branch_obj = self.package_service.get_package_branch(package, branch)
+            if not branch_obj:
+                logger.warning("Branch '%s' not found for package '%s'", branch, package.name)
+                continue
+
+            latest_sha = branch_obj.commit["id"]
+            current_sha = submodule.hexsha
+
+            if current_sha != latest_sha:
+                if git_repo.update_submodule_commit(submodule.path, latest_sha):
+                    logger.info("Updated submodule '%s': %s -> %s", submodule.name, current_sha[:8], latest_sha[:8])
+                    updated_names.append(submodule.name)
+        
+        return updated_names
+
+    def _commit_and_push_submodule_project(self, git_repo: GitRepo, updated_names: list[str], tag: str) -> bool:
+        """Commit changes, tag, and push the submodule project"""
+        committed = False
+        if updated_names:
+            if self.args.dry:
+                logger.info("DRY RUN: Would commit submodule updates: %s", ", ".join(updated_names))
+            else:
+                commit_message = f"Update submodules for release {tag}"
+                committed = git_repo.commit(commit_message)
+
+        if not git_repo.create_and_push_tag(tag, message=f"Release {tag}", dry_run=self.args.dry):
+            logger.error("Failed to tag submodule project")
+            return False
+
+        if committed and not self.args.dry:
+            if not git_repo.push_branch():
+                logger.error("Failed to push submodule project changes")
+                return False
+
+        return True
+
 
     def _tag_package(self, package_name: str, tag: str, branch: str, dry_run: bool) -> bool:
         """Tag a specific package with the snapshot tag
@@ -173,6 +239,7 @@ class ReleaseCommand(Command):
             "repo_url": f"{nexus_url}/repository/{branch}/",
             "distribution": branch,
             "component": "main",
+            "blob_store": f"{branch}",
         }
 
         if dry_run:

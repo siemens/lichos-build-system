@@ -78,6 +78,16 @@ class Project(ABC):
 
     @property
     @abstractmethod
+    def is_package(self) -> bool:
+        """Check if the project is a package (has gbp build type)."""
+
+    @property
+    @abstractmethod
+    def is_image(self) -> bool:
+        """Check if the project is an image (has image build type)."""
+
+    @property
+    @abstractmethod
     def attributes(self) -> dict[str, Any]:
         """Project attributes including forked_from_project."""
 
@@ -161,6 +171,18 @@ class Project(ABC):
 
         Returns:
             The latest commit SHA if successful, None otherwise
+        """
+
+    @abstractmethod
+    def get_commits(self, from_ref: str, to_ref: str) -> list[dict[str, Any]]:
+        """Get list of commits between two references.
+
+        Args:
+            from_ref: The starting reference (exclusive)
+            to_ref: The ending reference (inclusive)
+
+        Returns:
+            List of dictionaries containing commit details
         """
 
     @abstractmethod

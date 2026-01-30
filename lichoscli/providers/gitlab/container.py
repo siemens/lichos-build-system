@@ -14,6 +14,8 @@ from lichoscli.core.services import (
     EnvironmentService,
     NotifyService,
     PackageService,
+    RepoParserService,
+    SourceCollectionService,
     StorageService,
     WorkspaceService,
 )
@@ -73,6 +75,8 @@ class GitLabServiceContainer(DIContainer):
 
         container_service = DockerContainerService()
         environment_service = GitLabEnvironmentService(package_service)
+        repo_parser_service = RepoParserService()
+        source_collection_service = SourceCollectionService(repo_parser_service)
         vscode_editor_strategy = VSCodeEditorStrategy()
 
         self._services[CacheService] = cache_service
@@ -82,6 +86,8 @@ class GitLabServiceContainer(DIContainer):
         self._services[WorkspaceService] = workspace_service
         self._services[ContainerService] = container_service
         self._services[EnvironmentService] = environment_service
+        self._services[RepoParserService] = repo_parser_service
+        self._services[SourceCollectionService] = source_collection_service
 
         self._editor_strategies = {"code": vscode_editor_strategy}
 

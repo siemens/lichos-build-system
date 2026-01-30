@@ -55,24 +55,28 @@ def test_execute_without_branch(mock_clone_from, mock_di_container, mock_package
     assert result == 0
 
 
+@patch("os.path.exists")
 @patch("lichoscli.commands.clone.Repo.clone_from")
-def test_execute_with_branch_success(mock_clone_from, mock_di_container, mock_package, mock_args, mock_git_repo):
+def test_execute_with_branch_success(mock_clone_from, mock_os_exists, mock_di_container, mock_package, mock_args, mock_git_repo):
     mock_args.branch = "feature-branch"
     mock_repo = mock_git_repo()
     mock_clone_from.return_value = mock_repo
+    mock_os_exists.return_value = False
     mock_di_container.package_service.get_package.return_value = mock_package
 
     command = CloneCommand(mock_di_container, mock_args)
     result = command.execute()
 
     mock_di_container.package_service.get_package.assert_called_once_with("test-package")
-    mock_clone_from.assert_called_once_with(mock_package.ssh_url_to_repo, "test-package", branch="main")
+    mock_clone_from.assert_called_once_with(mock_package.ssh_url_to_repo, "test-package", branch="feature-branch")
     assert result == 0
 
 
+@patch("os.path.exists")
 @patch("lichoscli.commands.clone.Repo.clone_from")
-def test_execute_with_branch_failure(mock_clone_from, mock_di_container, mock_package, mock_args, mock_git_repo):
+def test_execute_with_branch_failure(mock_clone_from, mock_os_exists, mock_di_container, mock_package, mock_args, mock_git_repo):
     mock_args.branch = "nonexistent-branch"
+    mock_os_exists.return_value = False
     mock_di_container.package_service.get_package.return_value = mock_package
 
     mock_repo = mock_git_repo()
@@ -90,7 +94,7 @@ def test_execute_with_branch_failure(mock_clone_from, mock_di_container, mock_pa
         call(
             mock_package.ssh_url_to_repo,
             "test-package",
-            branch="main",
+            branch="nonexistent-branch",
         ),
         call(mock_package.ssh_url_to_repo, "test-package", branch="main"),
     ]
@@ -137,7 +141,7 @@ def test_execute_with_upstream_metadata(
 ):
     mock_repo = mock_git_repo()
     mock_clone_from.return_value = mock_repo
-    mock_os_exists.return_value = True
+    mock_os_exists.side_effect = lambda path: path == "test-package/debian/upstream/metadata"
     mock_di_container.package_service.get_package.return_value = mock_package
 
     yaml_data = {"Repository": "https://github.com/upstream/repo.git"}
@@ -147,7 +151,10 @@ def test_execute_with_upstream_metadata(
         command = CloneCommand(mock_di_container, mock_args)
         result = command.execute()
 
-    mock_os_exists.assert_called_once_with(os.path.join("test-package", "debian/upstream/metadata"))
+    assert any(
+        call_args[0][0] == os.path.join("test-package", "debian/upstream/metadata")
+        for call_args in mock_os_exists.call_args_list
+    )
 
     upstream_remote = mock_repo.create_remote.return_value
     mock_repo.create_remote.assert_called_once_with("upstream", "https://github.com/upstream/repo.git")
@@ -170,7 +177,7 @@ def test_execute_with_upstream_metadata_no_repository(
 ):
     mock_repo = mock_git_repo()
     mock_clone_from.return_value = mock_repo
-    mock_os_exists.return_value = True
+    mock_os_exists.side_effect = lambda path: path == "test-package/debian/upstream/metadata"
     mock_di_container.package_service.get_package.return_value = mock_package
 
     yaml_data = {"OtherKey": "value"}
@@ -180,7 +187,7 @@ def test_execute_with_upstream_metadata_no_repository(
         command = CloneCommand(mock_di_container, mock_args)
         result = command.execute()
 
-    mock_os_exists.assert_called_once()
+    assert len(mock_os_exists.call_args_list) >= 2
     mock_repo.create_remote.assert_not_called()
 
     assert result == 0

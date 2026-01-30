@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from lichoscli.core.models.dag import DAGNode
+    from lichoscli.core.models.dag import DAGNode, DependencyGraph, DAGNodeStatus
 
 
 class NotificationData:
@@ -81,6 +81,29 @@ class NotifyService(ABC):
             The notification identifier if found, None otherwise
         """
         raise NotImplementedError
+
+    def create_notification(self, dag: "DependencyGraph", branch: str) -> NotificationData:
+        from lichoscli.core.models.dag import DAGNodeStatus
+
+        pipeline_urls = {}
+        for package_name, node in dag.nodes.items():
+            if node.project:
+                pipeline = node.project.pipelines.get_latest(branch, use_cache=False)
+                pipeline_urls[package_name] = pipeline.web_url if pipeline else "N/A"
+
+        failed_nodes = dag.get_nodes_by_status(DAGNodeStatus.FAILED)
+        successful_nodes = dag.get_nodes_by_status(DAGNodeStatus.SUCCESS)
+
+        failed_packages = [node.package for node in failed_nodes]
+        successful_packages = [node.package for node in successful_nodes]
+
+        return NotificationData(
+            failed_packages=failed_packages,
+            successful_packages=successful_packages,
+            dag_nodes=dag.nodes,
+            pipeline_urls=pipeline_urls,
+            package_comparison_urls={},
+        )
 
     def send_workspace_notification(self, workspace_name: str, data: NotificationData) -> bool:
         """

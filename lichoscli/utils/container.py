@@ -76,6 +76,7 @@ ENVEOF
     # Setup for root's bashrc as well
     if ! grep -q "source /tmp/container_env" /root/.bashrc 2>/dev/null; then
         echo '# Source container environment variables' >> /root/.bashrc
+        echo 'export LC_ALL=C' >> /root/.bashrc
         echo 'set -a' >> /root/.bashrc
         echo '. /tmp/container_env' >> /root/.bashrc
         echo 'set +a' >> /root/.bashrc

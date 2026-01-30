@@ -30,10 +30,14 @@ class CloneCommand(Command):
             logger.error("Package '%s' not found", self.package_name)
             return 1
 
+        if os.path.exists(self.package_name):
+            logger.error("Directory '%s' already exists", self.package_name)
+            return 1
+
         repo_url = package.ssh_url_to_repo
         if self.args.branch:
             try:
-                repo = Repo.clone_from(repo_url, self.package_name, branch=package.default_branch)
+                repo = Repo.clone_from(repo_url, self.package_name, branch=self.args.branch)
             except GitCommandError as e:
                 logger.warning("Failed to checkout %s: %s", self.args.branch, e)
                 logger.warning(

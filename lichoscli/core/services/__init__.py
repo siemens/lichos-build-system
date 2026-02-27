@@ -1,4 +1,7 @@
-from .buildinfo import BuildInfoService
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
+from .buildinfo import BuildInfoResult, BuildInfoService
 from .cache import CacheService
 from .container import ContainerConfig, ContainerResult, ContainerService
 from .dependency import DependencyService, VersionCheckResult
@@ -16,6 +19,7 @@ __all__ = [
     "DependencyService",
     "VersionCheckResult",
     "BuildInfoService",
+    "BuildInfoResult",
     "WorkspaceService",
     "CacheService",
     "StorageService",

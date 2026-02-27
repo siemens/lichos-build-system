@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """GitLab implementation of BuildInfo service with optimal caching."""
 
 import glob
@@ -10,7 +13,7 @@ from typing import TYPE_CHECKING, Optional
 from gitlab import GitlabError
 
 from lichoscli.core.models import BuildInfo, Project
-from lichoscli.core.services import BuildInfoService, CacheService
+from lichoscli.core.services import BuildInfoResult, BuildInfoService, CacheService
 from lichoscli.utils.buildinfo_parser import BuildinfoParser
 from lichoscli.utils.build import BuildUtils
 from lichoscli.utils.constants import CORE_PACKAGES
@@ -128,7 +131,8 @@ class GitLabBuildInfoService(BuildInfoService):
         branch_name = branch if branch else project.default_branch
 
         if wait_for_completion:
-            buildinfo = self.get_buildinfo_with_timeout(project, branch_name, architecture=architecture)
+            bi_result = self.get_buildinfo_with_timeout(project, branch_name, architecture=architecture)
+            buildinfo = bi_result.buildinfo
         else:
             buildinfo = self._fetch_buildinfo_with_fallback(project, branch_name, architecture)
 
@@ -140,8 +144,8 @@ class GitLabBuildInfoService(BuildInfoService):
         branch: str | None = None,
         wait_for_completion: bool = True,
         architecture: str | None = None,
-    ) -> dict[int, Optional[BuildInfo]]:
-        """Fetch buildinfo for multiple projects in parallel and return a mapping from project ID to BuildInfo or None."""
+    ) -> dict[int, BuildInfoResult]:
+        """Fetch buildinfo for multiple projects in parallel and return a mapping from project ID to BuildInfoResult."""
         if not projects:
             return {}
 
@@ -150,12 +154,12 @@ class GitLabBuildInfoService(BuildInfoService):
         else:
             architecture = BuildUtils.normalize_architecture(architecture)
 
-        result: dict[int, Optional[BuildInfo]] = {}
+        result: dict[int, BuildInfoResult] = {}
         projects_to_fetch = []
 
         for project in projects:
             if not self._should_fetch_buildinfo(project):
-                result[project.id] = None
+                result[project.id] = BuildInfoResult()
                 continue
 
             projects_to_fetch.append(project)
@@ -165,22 +169,23 @@ class GitLabBuildInfoService(BuildInfoService):
 
         def fetch_buildinfo_for_project(
             project: Project,
-        ) -> tuple[int, Optional[BuildInfo]]:
+        ) -> tuple[int, BuildInfoResult]:
             """Fetch buildinfo for a single project and return project ID and result."""
             try:
                 branch_name = branch if branch else project.default_branch
                 if wait_for_completion:
-                    buildinfo = self.get_buildinfo_with_timeout(project, branch_name, architecture=architecture)
+                    bi_result = self.get_buildinfo_with_timeout(project, branch_name, architecture=architecture)
                 else:
                     buildinfo = self._fetch_buildinfo_with_fallback(project, branch_name, architecture)
+                    bi_result = BuildInfoResult(buildinfo=buildinfo)
                 logger.debug("Successfully fetched buildinfo for project: %s", project.name)
-                return project.id, buildinfo
+                return project.id, bi_result
             except (GitlabError, OSError) as e:
                 logger.warning("Failed to fetch buildinfo for project %s: %s", project.name, str(e))
-                return project.id, None
+                return project.id, BuildInfoResult()
             except (AttributeError, ValueError, KeyError) as e:
                 logger.error("Data processing error for project %s: %s", project.name, str(e))
-                return project.id, None
+                return project.id, BuildInfoResult()
 
         max_workers = min(8, len(projects_to_fetch))
         logger.info(
@@ -197,8 +202,8 @@ class GitLabBuildInfoService(BuildInfoService):
             for future in as_completed(future_to_project):
                 project = future_to_project[future]
                 try:
-                    project_id, buildinfo = future.result()
-                    result[project_id] = buildinfo
+                    project_id, bi_result = future.result()
+                    result[project_id] = bi_result
 
                 except (
                     GitlabError,
@@ -212,7 +217,7 @@ class GitLabBuildInfoService(BuildInfoService):
                         project.name,
                         str(e),
                     )
-                    result[project.id] = None
+                    result[project.id] = BuildInfoResult()
 
         logger.info("Completed fetching buildinfo for %d projects", len(projects_to_fetch))
         return result
@@ -223,9 +228,9 @@ class GitLabBuildInfoService(BuildInfoService):
         branch: str | None = None,
         max_wait_minutes: int = 60,
         architecture: str | None = None,
-    ) -> Optional[BuildInfo]:
+    ) -> BuildInfoResult:
         if not self._should_fetch_buildinfo(project):
-            return None
+            return BuildInfoResult()
 
         if architecture is None:
             architecture = BuildUtils.normalize_architecture(os.uname().machine)
@@ -243,7 +248,7 @@ class GitLabBuildInfoService(BuildInfoService):
                 branch_name,
                 str(e),
             )
-            return None
+            return BuildInfoResult()
 
         if not pipeline:
             logger.debug(
@@ -253,7 +258,7 @@ class GitLabBuildInfoService(BuildInfoService):
             )
             pipeline = project.pipelines.get_some_latest_pipeline(branch)
             if not pipeline:
-                return None
+                return BuildInfoResult()
 
         if pipeline.status.is_final:
             if pipeline.status.is_successful:
@@ -276,7 +281,7 @@ class GitLabBuildInfoService(BuildInfoService):
                         project.name,
                         branch_name,
                     )
-                    return None
+                    return BuildInfoResult()
         elif pipeline.status.is_waiting or pipeline.status.is_active:
             logger.info(
                 "Pipeline %s for project %s is %s, waiting for completion...",
@@ -287,7 +292,7 @@ class GitLabBuildInfoService(BuildInfoService):
             max_wait_seconds = max_wait_minutes * 60
             pipeline = self._wait_for_pipeline_completion(project, pipeline, branch_name, max_wait_seconds)
             if not pipeline:
-                return None
+                return BuildInfoResult()
         else:
             logger.warning(
                 "Pipeline %s for %s has unexpected status: %s",
@@ -299,9 +304,10 @@ class GitLabBuildInfoService(BuildInfoService):
         cache_key = self._create_cache_key(project, pipeline, architecture)
         cached_buildinfo = self._get_cached_buildinfo(cache_key)
         if cached_buildinfo is not None:
-            return cached_buildinfo
+            return BuildInfoResult(buildinfo=cached_buildinfo, pipeline=pipeline)
         # No cache hit, extract from pipeline
-        return self._extract_buildinfo_from_pipeline(project, pipeline, cache_key, architecture)
+        buildinfo = self._extract_buildinfo_from_pipeline(project, pipeline, cache_key, architecture)
+        return BuildInfoResult(buildinfo=buildinfo, pipeline=pipeline)
 
     def clear_cache(self) -> None:
         """Clear both in-memory and persistent cache."""
@@ -469,46 +475,28 @@ class GitLabBuildInfoService(BuildInfoService):
         return project.pipelines.get_some_latest_pipeline(target_branch)
 
     def _find_buildinfo_in_artifacts(self, temp_dir_path: str, architecture: str) -> Optional[str]:
-        """Find and read architecture-specific buildinfo file from extracted artifacts."""
+        """Find and read architecture-specific buildinfo file from extracted artifacts.
 
-        build_types = ["gbp", "image"]
+        Supports two artifact layouts:
+        - gbp packages: gbp/*_{architecture}.buildinfo
+        - images: image/{architecture}/*.buildinfo
+        """
+        search_patterns = [
+            os.path.join(temp_dir_path, "gbp", f"*_{architecture}.buildinfo"),
+            os.path.join(temp_dir_path, "image", architecture, "*.buildinfo"),
+        ]
 
-        for build_type in build_types:
-            build_path = os.path.join(temp_dir_path, build_type)
-            if not os.path.exists(build_path):
-                logger.debug("No %s/ folder found in artifacts", build_type)
-                continue
-
-            buildinfo_pattern = os.path.join(build_path, f"*_{architecture}.buildinfo")
-            buildinfo_files = glob.glob(buildinfo_pattern)
-
+        for pattern in search_patterns:
+            buildinfo_files = glob.glob(pattern)
             if not buildinfo_files:
-                logger.debug(
-                    "No .buildinfo files found for architecture %s in %s/ folder",
-                    architecture,
-                    build_type,
-                )
-                buildinfo_pattern = os.path.join(build_path, f"*.buildinfo")
-                buildinfo_files = glob.glob(buildinfo_pattern)
-
-            if not buildinfo_files:
-                logger.debug(
-                    "No .buildinfo files found in %s/ folder",
-                    build_type,
-                )
                 continue
-
-            buildinfo_file = buildinfo_files[0]
             try:
-                with open(buildinfo_file, encoding="utf-8") as f:
-                    content = f.read()
-                logger.debug("Found buildinfo file: %s", buildinfo_file)
-                return content
+                with open(buildinfo_files[0], encoding="utf-8") as f:
+                    return f.read()
             except OSError as e:
-                logger.error("Failed to read buildinfo file %s: %s", buildinfo_file, str(e))
-                continue
+                logger.error("Failed to read buildinfo file %s: %s", buildinfo_files[0], str(e))
 
-        logger.debug("No .buildinfo files found for architecture %s in any build type folders", architecture)
+        logger.debug("No .buildinfo files found for architecture %s", architecture)
         return None
 
     def _should_fetch_buildinfo(self, project: Project) -> bool:

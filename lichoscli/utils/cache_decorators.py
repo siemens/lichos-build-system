@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """Cache decorators for GitLab API calls."""
 
 import functools

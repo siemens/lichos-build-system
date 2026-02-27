@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 from unittest.mock import Mock, patch
 
 import pytest
@@ -45,9 +48,9 @@ def test_normalize_architecture_maps_correctly():
     assert BuildUtils.normalize_architecture("unknown") == "unknown"
 
 
-@patch("lichoscli.commands.build.GitUtils")
-def test_create_build_config(mock_git_utils, mock_di_container, mock_package, mock_build_args):
-    mock_git_utils.get_group.return_value = "test-group/pkg"
+@patch("lichoscli.commands.build.GitRepo")
+def test_create_build_config(mock_git_repo, mock_di_container, mock_package, mock_build_args):
+    mock_git_repo.return_value.group = "test-group/pkg"
 
     mock_di_container.package_service.get_package.return_value = mock_package
 
@@ -61,10 +64,10 @@ def test_create_build_config(mock_git_utils, mock_di_container, mock_package, mo
     assert command.buildparam.enable_cross == False
 
 
-@patch("lichoscli.commands.build.GitUtils")
-def test_build_config_with_cross_compilation(mock_git_utils, mock_di_container, mock_package, mock_build_args):
+@patch("lichoscli.commands.build.GitRepo")
+def test_build_config_with_cross_compilation(mock_git_repo, mock_di_container, mock_package, mock_build_args):
     mock_build_args.enable_cross = True
-    mock_git_utils.get_group.return_value = "test-group/pkg"
+    mock_git_repo.return_value.group = "test-group/pkg"
 
     mock_di_container.package_service.get_package.return_value = mock_package
     mock_package.variables.to_dict.return_value = {}
@@ -74,10 +77,10 @@ def test_build_config_with_cross_compilation(mock_git_utils, mock_di_container, 
     assert command.buildparam.enable_cross == True
 
 
-@patch("lichoscli.commands.build.GitUtils")
-def test_build_config_with_profile(mock_git_utils, mock_di_container, mock_package, mock_build_args):
+@patch("lichoscli.commands.build.GitRepo")
+def test_build_config_with_profile(mock_git_repo, mock_di_container, mock_package, mock_build_args):
     mock_build_args.profile = "test-profile"
-    mock_git_utils.get_group.return_value = "test-group/pkg"
+    mock_git_repo.return_value.group = "test-group/pkg"
 
     mock_di_container.package_service.get_package.return_value = mock_package
     mock_package.variables.to_dict.return_value = {}
@@ -88,17 +91,17 @@ def test_build_config_with_profile(mock_git_utils, mock_di_container, mock_packa
 
 
 @patch("os.unlink")
-@patch("lichoscli.commands.build.GitUtils")
+@patch("lichoscli.commands.build.GitRepo")
 def test_execute_success(
-    mock_git_utils,
+    mock_git_repo,
     mock_unlink,
     mock_di_container,
     mock_package,
     mock_args,
 ):
 
-    mock_git_utils.get_group.return_value = "test-group/pkg"
-    mock_git_utils.get_git_repo.return_value = None
+    mock_git_repo.return_value.group = "test-group/pkg"
+    mock_git_repo.return_value.is_valid = False
 
     mock_di_container.package_service.get_package.return_value = mock_package
     mock_package.variables.to_dict.return_value = {}
@@ -137,9 +140,9 @@ def test_execute_success(
     mock_unlink.assert_called_once_with("test.env")
 
 
-@patch("lichoscli.commands.build.GitUtils")
-def test_execute_package_not_found(mock_git_utils, mock_di_container, mock_args):
-    mock_git_utils.get_group.return_value = "test-group/pkg"
+@patch("lichoscli.commands.build.GitRepo")
+def test_execute_package_not_found(mock_git_repo, mock_di_container, mock_args):
+    mock_git_repo.return_value.group = "test-group/pkg"
 
     mock_di_container.package_service.get_package.return_value = None
 

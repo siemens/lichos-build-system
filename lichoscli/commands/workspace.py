@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import logging
 import os
 import subprocess
@@ -75,6 +78,8 @@ class WorkspaceCommand(Command):
         )
 
         subparsers.add_parser("merge", help="merge all opened merge requests in the workspace")
+
+        subparsers.add_parser("changes", help="show links to changes for each package in the workspace")
 
     def action_create(self):
         """Create a new workspace."""
@@ -220,6 +225,18 @@ class WorkspaceCommand(Command):
             if not workspace:
                 logger.error("Workspace with branch '%s' does not exist", branch)
                 return 1
+            self.console.print(f"\n[bold yellow]Warning:[/bold yellow] Deleting workspace '[cyan]{branch}[/cyan]' will delete the branch on ALL packages in this workspace:")
+            if workspace.packages:
+                for pkg in workspace.packages:
+                    self.console.print(f"  [yellow]•[/yellow] {pkg.name}")
+            else:
+                self.console.print("  [dim](no packages found)[/dim]")
+            if not Confirm.ask(
+                f"\nAre you sure you want to delete workspace '[cyan]{branch}[/cyan]' and all its branches?",
+                default=False,
+            ):
+                self.console.print("[yellow]Workspace deletion cancelled[/yellow]")
+                return 0
             if self.workspace_service.delete_workspace(branch):
                 self.console.print(f"[green]✓ Deleted workspace with branch '[cyan]{branch}[/cyan]'[/green]")
                 return 0
@@ -258,10 +275,21 @@ class WorkspaceCommand(Command):
             self.console.print("\n[yellow]Workspace deletion cancelled[/yellow]")
             return 0
 
+        # Show warning about all packages that will be affected
+        self.console.print("\n[bold yellow]Warning:[/bold yellow] Deleting a workspace will delete the branch on ALL packages in that workspace.\n")
+        workspace_map = {ws.name: ws for ws in workspaces}
+        for selected_branch in selected_branches:
+            ws = workspace_map.get(selected_branch)
+            if ws and ws.packages:
+                pkg_names = ", ".join(pkg.name for pkg in ws.packages)
+                self.console.print(f"  [cyan]{selected_branch}[/cyan] → packages: [yellow]{pkg_names}[/yellow]")
+            else:
+                self.console.print(f"  [cyan]{selected_branch}[/cyan] [dim](no packages)[/dim]")
+
         # Show confirmation for all selected workspaces
         workspace_list = "', '".join(selected_branches)
         if not Confirm.ask(
-            f"Are you sure you want to delete workspace(s) '[cyan]{workspace_list}[/cyan]'?",
+            f"\nAre you sure you want to delete workspace(s) '[cyan]{workspace_list}[/cyan]' including all branches on all packages?",
             default=False,
         ):
             self.console.print("[yellow]Workspace deletion cancelled[/yellow]")
@@ -310,24 +338,16 @@ class WorkspaceCommand(Command):
         self.console.print(f"[bold]Packages:[/bold] {package_count}\n")
 
         if workspace.packages:
-            table = Table(
-                title=f"Packages in workspace '{workspace.name}'",
-                box=box.ROUNDED,
-                show_header=True,
-                header_style="bold magenta",
-            )
-            table.add_column("Package Name", style="cyan")
-            table.add_column("Latest Pipeline", style="green")
-
+            col_width = max(len(pkg.name) for pkg in workspace.packages) + 2
+            self.console.print(f"  [bold]{'Package'.ljust(col_width)}  Pipeline[/bold]")
+            self.console.print(f"  {'-' * col_width}  {'--------'}")
             for package in workspace.packages:
                 latest_pipeline = package.pipelines.get_latest(branch)
                 if latest_pipeline:
-                    pipeline_link = latest_pipeline.web_url
-                    table.add_row(package.name, pipeline_link)
+                    self.console.print(f"  [cyan]{package.name.ljust(col_width)}[/cyan]", end="  ")
+                    print(latest_pipeline.web_url)
                 else:
-                    table.add_row(package.name, "[dim]No pipeline found[/dim]")
-
-            self.console.print(table)
+                    self.console.print(f"  [cyan]{package.name.ljust(col_width)}[/cyan]  [dim]No pipeline found[/dim]")
         else:
             self.console.print("[yellow]No packages in workspace[/yellow]")
 
@@ -622,6 +642,55 @@ class WorkspaceCommand(Command):
                 self.console.print(f"  - {pkg_name}: !{mr_iid} - {mr_title}")
 
         return 0 if not failed_merges else 1
+
+    def action_changes(self):
+        """Print links to changes for each package in the workspace.
+
+        For each package:
+        - If there is an open merge request on the workspace branch, print its URL.
+        - Otherwise print a compare URL showing what the branch adds over the default branch.
+        """
+        branch = self.args.branch
+        if not branch:
+            current_workspace = self.workspace_service.get_current_workspace()
+            if current_workspace:
+                branch = current_workspace.name
+            else:
+                logger.error("No branch name provided and no current workspace")
+                return 1
+
+        workspace = self.workspace_service.get_workspace(branch)
+        if not workspace:
+            logger.error("Workspace with branch '%s' does not exist", branch)
+            return 1
+
+        if not workspace.packages:
+            self.console.print(f"[yellow]No packages in workspace '[cyan]{branch}[/cyan]'[/yellow]")
+            return 0
+
+        rows = []
+        for package in workspace.packages:
+            merge_requests = package.merge_requests.list(
+                state="opened",
+                branch_name=branch,
+                get_all=True,
+            )
+            if merge_requests:
+                for mr in merge_requests:
+                    rows.append((package.name, mr.web_url))
+            else:
+                rows.append((package.name, package.compare_url(package.default_branch, branch)))
+
+
+        self.console.print(f"\n[bold]Changes for workspace '[cyan]{branch}[/cyan]':[/bold]")
+        if rows:
+            col_width = max(len(name) for name, _ in rows) + 2
+            self.console.print(f"  [bold]{'Package'.ljust(col_width)}  Link[/bold]")
+            self.console.print(f"  {'-' * col_width}  {'----'}")
+            for name, url in rows:
+                self.console.print(f"  [cyan]{name.ljust(col_width)}[/cyan]", end="  ")
+                print(url)
+        return 0
 
     def action_graph(self):
         """Show dependency graph for workspace packages."""

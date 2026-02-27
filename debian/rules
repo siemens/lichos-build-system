@@ -8,3 +8,11 @@ export PYBUILD_SYSTEM=pyproject
 
 override_dh_auto_test:
 	python3-coverage run --source=lichoscli -m pytest -vv && python3-coverage report
+
+override_dh_auto_install:
+	dh_auto_install
+	# Generate and install shell completion scripts
+	mkdir -p debian/lichoscli/usr/share/bash-completion/completions
+	mkdir -p debian/lichoscli/usr/share/zsh/vendor-completions
+	register-python-argcomplete lichoscli > debian/lichoscli/usr/share/bash-completion/completions/lichoscli
+	register-python-argcomplete lichoscli > debian/lichoscli/usr/share/zsh/vendor-completions/_lichoscli

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -6,226 +9,346 @@ import pytest
 from git.exc import InvalidGitRepositoryError
 
 from lichoscli.utils import BuildUtils, CIConfigUtils
-from lichoscli.utils.git import GitUtils
+from lichoscli.core.models.git import GitRepo, GitUrl
 
 
-class TestGitUtils:
-    """Complete tests for GitUtils class"""
+class TestGitRepo:
+    """Tests for GitRepo class (migrated from GitUtils)"""
 
-    @patch("git.Repo")
-    def test_get_branch_success(self, mock_repo):
+    @patch("lichoscli.core.models.git.git_repo.Repo")
+    def test_active_branch_success(self, mock_repo_cls):
         """Test successful branch retrieval"""
-        mock_repo_instance = MagicMock()
-        mock_repo_instance.active_branch.name = "feature/test-branch"
+        mock_repo = MagicMock()
+        mock_repo.active_branch.name = "feature/test-branch"
+        mock_repo_cls.return_value = mock_repo
 
-        result = GitUtils.get_branch(mock_repo_instance)
-        assert result == "feature/test-branch"
+        repo = GitRepo(".")
+        assert repo.active_branch == "feature/test-branch"
 
-    @patch("git.Repo")
-    def test_get_group_success_ssh(self, mock_repo):
+    @patch("lichoscli.core.models.git.git_repo.Repo")
+    def test_group_success_ssh(self, mock_repo_cls):
         """Test successful group extraction from SSH URL"""
-        mock_repo_instance = MagicMock()
-        mock_repo_instance.remotes.origin.url = "git@gitlab.com:your-group/platform-os/mypackage.git"
+        mock_repo = MagicMock()
+        mock_repo.remotes.origin.url = "git@gitlab.com:your-group/platform-os/mypackage.git"
+        # active_branch is needed for remote_info
+        mock_repo.active_branch.name = "main"
+        mock_repo_cls.return_value = mock_repo
 
-        result = GitUtils.get_group(mock_repo_instance)
-        assert result == "your-group/platform-os"
+        repo = GitRepo(".")
+        assert repo.group == "your-group/platform-os"
 
-    @patch("git.Repo")
-    def test_get_group_success_no_git_extension(self, mock_repo):
+    @patch("lichoscli.core.models.git.git_repo.Repo")
+    def test_group_success_no_git_extension(self, mock_repo_cls):
         """Test successful group extraction from URL without .git"""
-        mock_repo_instance = MagicMock()
-        mock_repo_instance.remotes.origin.url = "git@gitlab.com:your-group/platform-os/mypackage"
+        mock_repo = MagicMock()
+        mock_repo.remotes.origin.url = "git@gitlab.com:your-group/platform-os/mypackage"
+        mock_repo.active_branch.name = "main"
+        mock_repo_cls.return_value = mock_repo
 
-        result = GitUtils.get_group(mock_repo_instance)
-        assert result == "your-group/platform-os"
+        repo = GitRepo(".")
+        assert repo.group == "your-group/platform-os"
 
-    @patch("git.Repo")
-    def test_get_group_invalid_url(self, mock_repo):
+    @patch("lichoscli.core.models.git.git_repo.Repo")
+    def test_group_invalid_url(self, mock_repo_cls):
         """Test group extraction with invalid URL format"""
-        mock_repo_instance = MagicMock()
-        mock_repo_instance.remotes.origin.url = "https://invalid-url-format"
+        mock_repo = MagicMock()
+        mock_repo.remotes.origin.url = "https://invalid-url-format"
+        mock_repo.active_branch.name = "main"
+        mock_repo_cls.return_value = mock_repo
 
-        result = GitUtils.get_group(mock_repo_instance)
-        assert result == ""
+        repo = GitRepo(".")
+        assert repo.group == ""
 
-    @patch("git.Repo")
-    def test_get_package_name_success(self, mock_repo):
+    @patch("lichoscli.core.models.git.git_repo.Repo")
+    def test_package_name_success(self, mock_repo_cls):
         """Test successful package name extraction"""
-        mock_repo_instance = MagicMock()
-        mock_repo_instance.remotes.origin.url = "git@gitlab.com:your-group/platform-os/mypackage.git"
+        mock_repo = MagicMock()
+        mock_repo.remotes.origin.url = "git@gitlab.com:your-group/platform-os/mypackage.git"
+        mock_repo.active_branch.name = "main"
+        mock_repo_cls.return_value = mock_repo
 
-        result = GitUtils.get_package_name_from_git_repo(mock_repo_instance)
-        assert result == "mypackage"
+        repo = GitRepo(".")
+        assert repo.package_name == "mypackage"
 
-    @patch("git.Repo")
-    def test_get_package_name_no_git_extension(self, mock_repo):
+    @patch("lichoscli.core.models.git.git_repo.Repo")
+    def test_package_name_no_git_extension(self, mock_repo_cls):
         """Test package name extraction without .git extension"""
-        mock_repo_instance = MagicMock()
-        mock_repo_instance.remotes.origin.url = "git@gitlab.com:your-group/platform-os/mypackage"
+        mock_repo = MagicMock()
+        mock_repo.remotes.origin.url = "git@gitlab.com:your-group/platform-os/mypackage"
+        mock_repo.active_branch.name = "main"
+        mock_repo_cls.return_value = mock_repo
 
-        result = GitUtils.get_package_name_from_git_repo(mock_repo_instance)
-        assert result == "mypackage"
+        repo = GitRepo(".")
+        assert repo.package_name == "mypackage"
 
-    @patch("git.Repo")
-    def test_get_package_name_invalid_url(self, mock_repo):
+    @patch("lichoscli.core.models.git.git_repo.Repo")
+    def test_package_name_invalid_url(self, mock_repo_cls):
         """Test package name extraction with invalid URL"""
-        mock_repo_instance = MagicMock()
-        mock_repo_instance.remotes.origin.url = "https://invalid-url"
+        mock_repo = MagicMock()
+        mock_repo.remotes.origin.url = "https://invalid-url"
+        mock_repo.active_branch.name = "main"
+        mock_repo_cls.return_value = mock_repo
 
-        result = GitUtils.get_package_name_from_git_repo(mock_repo_instance)
-        assert result == ""
+        repo = GitRepo(".")
+        assert repo.package_name == ""
 
-    @patch("lichoscli.utils.git.Repo")
-    def test_get_git_repo_success(self, mock_repo):
-        """Test successful git repo retrieval"""
-        mock_repo_instance = MagicMock()
-        mock_repo.return_value = mock_repo_instance
-
-        result = GitUtils.get_git_repo("/path/to/repo")
-        assert result == mock_repo_instance
-        mock_repo.assert_called_once_with("/path/to/repo")
-
-    @patch("lichoscli.utils.git.Repo")
-    def test_get_git_repo_invalid(self, mock_repo):
-        """Test git repo retrieval with invalid repo"""
-        mock_repo.side_effect = InvalidGitRepositoryError
-
-        result = GitUtils.get_git_repo("/invalid/path")
-        assert result is None
-
-    def test_delete_main_from_branch_name_ending_with_main(self):
+    def test_sanitize_branch_name_ending_with_main(self):
         """Test branch name ending with /main"""
-        result = GitUtils.delete_main_from_branch_name("feature/branch/main")
+        result = GitUrl.sanitize_branch_name("feature/branch/main")
         assert result == "feature/branch/*"
 
-    def test_delete_main_from_branch_name_not_ending_with_main(self):
+    def test_sanitize_branch_name_not_ending_with_main(self):
         """Test branch name not ending with /main"""
-        result = GitUtils.delete_main_from_branch_name("feature/branch")
+        result = GitUrl.sanitize_branch_name("feature/branch")
         assert result == "feature/branch"
 
-    def test_delete_main_from_branch_name_main_in_middle(self):
+    def test_sanitize_branch_name_main_in_middle(self):
         """Test branch name with 'main' in the middle"""
-        result = GitUtils.delete_main_from_branch_name("feature/main/branch")
+        result = GitUrl.sanitize_branch_name("feature/main/branch")
         assert result == "feature/main/branch"
 
-    def test_delete_main_from_branch_name_exactly_main(self):
+    def test_sanitize_branch_name_exactly_main(self):
         """Test branch name that is exactly 'main'"""
-        result = GitUtils.delete_main_from_branch_name("main")
+        result = GitUrl.sanitize_branch_name("main")
         assert result == "main"
 
-    def test_delete_main_from_branch_name_empty(self):
+    def test_sanitize_branch_name_empty(self):
         """Test empty branch name"""
-        result = GitUtils.delete_main_from_branch_name("")
+        result = GitUrl.sanitize_branch_name("")
         assert result == ""
 
-    def test_get_ref_slug_normal(self):
+    def test_slugify_ref_normal(self):
         """Test normal branch name conversion"""
-        result = GitUtils.get_ref_slug("feature/my-branch")
+        result = GitUrl.slugify_ref("feature/my-branch")
         assert result == "feature-my-branch"
 
-    def test_get_ref_slug_special_chars(self):
+    def test_slugify_ref_special_chars(self):
         """Test branch name with special characters"""
-        result = GitUtils.get_ref_slug("feature/my_branch@2023!")
+        result = GitUrl.slugify_ref("feature/my_branch@2023!")
         assert result == "feature-my-branch-2023"
 
-    def test_get_ref_slug_uppercase(self):
+    def test_slugify_ref_uppercase(self):
         """Test uppercase branch name"""
-        result = GitUtils.get_ref_slug("FEATURE/MY-BRANCH")
+        result = GitUrl.slugify_ref("FEATURE/MY-BRANCH")
         assert result == "feature-my-branch"
 
-    def test_get_ref_slug_long_truncation(self):
+    def test_slugify_ref_long_truncation(self):
         """Test that long branch names are truncated to 63 characters"""
         long_name = "a" * 100
-        result = GitUtils.get_ref_slug(long_name)
+        result = GitUrl.slugify_ref(long_name)
         assert len(result) == 63
         assert result == "a" * 63
 
-    def test_get_ref_slug_leading_trailing_dashes(self):
+    def test_slugify_ref_leading_trailing_dashes(self):
         """Test branch name that would result in leading/trailing dashes"""
-        result = GitUtils.get_ref_slug("_feature/branch_")
+        result = GitUrl.slugify_ref("_feature/branch_")
         assert result == "feature-branch"
 
-    def test_get_ref_slug_empty(self):
+    def test_slugify_ref_empty(self):
         """Test empty branch name"""
-        result = GitUtils.get_ref_slug("")
+        result = GitUrl.slugify_ref("")
         assert result == ""
 
-    @patch("os.path.exists")
-    @patch("lichoscli.utils.GitUtils.get_git_repo")
-    def test_has_submodules_with_gitmodules_file(self, mock_get_repo, mock_os_exists):
-        """Test has_submodules returns True when .gitmodules exists"""
+
+class TestGitUrlParsing:
+    """Tests for GitUrl parsing (including web URLs and branch extraction)"""
+
+    def test_parse_gitlab_web_url_basic(self):
+        """Test parsing basic GitLab web URL"""
+        result = GitUrl.parse("https://gitlab.example.com/group/test-package")
+        assert result is not None
+        assert result.host == "gitlab.example.com"
+        assert result.group == "group"
+        assert result.package == "test-package"
+        assert result.branch is None
+
+    def test_parse_gitlab_web_url_with_subgroups(self):
+        """Test parsing GitLab web URL with multiple subgroups"""
+        result = GitUrl.parse("https://gitlab.example.com/group/subgroup1/subgroup2/test-package")
+        assert result is not None
+        assert result.host == "gitlab.example.com"
+        assert result.group == "group/subgroup1/subgroup2"
+        assert result.package == "test-package"
+        assert result.branch is None
+
+    def test_parse_gitlab_web_url_with_branch(self):
+        """Test parsing GitLab web URL with branch"""
+        result = GitUrl.parse("https://gitlab.example.com/group/test-package/-/tree/feature-branch")
+        assert result is not None
+        assert result.host == "gitlab.example.com"
+        assert result.group == "group"
+        assert result.package == "test-package"
+        assert result.branch == "feature-branch"
+
+    def test_parse_gitlab_web_url_with_branch_and_slashes(self):
+        """Test parsing GitLab web URL with branch containing slashes"""
+        result = GitUrl.parse("https://gitlab.example.com/group/test-package/-/tree/feature/my-branch")
+        assert result is not None
+        assert result.host == "gitlab.example.com"
+        assert result.group == "group"
+        assert result.package == "test-package"
+        assert result.branch == "feature/my-branch"
+
+    def test_parse_gitlab_web_url_with_git_extension(self):
+        """Test parsing GitLab web URL with .git extension"""
+        result = GitUrl.parse("https://gitlab.example.com/group/test-package.git")
+        assert result is not None
+        assert result.host == "gitlab.example.com"
+        assert result.group == "group"
+        assert result.package == "test-package"
+        assert result.branch is None
+
+    def test_parse_gitlab_web_url_with_trailing_slash(self):
+        """Test parsing GitLab web URL with trailing slash"""
+        result = GitUrl.parse("https://gitlab.example.com/group/test-package/")
+        assert result is not None
+        assert result.host == "gitlab.example.com"
+        assert result.group == "group"
+        assert result.package == "test-package"
+        assert result.branch is None
+
+    def test_parse_gitlab_web_url_with_query_params(self):
+        """Test parsing GitLab web URL with query parameters"""
+        result = GitUrl.parse("https://gitlab.example.com/group/test-package?tab=activity")
+        assert result is not None
+        assert result.host == "gitlab.example.com"
+        assert result.group == "group"
+        assert result.package == "test-package"
+        assert result.branch is None
+
+    def test_parse_gitlab_web_url_http(self):
+        """Test parsing GitLab web URL with http protocol"""
+        result = GitUrl.parse("http://gitlab.example.com/group/test-package")
+        assert result is not None
+        assert result.host == "gitlab.example.com"
+        assert result.group == "group"
+        assert result.package == "test-package"
+        assert result.branch is None
+
+    def test_parse_gitlab_web_url_invalid_too_short(self):
+        """Test parsing invalid GitLab web URL (too short)"""
+        result = GitUrl.parse("https://gitlab.example.com/test-package")
+        assert result is None
+
+    def test_parse_gitlab_web_url_invalid_not_url(self):
+        """Test parsing invalid input (not a URL)"""
+        result = GitUrl.parse("test-package")
+        assert result is None
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://gitlab.example.com/group/test-package",
+            "https://gitlab.example.com/group/subgroup1/subgroup2/test-package",
+            "https://gitlab.example.com/group/test-package/-/tree/feature-branch",
+            "https://gitlab.example.com/group/test-package/-/tree/feature/my-branch",
+            "https://gitlab.example.com/group/test-package.git",
+            "https://gitlab.example.com/group/test-package/",
+            "https://gitlab.example.com/group/test-package?tab=activity",
+            "http://gitlab.example.com/group/test-package",
+            "ssh://git@gitlab.example.com/group/test-package.git",
+            "git@gitlab.example.com:group/test-package.git",
+        ],
+    )
+    def test_parse_gitlab_url_variants_parsable(self, url):
+        """Test parsing supported GitLab URL variants"""
+        result = GitUrl.parse(url)
+        assert result is not None
+
+    def test_parse_gitlab_web_url_ssh_url(self):
+        """Test parsing SSH URL with scp-style syntax"""
+        result = GitUrl.parse("git@gitlab.example.com:group/test-package.git")
+        assert result is not None
+        assert result.host == "gitlab.example.com"
+        assert result.group == "group"
+        assert result.package == "test-package"
+        assert result.branch is None
+
+    def test_clone_url_from_web_url(self):
+        """Test clone_url property converts web URL to SSH clone URL"""
+        result = GitUrl.parse("https://gitlab.example.com/group/test-package")
+        assert result is not None
+        assert result.clone_url == "git@gitlab.example.com:group/test-package.git"
+
+    def test_clone_url_from_web_url_with_branch(self):
+        """Test clone_url property strips branch from URL"""
+        result = GitUrl.parse("https://gitlab.example.com/group/test-package/-/tree/feature-branch")
+        assert result is not None
+        assert result.clone_url == "git@gitlab.example.com:group/test-package.git"
+
+    def test_clone_url_from_ssh_url(self):
+        """Test clone_url property normalizes SSH URL format"""
+        result = GitUrl.parse("git@gitlab.example.com:group/test-package.git")
+        assert result is not None
+        assert result.clone_url == "git@gitlab.example.com:group/test-package.git"
+
+    def test_clone_url_with_subgroups(self):
+        """Test clone_url property with multi-level groups"""
+        result = GitUrl.parse("https://gitlab.example.com/group/subgroup1/subgroup2/test-package")
+        assert result is not None
+        assert result.clone_url == "git@gitlab.example.com:group/subgroup1/subgroup2/test-package.git"
+
+    def test_clone_url_from_ssh_protocol_url(self):
+        """Test clone_url property converts ssh:// protocol URL to SCP-style"""
+        result = GitUrl.parse("ssh://git@gitlab.example.com/group/test-package.git")
+        assert result is not None
+        assert result.clone_url == "git@gitlab.example.com:group/test-package.git"
+
+
+    @patch("lichoscli.core.models.git.git_repo.Repo")
+    def test_has_submodules_true(self, mock_repo_cls):
+        """Test has_submodules returns True when git output confirms it"""
         mock_repo = MagicMock()
-        mock_repo.working_dir = "/test/repo"
-        mock_get_repo.return_value = mock_repo
-        mock_os_exists.return_value = True
+        mock_repo.git.ls_tree.return_value = "160000 commit 1234567890abcdef\tpath/to/submodule"
+        mock_repo_cls.return_value = mock_repo
 
-        result = GitUtils.has_submodules()
-        assert result is True
-        mock_os_exists.assert_called_once_with("/test/repo/.gitmodules")
+        repo = GitRepo(".")
+        assert repo.has_submodules is True
 
-    @patch("os.path.exists")
-    @patch("lichoscli.utils.GitUtils.get_git_repo")
-    def test_has_submodules_without_gitmodules_file(self, mock_get_repo, mock_os_exists):
-        """Test has_submodules returns False when .gitmodules doesn't exist"""
+    @patch("lichoscli.core.models.git.git_repo.Repo")
+    def test_has_submodules_false(self, mock_repo_cls):
+        """Test has_submodules returns False when no submodules"""
         mock_repo = MagicMock()
-        mock_repo.working_dir = "/test/repo"
-        mock_get_repo.return_value = mock_repo
-        mock_os_exists.return_value = False
+        mock_repo.git.ls_tree.return_value = "100644 blob ... file.txt"
+        mock_repo_cls.return_value = mock_repo
 
-        result = GitUtils.has_submodules()
-        assert result is False
-        mock_os_exists.assert_called_once_with("/test/repo/.gitmodules")
+        repo = GitRepo(".")
+        assert repo.has_submodules is False
 
-    @patch("lichoscli.utils.GitUtils.get_git_repo")
-    def test_has_submodules_no_repo(self, mock_get_repo):
-        """Test has_submodules returns False when no git repo is found"""
-        mock_get_repo.return_value = None
-
-        result = GitUtils.has_submodules()
-        assert result is False
-
-    @patch("lichoscli.utils.GitUtils.has_submodules")
-    @patch("lichoscli.utils.GitUtils.get_git_repo")
-    def test_initialize_submodules_success(self, mock_get_repo, mock_has_submodules):
+    @patch("lichoscli.core.models.git.git_repo.Repo")
+    def test_update_submodules_success(self, mock_repo_cls):
         """Test successful submodule initialization"""
         mock_repo = MagicMock()
-        mock_get_repo.return_value = mock_repo
-        mock_has_submodules.return_value = True
+        mock_repo.git.ls_tree.return_value = "160000 commit ..." # ensure has_submodules is True
+        mock_repo_cls.return_value = mock_repo
 
-        result = GitUtils.initialize_submodules()
+        repo = GitRepo(".")
+        result = repo.update_submodules()
         assert result is True
-        mock_repo.git.submodule.assert_called_once_with("update", "--init", "--recursive", "--depth=1", "--single-branch")
+        mock_repo.git.submodule.assert_called_with("update", "--init", "--recursive")
 
-    @patch("lichoscli.utils.GitUtils.has_submodules")
-    @patch("lichoscli.utils.GitUtils.get_git_repo")
-    def test_initialize_submodules_no_submodules(self, mock_get_repo, mock_has_submodules):
-        """Test initialize_submodules when no submodules exist"""
+    @patch("lichoscli.core.models.git.git_repo.Repo")
+    def test_update_submodules_no_submodules(self, mock_repo_cls):
+        """Test update_submodules when no submodules exist"""
         mock_repo = MagicMock()
-        mock_get_repo.return_value = mock_repo
-        mock_has_submodules.return_value = False
+        mock_repo.git.ls_tree.return_value = ""
+        mock_repo_cls.return_value = mock_repo
 
-        result = GitUtils.initialize_submodules()
+        repo = GitRepo(".")
+        result = repo.update_submodules()
         assert result is True
         mock_repo.git.submodule.assert_not_called()
 
-    @patch("lichoscli.utils.GitUtils.get_git_repo")
-    def test_initialize_submodules_no_repo(self, mock_get_repo):
-        """Test initialize_submodules when no git repo is found"""
-        mock_get_repo.return_value = None
-
-        result = GitUtils.initialize_submodules()
-        assert result is False
-
-    @patch("lichoscli.utils.GitUtils.has_submodules")
-    @patch("lichoscli.utils.GitUtils.get_git_repo")
-    def test_initialize_submodules_git_command_error(self, mock_get_repo, mock_has_submodules):
-        """Test initialize_submodules when git command fails"""
+    @patch("lichoscli.core.models.git.git_repo.Repo")
+    def test_update_submodules_git_error(self, mock_repo_cls):
+        """Test update_submodules when git command fails"""
         mock_repo = MagicMock()
-        mock_get_repo.return_value = mock_repo
-        mock_has_submodules.return_value = True
+        mock_repo.git.ls_tree.return_value = "160000 commit ..."
         mock_repo.git.submodule.side_effect = git.exc.GitCommandError("submodule", 1)
+        mock_repo_cls.return_value = mock_repo
 
-        result = GitUtils.initialize_submodules()
+        repo = GitRepo(".")
+        result = repo.update_submodules()
         assert result is False
 
 

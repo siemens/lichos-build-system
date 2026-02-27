@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """Coordinated GitLab issue writer for storage and notification services."""
 
 import logging

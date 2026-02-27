@@ -43,6 +43,7 @@ dependencies = [
     "diskcache",
     "cachetools",
     "xdg",
+    "argcomplete",
 ]
 
 [project.urls]

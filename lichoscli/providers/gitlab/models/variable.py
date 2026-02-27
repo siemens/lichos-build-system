@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """GitLab Variable model wrapper."""
 
 from typing import Optional

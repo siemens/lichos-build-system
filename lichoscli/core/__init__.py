@@ -1,5 +1,10 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 # Core abstractions and interfaces for git provider support
 
+from .config import ConfigBuilder, LichosConfig, ProviderType
+from .container_factory import DIContainerFactory
 from .exceptions import (
     ArtifactError,
     BranchError,
@@ -30,6 +35,11 @@ from .models import (
 from .services import DependencyService, PackageService
 
 __all__ = [
+    # Configuration
+    "LichosConfig",
+    "ConfigBuilder",
+    "ProviderType",
+    "DIContainerFactory",
     # Models
     "BuildDependency",
     "BuildInfo",

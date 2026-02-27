@@ -1,13 +1,17 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import logging
 import os
-import re
-import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, List, Union, Tuple
+from typing import Optional, List, Union, Tuple, Dict
 
 from git import Repo, GitCommandError, InvalidGitRepositoryError
+
+from lichoscli.core.models.git.git_url import GitUrl
+from lichoscli.utils.constants import CI_PKG
 
 logger = logging.getLogger(__name__)
 
@@ -329,21 +333,6 @@ class GitRepo:
             except GitCommandError:
                 return ""
 
-    @staticmethod
-    def convert_to_web_url(git_url: str) -> str:
-        """Convert a git URL to a web URL."""
-        # Handle git@gitlab.example.com:group/repo.git format
-        if git_url.startswith("git@"):
-            match = re.match(r"git@([^:]+):(.+?)(?:\.git)?$", git_url)
-            if match:
-                domain, path = match.groups()
-                return f"https://{domain}/{path}"
-
-        # Handle https://gitlab.example.com/group/repo.git format
-        if git_url.startswith("http"):
-            return git_url.rstrip(".git")
-
-        return git_url
 
     def get_commit_details(self, sha: str) -> Tuple[str, str]:
         """Get commit subject and body."""
@@ -395,4 +384,57 @@ class GitRepo:
 
 
         return changes
+
+    @property
+    def remote_info(self) -> Optional[Tuple[str, str, str, str]]:
+        """Get parsed remote info ``(host, group, package, branch)``."""
+        if not self.is_valid:
+            return None
+        try:
+            url = self.repo.remotes.origin.url
+            branch = self.repo.active_branch.name
+        except (AttributeError, IndexError, TypeError):
+            return None
+
+        parsed = GitUrl.parse(url)
+        if parsed:
+            return (parsed.host, parsed.group, parsed.package, branch)
+        return None
+
+    @property
+    def group(self) -> str:
+        """Get repository group."""
+        data = self.remote_info
+        return data[1] if data else ""
+
+    @property
+    def package_name(self) -> str:
+        """Get package name from repository."""
+        data = self.remote_info
+        return data[2] if data else ""
+
+    @classmethod
+    def find_ci_root(cls, start_path: str = ".") -> Optional[Path]:
+        """Find the absolute path containing the 00ci directory by searching upward."""
+        start = Path(start_path).resolve()
+        if not start.exists():
+            return None
+
+        for parent in [start] + list(start.parents):
+            ci_dir = parent / CI_PKG
+            git_dir = ci_dir / ".git"
+            if ci_dir.exists() and git_dir.is_dir():
+                return ci_dir
+        return None
+
+    @classmethod
+    def auto_detect(cls, package_name: Optional[str] = None) -> Optional["GitRepo"]:
+        """Auto-detect git repository from package name or CI directory."""
+        if package_name and os.path.exists(package_name):
+            return cls.get_or_clone(package_name)
+        
+        ci_dir = cls.find_ci_root()
+        if ci_dir:
+            return cls(ci_dir)
+        return None
 

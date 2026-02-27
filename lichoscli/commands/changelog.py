@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import logging
 import re
 from pathlib import Path
@@ -5,7 +8,7 @@ from typing import Optional
 
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
-from lichoscli.core.models.git_repo import GitRepo
+from lichoscli.core.models.git import GitRepo, GitUrl
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +109,7 @@ class ChangelogCommand(Command):
         changelog = f"# Changelog\n\n"
         changelog += f"## Changes from `{from_ref}` to `{to_ref}`\n\n"
 
-        main_repo_url = GitRepo.convert_to_web_url(self.repo.get_remote_url())
+        main_repo_url = GitUrl.to_web_url(self.repo.get_remote_url())
         commits = self.repo.get_commit_log(from_ref, to_ref, no_merges=False)
         
         logger.info(f"Found {len(commits)} commits in main repository between {from_ref} and {to_ref}")
@@ -137,7 +140,7 @@ class ChangelogCommand(Command):
                     )
                     
                     if submodule_commits:
-                        submodule_url = GitRepo.convert_to_web_url(sub_repo.get_remote_url())
+                        submodule_url = GitUrl.to_web_url(sub_repo.get_remote_url())
                         for sha in submodule_commits:
                             commit_formatted = self.parse_commit(sha, submodule_url, sub_repo)
                             linked_commit = self.link_issues(commit_formatted, self.args.issue_url)

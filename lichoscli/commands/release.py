@@ -1,5 +1,6 @@
 #!/usr/bin/python3
-
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
 import logging
 import os
 import tempfile
@@ -11,9 +12,10 @@ from gitlab.exceptions import GitlabError
 
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
-from lichoscli.core.models.git_repo import GitRepo
+from lichoscli.core.models.git import GitRepo
 from lichoscli.core.services import PackageService
 from lichoscli.utils import CI_PKG, CORE_PACKAGES
+from lichoscli.utils.constants import BUILD_IMAGE_PKG
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +61,18 @@ class ReleaseCommand(Command):
         snapshot_tag = self._get_snapshot_tag()
         git_tag = f"v{snapshot_tag}"
 
-        for package_name in CORE_PACKAGES:
+        for package_name in (BUILD_IMAGE_PKG, CI_PKG):
             branch = "main" if package_name == CI_PKG else self.args.branch
 
             if not self._tag_package(package_name, git_tag, branch, self.args.dry):
                 logger.error("Failed to tag packages %s", package_name)
                 return 1
-
+            
+        if self.args.submodule_project:
+            if not self._update_and_tag_submodule_project(self.args.submodule_project, git_tag, self.args.branch):
+                logger.error("Failed to update and tag submodule project")
+                return 1
+    
         if not self._create_snapshot_repository(
             tag=snapshot_tag,
             branch=self.args.branch,

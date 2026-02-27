@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """GitLab Pipelines collection wrapper."""
 
 import logging
@@ -34,7 +37,7 @@ class GitLabPipelines(Pipelines):
 
         try:
             pipelines = self.list(
-                target_branch, per_page=40, get_all=True
+                target_branch, per_page=1, get_all=False
             )
             result = pipelines[0] if pipelines else None
             self._cache[target_branch] = result
@@ -148,7 +151,7 @@ class GitLabPipelines(Pipelines):
         try:
             pipelines = self.list(
                 target_branch,
-                per_page=40,
+                per_page=100,
                 get_all=False,
             )
 
@@ -157,7 +160,7 @@ class GitLabPipelines(Pipelines):
                     return pipeline
             # No successful pipeline found on target branch, try default branch
             if target_branch != self._project.default_branch and pipelines is not None:
-                pipelines = self.list(self._project.default_branch, per_page=40, get_all=True)
+                pipelines = self.list(self._project.default_branch, per_page=100, get_all=False)
                 for pipeline in pipelines:
                     if pipeline.status.is_successful:
                         logger.debug(

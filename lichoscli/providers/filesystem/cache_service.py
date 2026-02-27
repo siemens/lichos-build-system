@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """Disk-based cache service implementation using diskcache."""
 
 import logging

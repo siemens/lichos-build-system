@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import logging
 import os
 import random
@@ -8,6 +11,7 @@ from rich.panel import Panel
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
 from lichoscli.core.models import BuildParameters
+from lichoscli.core.models.git import GitRepo
 from lichoscli.core.services import (
     ContainerConfig,
     ContainerService,
@@ -16,7 +20,7 @@ from lichoscli.core.services import (
     PackageService,
 )
 from lichoscli.core.services.editor import EditorStrategy
-from lichoscli.utils import BuildUtils, ContainerUtils, GitUtils, ProgressUtils
+from lichoscli.utils import BuildUtils, ContainerUtils, ProgressUtils
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +58,7 @@ class BuildCommand(Command):
             action="store_true",
             help="option to enable cross compilation setup",
         )
-        sp.add_argument("--network", nargs="?", help="docker network to use for the container")
+        sp.add_argument("--network", help="docker network to use for the container")
         sp.add_argument(
             "--mount",
             nargs="?",
@@ -86,7 +90,7 @@ class BuildCommand(Command):
         branch = BuildUtils.get_branch_name(args.branch)
         architecture = BuildUtils.normalize_architecture(args.architecture)
         project_dir = self._determine_project_dir(args.shell, args.editor)
-        group = args.pkg_group or GitUtils.get_group()
+        group = args.pkg_group or GitRepo(".").group
         build_arch = BuildUtils.normalize_architecture(os.uname().machine)
         if self.args.enable_cross:
             platform = f"linux/{build_arch}"
@@ -171,10 +175,10 @@ class BuildCommand(Command):
 
     def _initialize_submodules(self) -> bool:
         """Initialize git submodules if they exist."""
-        repo = GitUtils.get_git_repo()
-        if repo and GitUtils.has_submodules(repo):
+        repo = GitRepo(".")
+        if repo.is_valid and repo.has_submodules:
             print("Submodules detected, initializing...")
-            if not GitUtils.initialize_submodules(repo):
+            if not repo.update_submodules():
                 logger.error("Failed to initialize submodules")
                 return False
         return True

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """Abstract User model for CI/CD users."""
 
 from abc import ABC, abstractmethod

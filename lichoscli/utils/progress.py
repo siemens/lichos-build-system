@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """Simple progress bar utilities for CLI operations."""
 
 from typing import Callable, Optional, TypeVar

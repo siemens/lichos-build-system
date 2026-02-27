@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 from .artifacts import Artifacts
 from .build import BuildDependency, BuildInfo, BuildParameters, ReverseDependency
 from .dag import DAGNode, DAGNodeStatus, DependencyGraph

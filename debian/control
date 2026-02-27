@@ -21,6 +21,7 @@ Build-Depends:
  python3-diskcache,
  python3-cachetools,
  python3-xdg,
+ python3-argcomplete,
  pybuild-plugin-pyproject
 Standards-Version: 4.7.0
 Homepage: https://github.com/samastek/lichoscli
@@ -42,6 +43,7 @@ Depends: ${python3:Depends}, ${misc:Depends},
  python3-prompt-toolkit,
  python3-diskcache,
  python3-cachetools,
- python3-xdg
+ python3-xdg,
+ python3-argcomplete
 Description: Manage LiChOS package builds
  Command-line tool to manage LiChOS package builds and related tasks.

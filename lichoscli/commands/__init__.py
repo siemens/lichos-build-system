@@ -1,4 +1,5 @@
-# src/commands/__init__.py
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
 
 import importlib
 import re

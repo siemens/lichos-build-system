@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """GitLab dependency service implementation."""
 
 import logging
@@ -252,7 +255,12 @@ class GitLabDependencyService(DependencyService):
         dag = DependencyGraph(nodes={})
 
         for package in all_packages:
-            buildinfo = buildinfo_map.get(package.id)
+            result = buildinfo_map.get(package.id)
+            if not result or not result.buildinfo:
+                logger.debug("No buildinfo for package %s, skipping node creation", package.name)
+                continue
+            buildinfo = result.buildinfo
+            cached_pipeline = result.pipeline
             if not buildinfo:
                 logger.debug("No buildinfo for package %s, skipping node creation", package.name)
                 continue
@@ -262,7 +270,8 @@ class GitLabDependencyService(DependencyService):
     
             node_status = DAGNodeStatus.PENDING
             try:
-                latest_pipeline = package.pipelines.get_latest(target_branch)
+                # Use the pipeline already fetched during buildinfo phase if available
+                latest_pipeline = cached_pipeline if cached_pipeline else package.pipelines.get_latest(target_branch)
                 if latest_pipeline:
                     node_status = DAGNodeStatus.from_pipeline_status(latest_pipeline.status)
             except GitlabError as e:

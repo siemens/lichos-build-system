@@ -1,10 +1,14 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """GitLab dependency injection container implementation."""
 
 import logging
 import os
-from typing import Any, TypeVar
+from typing import Any, TypeVar, Callable, Optional
 
 from lichoscli.core.di import DIContainer, ReferenceNotFoundError
+from lichoscli.core.models.git.git_url import GitUrl
 from lichoscli.core.services import (
     BuildInfoService,
     CacheService,
@@ -19,24 +23,7 @@ from lichoscli.core.services import (
     StorageService,
     WorkspaceService,
 )
-from lichoscli.providers.docker import DockerContainerService
-from lichoscli.providers.filesystem import (
-    FilesystemNotifyService,
-    FilesystemStorageService,
-)
-from lichoscli.providers.filesystem.cache_service import DiskCacheService
-from lichoscli.providers.gitlab.services.buildinfo_service import GitLabBuildInfoService
-from lichoscli.providers.gitlab.services.dependency_service import (
-    GitLabDependencyService,
-)
-from lichoscli.providers.gitlab.services.environment_service import (
-    GitLabEnvironmentService,
-)
-from lichoscli.providers.gitlab.services.gitlab_issue_writer import GitLabIssueWriter
-from lichoscli.providers.gitlab.services.notify_service import GitLabNotifyService
-from lichoscli.providers.gitlab.services.package_service import GitLabPackageService
-from lichoscli.providers.gitlab.services.storage_service import GitLabStorageService
-from lichoscli.providers.gitlab.services.workspace_service import GitLabWorkspaceService
+from lichoscli.providers.gitlab.factory import GitLabServiceFactory
 from lichoscli.providers.vscode import VSCodeEditorStrategy
 
 logger = logging.getLogger(__name__)
@@ -47,98 +34,77 @@ T = TypeVar("T")
 class GitLabServiceContainer(DIContainer):
     """GitLab-specific dependency injection container."""
 
-    def __init__(self, group_rpath: str, gitlab):
-        """
-        Initialize the GitLab service container.
-
-        Args:
-            group_rpath: The GitLab group relative path
-            gitlab: The GitLab client instance
-        """
+    def __init__(self, group_rpath: Optional[str], gitlab_factory: Callable[[], Any]):
+        """Initialize the GitLab service container."""
         self.group_rpath = group_rpath
-        self.gitlab = gitlab
-        self.group_id = gitlab.groups.get(group_rpath).id
+        self._gitlab_factory = gitlab_factory
+        self._gitlab_client = None
+        self._group_id = None
         self.project_id = os.environ.get("CI_PROJECT_ID")
 
         self._services: dict[type, Any] = {}
+        self._factories: dict[type, Callable[[], Any]] = {}
+        self._editor_strategies: dict[str, Any] = {}
         self._initialize_services()
+
+    @property
+    def gitlab(self):
+        if self._gitlab_client is None:
+            self._gitlab_client = self._gitlab_factory()
+        return self._gitlab_client
 
     def _initialize_services(self) -> None:
         """Initialize and register all GitLab services."""
+        
+        factory = GitLabServiceFactory(self)
 
-        # 60 seconds * 60 minutes * 24 hours = 1 day
-        cache_service = DiskCacheService(default_ttl=60 * 60 * 24)
-        package_service = GitLabPackageService(self.group_rpath, self.gitlab)
-        buildinfo_service = GitLabBuildInfoService(self.gitlab, cache_service)
-        dependency_service = GitLabDependencyService(buildinfo_service)
-        workspace_service = GitLabWorkspaceService(package_service)
+        self._services[GitUrl] = GitUrl()
+        self._factories[CacheService] = factory.create_cache_service
+        self._factories[PackageService] = factory.create_package_service
+        self._factories[BuildInfoService] = factory.create_buildinfo_service
+        self._factories[DependencyService] = factory.create_dependency_service
+        self._factories[WorkspaceService] = factory.create_workspace_service
+        self._factories[ContainerService] = factory.create_container_service
+        self._factories[EnvironmentService] = factory.create_environment_service
+        self._factories[RepoParserService] = factory.create_repo_parser_service
+        self._factories[SourceCollectionService] = factory.create_source_collection_service
 
-        container_service = DockerContainerService()
-        environment_service = GitLabEnvironmentService(package_service)
-        repo_parser_service = RepoParserService()
-        source_collection_service = SourceCollectionService(repo_parser_service)
         vscode_editor_strategy = VSCodeEditorStrategy()
-
-        self._services[CacheService] = cache_service
-        self._services[PackageService] = package_service
-        self._services[DependencyService] = dependency_service
-        self._services[BuildInfoService] = buildinfo_service
-        self._services[WorkspaceService] = workspace_service
-        self._services[ContainerService] = container_service
-        self._services[EnvironmentService] = environment_service
-        self._services[RepoParserService] = repo_parser_service
-        self._services[SourceCollectionService] = source_collection_service
-
         self._editor_strategies = {"code": vscode_editor_strategy}
 
         if self.project_id:
-            shared_issue_writer = GitLabIssueWriter(self.gitlab, self.project_id)
-            storage_service = GitLabStorageService(shared_issue_writer)
-            notify_service = GitLabNotifyService(shared_issue_writer)
-            self._services[StorageService] = storage_service
-            self._services[NotifyService] = notify_service
+            self._factories[StorageService] = factory.create_gitlab_storage_service
+            self._factories[NotifyService] = factory.create_gitlab_notify_service
+
             logger.debug(
                 "Registered GitLab storage and notification services with shared issue writer for project %s",
                 self.project_id,
             )
         else:
-            storage_service = FilesystemStorageService()
-            notify_service = FilesystemNotifyService()
-            self._services[StorageService] = storage_service
-            self._services[NotifyService] = notify_service
+            self._factories[StorageService] = factory.create_fs_storage_service
+            self._factories[NotifyService] = factory.create_fs_notify_service
+
             logger.debug("Registered filesystem storage and notification services for local execution")
 
     def obtain_ref(self, ref_type: type[T]) -> T:
-        if ref_type not in self._services:
-            raise ReferenceNotFoundError(f"Service {ref_type.__name__} is not registered")
+        if ref_type in self._services:
+            return self._services[ref_type]
 
-        return self._services[ref_type]
+        if ref_type in self._factories:
+            instance = self._factories[ref_type]()
+            self._services[ref_type] = instance
+            return instance
+
+        raise ReferenceNotFoundError(f"Service {ref_type.__name__} is not registered")
 
     def get_editor_strategy(self, editor_name: str) -> EditorStrategy:
-        """
-        Get an editor strategy by name.
-
-        Args:
-            editor_name: Name of the editor strategy
-
-        Returns:
-            EditorStrategy implementation
-
-        Raises:
-            ReferenceNotFoundError: If editor strategy is not found
-        """
+        """Get an editor strategy by name."""
         if editor_name not in self._editor_strategies:
             raise ReferenceNotFoundError(f"Editor strategy '{editor_name}' is not registered")
 
         return self._editor_strategies[editor_name]
 
     def register_reference(self, reference_type: type[T], implementation: T) -> None:
-        """
-        Register a service implementation for a given type.
-
-        Args:
-            reference_type: The abstract service type
-            implementation: The concrete implementation instance
-        """
+        """Register a service implementation for a given type."""
         self._services[reference_type] = implementation
         logger.debug("Registered service %s", reference_type.__name__)

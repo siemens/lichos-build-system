@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -183,6 +186,29 @@ class Project(ABC):
 
         Returns:
             List of dictionaries containing commit details
+        """
+
+    @abstractmethod
+    def compare_url(self, from_ref: str, to_ref: str) -> str:
+        """Return a URL comparing two refs (branches, tags or commits).
+
+        Args:
+            from_ref: The base reference (e.g. the default branch)
+            to_ref: The head reference (e.g. a feature branch)
+
+        Returns:
+            A browsable URL showing what *to_ref* adds over *from_ref*.
+        """
+
+    @abstractmethod
+    def commit_url(self, commit: str) -> str:
+        """Return a URL pointing to a specific commit.
+
+        Args:
+            commit: The commit SHA to link to
+
+        Returns:
+            A browsable URL for the given commit.
         """
 
     @abstractmethod

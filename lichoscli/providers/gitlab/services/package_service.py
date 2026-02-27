@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """GitLab package service implementation."""
 
 import logging
@@ -36,8 +39,17 @@ class GitLabPackageService(PackageService):
             "Fetching ALL active projects for group %s (including subgroups)",
             self.group_rpath,
         )
-        projects = group.projects.list(include_subgroups=True, all=True)
+        projects = group.projects.list(include_subgroups=True, all=True, per_page=100)
         full_projects = []
+
+        # Filter out archived projects before making individual API calls
+        active_projects = [
+            p for p in projects
+            if not (hasattr(p, "archived") and p.archived)
+        ]
+        skipped = len(projects) - len(active_projects)
+        if skipped:
+            logger.debug("Skipped %d archived projects from group listing", skipped)
 
         def fetch_project_details(project):
             """Fetch full details for a single project."""
@@ -51,10 +63,10 @@ class GitLabPackageService(PackageService):
                 logger.error("Error getting full details for %s: %s", project.name, str(e))
                 return project
 
-        max_workers = min(10, len(projects))
+        max_workers = min(10, len(active_projects))
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_project = {executor.submit(fetch_project_details, project): project for project in projects}
+            future_to_project = {executor.submit(fetch_project_details, project): project for project in active_projects}
             for future in as_completed(future_to_project):
                 try:
                     full_project = future.result()

@@ -1,5 +1,6 @@
 #!/usr/bin/python3
-
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
 import logging
 import os
 import shutil

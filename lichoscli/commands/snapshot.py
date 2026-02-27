@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import logging
 from datetime import datetime
 
@@ -5,7 +8,7 @@ from git import GitCommandError
 
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
-from lichoscli.core.models.git_repo import GitRepo
+from lichoscli.core.models.git import GitRepo
 from lichoscli.core.services import PackageService
 
 logger = logging.getLogger(__name__)

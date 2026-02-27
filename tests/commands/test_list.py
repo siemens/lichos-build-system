@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 from lichoscli.commands.list import ListCommand
 from tests.mocks import MockGitLabProject, create_mock_args
 

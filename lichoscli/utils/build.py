@@ -1,10 +1,11 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import logging
 import os
 import re
 import subprocess
 import tempfile
-
-from .git import GitUtils
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,8 @@ class BuildUtils:
     @staticmethod
     def get_package_name(package_name_arg: str):
         if not package_name_arg or package_name_arg == "." or package_name_arg == "":
-            return GitUtils.get_package_name_from_git_repo()
+            from lichoscli.core.models.git.git_repo import GitRepo
+            return GitRepo(".").package_name
         return package_name_arg
 
     @staticmethod
@@ -30,7 +32,8 @@ class BuildUtils:
         If argument is empty, return current branch name.
         """
         if not branch_name_arg or branch_name_arg == ".":
-            return GitUtils.get_branch()
+            from lichoscli.core.models.git.git_repo import GitRepo
+            return GitRepo(".").active_branch
         return branch_name_arg
 
     @staticmethod

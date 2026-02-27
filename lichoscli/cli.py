@@ -1,13 +1,16 @@
 #!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
 import argparse
 import logging
-import os
 import sys
 
+import argcomplete
+
 from lichoscli.commands.base import CommandExecutor, CommandRegister
-from lichoscli.providers.gitlab import GitLabClientFactory
-from lichoscli.providers.gitlab.container import GitLabServiceContainer
-from lichoscli.utils import GitUtils
+from lichoscli.completers import attach_completers
+from lichoscli.core.config import ConfigBuilder
+from lichoscli.core.container_factory import DIContainerFactory
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +56,14 @@ def main() -> int:
 
     CommandRegister.register_all_parsers(subparsers)
 
+    attach_completers(parser)
+    argcomplete.autocomplete(parser)
+
     args = parser.parse_args()
 
     if not getattr(args, "command", None):
         parser.print_help()
         sys.exit(1)
-
-    args.branch_explicitly_provided = args.branch is not None
 
     # Configure logging with custom formatter
     handler = logging.StreamHandler()
@@ -77,34 +81,18 @@ def main() -> int:
     else:
         root_logger.setLevel(logging.WARNING)
 
-    args.branch = args.branch or os.environ.get("LICHOS_BRANCH") or GitUtils.get_branch()
-
-    if args.host is None and args.pkg_group is None:
-        repo = GitUtils.auto_detect_git_repo()
-        if repo:
-            logger.debug("found git repo in %s", repo.working_dir)
-            data = GitUtils.parse_repo_data(repo)
-            if data:
-                if args.host is None:
-                    args.host = data[0]
-                if args.pkg_group is None:
-                    args.pkg_group = data[1]
-                if args.branch is None:
-                    args.branch = data[3]
-            else:
-                logger.debug("Failed to parse repo data in %s", repo.working_dir)
-
-    if args.host is None or args.pkg_group is None:
-        logger.error("Please specify host and group manually")
-        return 1
-
-    if args.branch is None:
-        logger.error("Please specify branch manually or set LICHOS_BRANCH environment variable")
-        return 1
-
     try:
-        gl = GitLabClientFactory(args.host).create()
-        di_container = GitLabServiceContainer(args.pkg_group, gl)
+        config_builder = ConfigBuilder(args)
+        config = config_builder.build()
+        logger.debug("Configuration: host=%s, pkg_group=%s, branch=%s, provider=%s",
+                     config.host, config.pkg_group, config.branch, config.provider)
+        
+        args.branch_explicitly_provided = config.branch_explicitly_provided
+        args.branch = config.branch
+        logger.debug("Using branch: %s (explicitly provided: %s)",
+                     args.branch, args.branch_explicitly_provided)
+        di_container = DIContainerFactory.create(config)
+        
         executor = CommandExecutor(di_container, args)
         result = executor.execute(args)
         return 0 if result is None else result
@@ -112,7 +100,10 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\nOperation cancelled by user.")
         return 130
-    except (argparse.ArgumentError, ValueError, RuntimeError) as e:
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
+    except (argparse.ArgumentError, RuntimeError) as e:
         print(f"Error: {e}")
         return 1
 

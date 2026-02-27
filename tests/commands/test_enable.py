@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import pytest
 
 from lichoscli.commands.enable import EnableCommand

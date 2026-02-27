@@ -275,3 +275,15 @@ The DAG analysis shows:
 
 **Need more help?** Run `lichoscli --help` to see all available commands and options.
 
+## Shell Completion
+
+lichoscli supports tab-completion for all commands, subcommands, options, and even dynamic values like package names via [argcomplete](https://github.com/kislyuk/argcomplete).
+
+### Installed via Debian package (automatic)
+
+When you install the `lichoscli` `.deb` package, shell completions for **bash** and **zsh** are installed automatically to:
+- `/usr/share/bash-completion/completions/lichoscli`
+- `/usr/share/zsh/vendor-completions/_lichoscli`
+
+No manual configuration is needed — open a new shell and tab-completion works.
+

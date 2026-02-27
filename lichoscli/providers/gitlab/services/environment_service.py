@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import logging
 import os
 import shlex
@@ -6,7 +9,8 @@ from typing import Optional
 
 from lichoscli.core.models.build import BuildParameters
 from lichoscli.core.services import BuildEnvironment, EnvironmentService, PackageService
-from lichoscli.utils import BuildUtils, GitUtils
+from lichoscli.utils import BuildUtils
+from lichoscli.core.models.git import GitRepo, GitUrl
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +109,7 @@ class GitLabEnvironmentService(EnvironmentService):
                 "CI_PROJECT_DIR": build_config.project_dir,
                 "CI_COMMIT_BRANCH": build_config.branch,
                 "CI_COMMIT_REF_NAME": build_config.branch,
-                "CI_COMMIT_REF_SLUG": GitUtils.get_ref_slug(build_config.branch),
+                "CI_COMMIT_REF_SLUG": GitUrl.slugify_ref(build_config.branch),
                 "CI_PROJECT_NAMESPACE": build_config.group,
                 "ARCHITECTURE": build_config.architecture,
             }

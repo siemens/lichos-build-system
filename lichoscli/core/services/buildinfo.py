@@ -1,9 +1,19 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """Abstract interface for buildinfo management operations."""
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import NamedTuple, Optional
 
-from ..models import BuildInfo, Project
+from ..models import BuildInfo, Pipeline, Project
+
+
+class BuildInfoResult(NamedTuple):
+    """Result of a buildinfo lookup for a single project."""
+
+    buildinfo: Optional[BuildInfo] = None
+    pipeline: Optional[Pipeline] = None
 
 
 class BuildInfoService(ABC):
@@ -38,7 +48,7 @@ class BuildInfoService(ABC):
         branch: str = None,
         wait_for_completion: bool = True,
         architecture: str | None = None,
-    ) -> dict[int, Optional[BuildInfo]]:
+    ) -> dict[int, BuildInfoResult]:
         """
         Get buildinfo for multiple projects efficiently.
 
@@ -49,7 +59,7 @@ class BuildInfoService(ABC):
             architecture: The architecture to get buildinfo for. If None, uses host architecture.
 
         Returns:
-            Dictionary mapping project ID to BuildInfo (or None if not available)
+            Dictionary mapping project ID to BuildInfoResult
         """
 
     @abstractmethod

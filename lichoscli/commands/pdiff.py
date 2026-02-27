@@ -1,8 +1,12 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import logging
 
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
-from lichoscli.utils import BuildUtils, GitUtils
+from lichoscli.core.models.git import GitRepo
+from lichoscli.utils import BuildUtils
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +23,13 @@ class PDiffCommand(Command):
         sp.add_argument("package", nargs="?", help="some package name")
 
     def execute(self):
-        repo = GitUtils.get_git_repo()
+        repo_wrapper = GitRepo(".")
 
-        if not repo:
+        if not repo_wrapper.is_valid:
             logger.error("No git repository found")
             return 1
 
+        repo = repo_wrapper.repo
         if "parent" not in repo.remotes:
             logger.error("Missing parent repo")
             return False

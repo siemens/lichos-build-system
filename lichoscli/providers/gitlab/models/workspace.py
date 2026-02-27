@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """GitLab implementation of workspace model."""
 
 from typing import TYPE_CHECKING

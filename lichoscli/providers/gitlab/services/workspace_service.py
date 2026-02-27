@@ -1,7 +1,11 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """GitLab implementation of workspace service."""
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from gitlab import GitlabError
@@ -9,7 +13,7 @@ from gitlab import GitlabError
 from lichoscli.core.models.workspace import Workspace
 from lichoscli.core.services import PackageService, WorkspaceService
 from lichoscli.providers.gitlab.models.workspace import GitLabWorkspace
-from lichoscli.utils import GitUtils
+from lichoscli.core.models.git import GitRepo
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +176,8 @@ class GitLabWorkspaceService(WorkspaceService):
 
         for project in packages:
             try:
-                branch = project.branches.get(name)
+                # Use get_branch which is cached from _get_packages_in_workspace
+                branch = project.get_branch(name)
                 if branch and hasattr(branch, "commit") and hasattr(branch.commit, "created_at"):
                     branch_created = branch.commit.created_at
                     if not created_at or branch_created < created_at:
@@ -284,7 +289,7 @@ class GitLabWorkspaceService(WorkspaceService):
 
         if not branch_name:
             try:
-                repo_data = GitUtils.parse_repo_data()
+                repo_data = GitRepo(".").remote_info
                 if repo_data:
                     branch_name = repo_data[3]  # branch is the 4th element in the tuple
             except (GitlabError, ValueError, AttributeError) as e:
@@ -305,17 +310,34 @@ class GitLabWorkspaceService(WorkspaceService):
         Returns:
             List of package objects that have branches with this name
         """
-        packages = []
         all_packages = self.package_service.get_all_packages()
 
-        for project in all_packages:
+        def check_branch(project):
+            """Check if a project has the workspace branch."""
             try:
-                branch = project.branches.get(workspace_name)
+                branch = project.get_branch(workspace_name)
                 if branch:
-                    packages.append(project)
+                    return project
             except GitlabError as e:
                 logger.debug("Error checking branches for package '%s': %s", project.name, str(e))
-                continue
+            return None
+
+        packages = []
+        max_workers = min(10, len(all_packages))
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_project = {
+                executor.submit(check_branch, project): project
+                for project in all_packages
+            }
+            for future in as_completed(future_to_project):
+                try:
+                    result = future.result()
+                    if result is not None:
+                        packages.append(result)
+                except Exception as e:
+                    project = future_to_project[future]
+                    logger.debug("Error checking branches for package '%s': %s", project.name, str(e))
 
         return sorted(packages, key=lambda p: p.name)
 

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """GitLab services for provider implementation."""
 
 from .buildinfo_service import GitLabBuildInfoService

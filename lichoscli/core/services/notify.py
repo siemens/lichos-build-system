@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """Abstract notification service interface for scheduler notifications."""
 
 from abc import ABC, abstractmethod

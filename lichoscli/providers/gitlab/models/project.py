@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 """GitLab Project model wrapper."""
 
 import logging
@@ -32,6 +35,7 @@ class GitLabProject(Project, CacheMixin):
         self._tags: Optional[Tags] = None
         self._pipelines: Optional[Pipelines] = None
         self._merge_requests: Optional[MergeRequests] = None
+        self._branch_cache: dict[str, Any] = {}  # Cache for individual branch lookups
 
     @property
     def id(self) -> int:
@@ -197,10 +201,31 @@ class GitLabProject(Project, CacheMixin):
             True if the branch exists, False otherwise
         """
         try:
-            self._project.branches.get(branch_name)
-            return True
+            return self.get_branch(branch_name) is not None
         except GitlabError:
             return False
+
+    def get_branch(self, branch_name: str):
+        """Get a branch by name, with caching to avoid redundant API calls.
+
+        Args:
+            branch_name: Name of the branch to get
+
+        Returns:
+            Branch object if found, None otherwise
+        """
+        _MISSING = object()
+        cached = self._branch_cache.get(branch_name, _MISSING)
+        if cached is not _MISSING:
+            return cached
+
+        try:
+            branch = self._project.branches.get(branch_name)
+            self._branch_cache[branch_name] = branch
+            return branch
+        except GitlabError:
+            self._branch_cache[branch_name] = None
+            return None
 
     def save(self):
         """Save changes to the project."""
@@ -318,6 +343,14 @@ class GitLabProject(Project, CacheMixin):
             )
             return []
 
+    def compare_url(self, from_ref: str, to_ref: str) -> str:
+        """Return a GitLab comparison URL between two refs."""
+        return f"{self.web_url}/-/compare/{from_ref}...{to_ref}"
+
+    def commit_url(self, commit: str) -> str:
+        """Return a GitLab URL pointing to a specific commit."""
+        return f"{self.web_url}/-/commit/{commit}"
+
     def get_latest_commit_sha(self, branch: str) -> Optional[str]:
         """Get the latest commit SHA for a given branch.
 
@@ -328,7 +361,7 @@ class GitLabProject(Project, CacheMixin):
             The latest commit SHA if successful, None otherwise
         """
         try:
-            branch_obj = self.branches.get(branch)
+            branch_obj = self.get_branch(branch)
             if (
                 branch_obj
                 and hasattr(branch_obj, "commit")

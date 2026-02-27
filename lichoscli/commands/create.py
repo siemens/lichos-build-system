@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import logging
 import os
 import textwrap
@@ -7,8 +10,9 @@ from git.repo import Repo
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
 from lichoscli.core.exceptions import ProjectFetchingError
+from lichoscli.core.models.git import GitRepo, GitUrl
 from lichoscli.core.services import PackageService
-from lichoscli.utils import CI_DEFAULT_PIPELINE_NAME, BuildUtils, GitUtils
+from lichoscli.utils import CI_DEFAULT_PIPELINE_NAME, BuildUtils
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +117,7 @@ class CreateCommand(Command):
     @staticmethod
     def protect_branch(package, branch):
         """Protect the specified branch for the given package."""
-        formatted_branch_name = GitUtils.delete_main_from_branch_name(branch)
+        formatted_branch_name = GitUrl.sanitize_branch_name(branch)
         try:
             package.protectedbranches.create({"name": formatted_branch_name})
             return True

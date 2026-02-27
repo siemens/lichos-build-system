@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import logging
 import os
 from typing import Optional
@@ -33,7 +36,14 @@ class GitLabClientFactory:
         if env_token and host_to_use:
             return self._init_from_env(env_token, host_to_use)
 
-        return self._init_from_glab_config(self.host)
+        try:
+            return self._init_from_glab_config(self.host)
+        except (FileNotFoundError, ValueError) as e:
+            if host_to_use is None:
+                raise ValueError(
+                    "GitLab host not found. Please specify --host or run from a git repository with a GitLab remote."
+                ) from e
+            raise
 
     def _get_token_from_env(self) -> Optional[str]:
         token = os.getenv("LICHOS_GITLAB_TOKEN")

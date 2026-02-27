@@ -1,9 +1,13 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import logging
 import subprocess
 
 from lichoscli.commands.base import Command
+from lichoscli.core.models.git import GitRepo
 from lichoscli.core.services import PackageService
-from lichoscli.utils import BuildUtils, GitUtils
+from lichoscli.utils import BuildUtils
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +32,8 @@ class BrowseCommand(Command):
 
         url = pkg.web_url
         if self.args.branch is None:
-            repo = GitUtils.auto_detect_git_repo(package_name=self.package_name)
-            branch = str(repo.head.reference) if repo is not None else None
+            repo = GitRepo.auto_detect(package_name=self.package_name)
+            branch = repo.active_branch if repo is not None else None
         else:
             branch = self.args.branch
 

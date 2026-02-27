@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import tempfile
 from abc import ABC, abstractmethod
 from typing import Optional

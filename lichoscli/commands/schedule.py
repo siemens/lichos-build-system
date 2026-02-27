@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import logging
 import time
 
@@ -17,7 +20,7 @@ from lichoscli.core.services import (
     WorkspaceService,
 )
 from lichoscli.core.services.notify import NotificationData
-from lichoscli.utils.git import GitUtils
+from lichoscli.core.models.git import GitRepo
 
 logger = logging.getLogger(__name__)
 
@@ -370,26 +373,11 @@ class ScheduleCommand(Command):
         Returns:
             Dict mapping package names to their commit URLs
         """
-        commit_urls = {}
-
-        for node in failed_nodes:
-            if node.project and node.commit_sha:
-                try:
-                    project_path = node.project.path_with_namespace
-                    project_id = str(node.project.id) if hasattr(node.project, "id") else None
-
-                    host = self.args.host
-                    if not host.startswith("https://"):
-                        host = f"https://{host}"
-                    commit_url = f"{host}/{project_path}/-/commit/{node.commit_sha}"
-                    if project_id:
-                        commit_url += f"?from_project_id={project_id}"
-
-                    commit_urls[node.package] = commit_url
-                except AttributeError:
-                    continue
-
-        return commit_urls
+        return {
+            node.package: node.project.commit_url(node.commit_sha)
+            for node in failed_nodes
+            if node.project and node.commit_sha
+        }
 
     def _send_build_notification(self, dag: DependencyGraph) -> None:
         """Send notification about build results and generate comparison URLs for failed packages."""
@@ -415,9 +403,15 @@ class ScheduleCommand(Command):
                     self.console.print(
                         f"[dim]Generating comparison URLs for {len(changed_packages)} changed packages...[/dim]"
                     )
-                    package_comparison_urls = GitUtils.generate_package_comparison_urls_from_projects(
-                        changed_packages, self.args.host
-                    )
+                    package_comparison_urls = {
+                        pkg: (
+                            project.compare_url(old, new)
+                            if old and new and old != new
+                            else project.commit_url(new)
+                        )
+                        for pkg, (project, old, new) in changed_packages.items()
+                        if project and new
+                    }
                     self.console.print(f"[dim]Generated {len(package_comparison_urls)} comparison URLs[/dim]")
             else:
                 self.console.print(f"[dim]Generating commit URLs for {len(failed_nodes)} failing packages...[/dim]")

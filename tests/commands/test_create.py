@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 from unittest.mock import Mock, patch
 
 import pytest
@@ -125,7 +128,7 @@ def test_create_package_failure(mock_di_container):
     assert result is None
 
 
-@patch("lichoscli.commands.create.GitUtils.delete_main_from_branch_name")
+@patch("lichoscli.commands.create.GitUrl.sanitize_branch_name")
 def test_protect_branch_success(mock_delete_main):
     mock_package = Mock()
     mock_package.protectedbranches.create.return_value = True
@@ -136,7 +139,7 @@ def test_protect_branch_success(mock_delete_main):
     mock_package.protectedbranches.create.assert_called_once_with({"name": "formatted-branch"})
 
 
-@patch("lichoscli.commands.create.GitUtils.delete_main_from_branch_name")
+@patch("lichoscli.commands.create.GitUrl.sanitize_branch_name")
 def test_protect_branch_failure(mock_delete_main):
     from lichoscli.core.exceptions import ProjectFetchingError
 

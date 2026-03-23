@@ -112,3 +112,19 @@ class StorageService(ABC):
             return self.save_state(storage_id, dag)
         except (OSError, ValueError):
             return False
+
+
+class NoOpStorageService(StorageService):
+    """No-op storage service for local runs where state persistence is not needed."""
+
+    def load_state(self, storage_id: str) -> Optional[DependencyGraph]:
+        return None
+
+    def save_state(self, storage_id: str, dag: DependencyGraph) -> bool:
+        return True
+
+    def create_storage(self, title: str, description: str = "") -> str:
+        return title
+
+    def find_storage_by_title(self, title: str) -> Optional[str]:
+        return None

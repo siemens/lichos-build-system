@@ -6,10 +6,8 @@
 import logging
 from typing import Optional
 
-from rich.console import Console
-from rich.panel import Panel
-
 from lichoscli.core.models.dag import DAGNodeStatus
+from lichoscli.ui.interfaces import OutputWriter
 from lichoscli.core.services.notify import NotificationData, NotifyService
 
 logger = logging.getLogger(__name__)
@@ -18,13 +16,13 @@ logger = logging.getLogger(__name__)
 class FilesystemNotifyService(NotifyService):
     """Filesystem-based notification service that outputs to console/logs instead of remote systems."""
 
-    def __init__(self):
-        """Initialize the filesystem notification service with a Rich console."""
-        self.console = Console()
+    def __init__(self, output: OutputWriter):
+        """Initialize the filesystem notification service."""
+        self._output = output
 
     def send_notification(self, notification_id: str, data: NotificationData) -> bool:
         """
-        Send a notification using Rich console formatting.
+        Send a notification using console output.
 
         Args:
             notification_id: Identifier for the notification (used as title)
@@ -33,23 +31,18 @@ class FilesystemNotifyService(NotifyService):
         Returns:
             True (always succeeds for console output)
         """
-        self.console.print()
-
-        title = f"🔔 SCHEDULER NOTIFICATION - {notification_id}"
-        panel = Panel(
-            self._format_notification_content(data),
-            title=title,
-            title_align="left",
-            border_style="bright_blue",
-            padding=(1, 2),
-        )
-
-        self.console.print(panel)
-        self.console.print()
+        self._output.print()
+        title = f"SCHEDULER NOTIFICATION - {notification_id}"
+        border = "-" * (len(title) + 4)
+        self._output.print(border)
+        self._output.print(f"  {title}  ")
+        self._output.print(border)
+        self._output.print(self._format_notification_content(data))
+        self._output.print()
         return True
 
     def _format_notification_content(self, data: NotificationData) -> str:
-        """Format the notification content using Rich markup."""
+        """Format the notification content as plain text."""
         content_parts = []
 
         actual_failed_packages = set(data.failed_packages)
@@ -58,24 +51,24 @@ class FilesystemNotifyService(NotifyService):
                 actual_failed_packages.add(pkg_name)
 
         if actual_failed_packages:
-            content_parts.append("[bold red]❌ FAILED PACKAGES:[/bold red]")
+            content_parts.append("FAILED PACKAGES:")
             for pkg_name in actual_failed_packages:
                 dag_node = data.dag_nodes.get(pkg_name)
                 status = dag_node.status.value if dag_node and dag_node.status else "failed"
                 pipeline_url = data.pipeline_urls.get(pkg_name, "N/A")
                 content_parts.append(
-                    f"  • [red]{pkg_name}[/red] ([dim]{status}[/dim]) - Pipeline: {pipeline_url}"
+                    f"  * {pkg_name} ({status}) - Pipeline: {pipeline_url}"
                 )
 
         if data.package_comparison_urls:
             if content_parts:
                 content_parts.append("")
-            content_parts.append("[bold yellow]📊 PACKAGES WITH CHANGES:[/bold yellow]")
+            content_parts.append("PACKAGES WITH CHANGES:")
             for pkg_name, url in data.package_comparison_urls.items():
-                content_parts.append(f"  • [yellow]{pkg_name}[/yellow]: {url}")
+                content_parts.append(f"  * {pkg_name}: {url}")
 
         if not actual_failed_packages and not data.successful_packages:
-            content_parts.append("[dim]ℹ️  No package status information available[/dim]")
+            content_parts.append("No package status information available")
 
         return "\n".join(content_parts)
 

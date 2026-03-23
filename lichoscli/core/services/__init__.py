@@ -9,9 +9,10 @@ from .editor import EditorConfig, EditorLaunchResult, EditorStrategy
 from .environment import BuildEnvironment, EnvironmentService
 from .notify import NotificationData, NotifyService
 from .package import PackageService
+from .pkg_group_discovery import PkgGroupDiscoveryService
 from .repo_parser import RepoParserService
 from .source_collection import SourceCollectionService
-from .storage import StorageService
+from .storage import NoOpStorageService, StorageService
 from .workspace import WorkspaceService
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "BuildInfoResult",
     "WorkspaceService",
     "CacheService",
+    "NoOpStorageService",
     "StorageService",
     "RepoParserService",
     "SourceCollectionService",
@@ -35,4 +37,5 @@ __all__ = [
     "EditorStrategy",
     "EditorConfig",
     "EditorLaunchResult",
+    "PkgGroupDiscoveryService",
 ]

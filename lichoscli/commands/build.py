@@ -6,8 +6,6 @@ import os
 import random
 import subprocess
 
-from rich.panel import Panel
-
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
 from lichoscli.core.models import BuildParameters
@@ -120,8 +118,8 @@ class BuildCommand(Command):
             logger.error("Package '%s' not found", self.buildparam.package_name)
             return 1
 
-        self.console.print(f"Building package: [bold cyan]{self.package.name}[/bold cyan]")
-        self.console.print(f"Architecture: [bold cyan]{self.buildparam.architecture}[/bold cyan]")
+        self.output.accent(f"Building package: {self.package.name}")
+        self.output.print(f"Architecture: {self.buildparam.architecture}")
 
         if not self._initialize_submodules():
             return 1
@@ -177,7 +175,7 @@ class BuildCommand(Command):
         """Initialize git submodules if they exist."""
         repo = GitRepo(".")
         if repo.is_valid and repo.has_submodules:
-            print("Submodules detected, initializing...")
+            self.output.print("Submodules detected, initializing...")
             if not repo.update_submodules():
                 logger.error("Failed to initialize submodules")
                 return False
@@ -215,28 +213,24 @@ class BuildCommand(Command):
                 launch_result = editor_strategy.launch_editor(editor_config)
 
                 if launch_result.success:
-                    content_lines = [
-                        f"Container name: [cyan]{container_config.name}[/cyan]",
-                        f"SSH access: [cyan]ssh root@localhost -p {ssh_port}[/cyan]",
-                        "Authentication: SSH key or password '[yellow]root[/yellow]'",
-                        "Editor should open automatically",
-                        "",
-                        f"Build script available: [green]{build_environment.full_script}[/green]",
-                        "",
-                        "To stop the container:",
-                        f"  [cyan]docker stop {container_config.name}[/cyan]",
-                    ]
-
-                    panel = Panel(
-                        "\n".join(content_lines),
-                        title="[bold green]CONTAINER RUNNING IN BACKGROUND[/bold green]",
-                        border_style="green",
-                        padding=(1, 2),
+                    self.output.info(
+                        "Container running in background\n"
+                        "Container name: {}\n"
+                        "SSH access: ssh root@localhost -p {}\n"
+                        "Authentication: SSH key or password 'root'\n"
+                        "Editor should open automatically\n\n"
+                        "Build script available: {}\n\n"
+                        "To stop the container: docker stop {}".format(
+                            container_config.name,
+                            ssh_port,
+                            build_environment.full_script,
+                            container_config.name
+                        )
                     )
-                    self.console.print()
-                    self.console.print(panel)
                 else:
-                    self.console.print(f"[red]✗[/red] Editor launch failed: {launch_result.error_message}")
+                    self.output.error(
+                        "Editor launch failed: {}".format(launch_result.error_message),
+                    )
 
             return result.return_code
 
@@ -248,7 +242,8 @@ class BuildCommand(Command):
         """Build container configuration from environment and BuildConfig."""
         sanitized_package = BuildUtils.sanitize_container_name(self.buildparam.package_name)
         sanitized_workspace = BuildUtils.sanitize_container_name(self.buildparam.branch)
-        container_name = f"{sanitized_package}-{sanitized_workspace}"
+        sanitized_arch = BuildUtils.sanitize_container_name(self.buildparam.architecture)
+        container_name = f"{sanitized_package}-{sanitized_workspace}_{sanitized_arch}"
 
         volumes = [f"{os.getcwd()}:{self.buildparam.project_dir}"]
         if self.buildparam.mount:
@@ -273,12 +268,10 @@ class BuildCommand(Command):
         if self.buildparam.shell_mode:
             config.command = "/usr/bin/bash"
             config.interactive = True
-            self.console.print(f"Container name: [cyan]{container_name}[/cyan]")
-
-            self.console.print()
-            self.console.print("[bold yellow]RUN THIS TO BUILD THE PACKAGE:[/bold yellow]")
-            self.console.print(f"[green]{build_environment.full_script}[/green]")
-            self.console.print()
+            self.output.print(f"Container name: {container_name}")
+            self.output.print()
+            self.output.warning("Run this to build the package:")
+            self.output.success(build_environment.full_script)
 
         return config
 

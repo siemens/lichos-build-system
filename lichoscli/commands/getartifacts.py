@@ -7,6 +7,7 @@ import shutil
 
 from lichoscli.commands.base import Command
 from lichoscli.core.services import PackageService
+from lichoscli.ui import Choice
 from lichoscli.utils import BuildUtils, ProgressUtils
 
 logger = logging.getLogger(__name__)
@@ -36,27 +37,46 @@ class GetartifactsCommand(Command):
 
         artifacts_dir = "artifacts"
 
-        if self.job_name:
-            return self._download_specific_job_artifacts(pkg, artifacts_dir)
-        return self._list_available_artifacts(pkg)
+        if not self.job_name:
+            latest_pipeline = pkg.pipelines.get_latest(self.branch)
+            if not latest_pipeline:
+                logger.error("No pipeline found for branch %s", self.branch)
+                return 1
+            jobs = latest_pipeline.jobs.list()
+            if not jobs:
+                logger.warning("No jobs found in pipeline")
+                return 1
+            selected_names = self.prompts.select_many(
+                title="Select jobs",
+                text="Select jobs to download artifacts from:",
+                choices=[Choice(value=job.name, label=f"{job.name} [{job.status}]") for job in jobs],
+            )
+            if not selected_names:
+                return 0
+            failed = 0
+            for job_name in selected_names:
+                result = self._download_specific_job_artifacts(pkg, artifacts_dir, job_name)
+                if result:
+                    failed += result
+            return failed
+        return self._download_specific_job_artifacts(pkg, artifacts_dir)
 
-    def _download_specific_job_artifacts(self, pkg, artifacts_dir):
+    def _download_specific_job_artifacts(self, pkg, artifacts_dir, job_name=None):
         """Download artifacts for a specific job."""
-        self.clear_artifacts_directory(artifacts_dir)
-
+        job_name = job_name or self.job_name
         latest_pipeline = pkg.pipelines.get_latest(self.branch)
         if not latest_pipeline:
             logger.error("No pipeline found for branch %s", self.branch)
             return 1
 
-        target_job = latest_pipeline.jobs.get_by_name(self.job_name)
+        target_job = latest_pipeline.jobs.get_by_name(job_name)
         if not target_job:
-            logger.error("Job %s not found in pipeline", self.job_name)
+            logger.error("Job %s not found in pipeline", job_name)
             return 1
 
         tempdir = ProgressUtils.execute_with_progress(
             business_logic=target_job.artifacts.download_as_directory,
-            description=f"Downloading artifacts for {self.job_name}...",
+            description=f"Downloading artifacts for {job_name}...",
             console=self.console,
             success_message="Artifacts downloaded successfully",
             error_message="Failed to download artifacts",
@@ -69,30 +89,15 @@ class GetartifactsCommand(Command):
         self.move_artifacts_to_directory(artifacts_dir, tempdir)
         return 0
 
-    def _list_available_artifacts(self, pkg):
-        """List available artifacts for the package."""
-        latest_pipeline = pkg.pipelines.get_latest(self.branch)
-
-        if latest_pipeline is None:
-            logger.warning("No pipeline found for package %s", self.package_name)
-            return 1
-
-        jobs = latest_pipeline.jobs.list()
-        
-        if not jobs:
-            logger.warning("No jobs found in pipeline")
-            return 1
-
-        self.console.print("[bold]Artifacts links:[/bold]")
-        for job in jobs:
-            self.console.print(f"  {job.name}: {job.web_url}/artifacts/browse")
-
-        return 0
-
     def move_artifacts_to_directory(self, artifacts_dir, tempdir):
         os.makedirs(artifacts_dir, exist_ok=True)
         for fn in os.listdir(tempdir.name):
-            shutil.move(os.path.join(tempdir.name, fn), os.path.join(artifacts_dir, fn))
+            dst = os.path.join(artifacts_dir, fn)
+            if os.path.isdir(dst):
+                shutil.rmtree(dst)
+            elif os.path.exists(dst):
+                os.remove(dst)
+            shutil.move(os.path.join(tempdir.name, fn), dst)
 
     def clear_artifacts_directory(self, artifacts_dir):
         if os.path.exists(artifacts_dir):

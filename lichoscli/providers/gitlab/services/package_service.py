@@ -24,7 +24,8 @@ class GitLabPackageService(PackageService):
     def __init__(self, group_rpath: str, gitlab):
         self.group_rpath = group_rpath
         self.gitlab = gitlab
-        self.group_id = gitlab.groups.get(group_rpath).id
+        self._group = gitlab.groups.get(group_rpath)
+        self.group_id = self._group.id
         self._packages_cache: dict[str, GitLabProject] = {}
         self._all_packages_cached: bool = False
 
@@ -34,12 +35,11 @@ class GitLabPackageService(PackageService):
 
     def _fetch_all_projects(self) -> list[GitLabProject]:
         """Fetch all projects from GitLab API, excluding archived projects."""
-        group = self.gitlab.groups.get(self.group_rpath)
         logger.debug(
             "Fetching ALL active projects for group %s (including subgroups)",
             self.group_rpath,
         )
-        projects = group.projects.list(include_subgroups=True, all=True, per_page=100)
+        projects = self._group.projects.list(include_subgroups=True, all=True, per_page=100)
         full_projects = []
 
         # Filter out archived projects before making individual API calls
@@ -87,8 +87,7 @@ class GitLabPackageService(PackageService):
 
         try:
             logger.debug("Fetching package details for: %s", package_name)
-            group = self.gitlab.groups.get(self.group_rpath)
-            projects = group.projects.list(search=package_name, include_subgroups=True)
+            projects = self._group.projects.list(search=package_name, include_subgroups=True)
 
             for project in projects:
                 if project.name == package_name:

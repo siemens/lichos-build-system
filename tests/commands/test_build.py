@@ -117,7 +117,6 @@ def test_execute_success(
     mock_build_env = BuildEnvironment(
         variables={"IMAGE": "test:latest", "REPO_SETUP_CMD": "setup", "BUILD_CMD": "build"},
         image="test:latest",
-        repo_setup_cmd="setup",
         build_cmd="build",
     )
     mock_di_container.environment_service.prepare_build_environment.return_value = mock_build_env

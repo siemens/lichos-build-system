@@ -2,93 +2,133 @@
 # Copyright (c) 2026 Siemens AG
 
 import json
-from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Iterable, Optional
 from .pipeline_status import PipelineStatus
 
 if TYPE_CHECKING:
+    from lichoscli.core.services import VersionCheckResult
     from lichoscli.core.models.project import Project
     from .build import BuildInfo
 
 
 @dataclass
 class DependencyGraph:
-    """representation of a directed acyclic graph (DAG) for project dependencies."""
+    """Directed acyclic graph for package dependency scheduling."""
 
     nodes: dict[str, "DAGNode"]
 
     def __str__(self) -> str:
-        """Return JSON representation of the DAG."""
         dag_dict = {
             pkg_name: {
                 "version": node.version,
                 "commit_sha": node.commit_sha,
-                "status": node.status.value if hasattr(node.status, 'value') else str(node.status),
+                "status": node.status.value,
                 "direct_dependencies": list(node.direct_dependencies.keys()),
-                "reverse_dependencies": list(node.reverse_dependencies.keys())
+                "reverse_dependencies": list(node.reverse_dependencies.keys()),
             }
             for pkg_name, node in self.nodes.items()
         }
         return json.dumps(dag_dict, indent=2)
 
+    # ── Node management ──────────────────────────────────────────────
+
     def add_node(self, node: "DAGNode") -> None:
-        """Add a node to the DAG."""
         self.nodes[node.package] = node
 
     def get_node(self, package: str) -> Optional["DAGNode"]:
-        """Retrieve a node by package name."""
         return self.nodes.get(package)
 
     def remove_node(self, package: str) -> None:
-        """Remove a node from the DAG."""
-        if package in self.nodes:
-            del self.nodes[package]
+        """Remove a node and its edges from the graph."""
+        node = self.nodes.pop(package, None)
+        if node is None:
+            return
+        for dep in node.direct_dependencies.values():
+            dep.reverse_dependencies.pop(package, None)
+        for rev in node.reverse_dependencies.values():
+            rev.direct_dependencies.pop(package, None)
 
-    def get_build_order(self) -> list[str]:
+    # ── Scheduling primitives ────────────────────────────────────────
+
+    def get_ready_nodes(self) -> list["DAGNode"]:
         """
-        Get the optimal build order for packages based on dependency DAG.
+        Return PENDING nodes whose direct dependencies have all succeeded.
 
-        Returns:
-            List of package names in build order (dependencies first)
+        These nodes can be scheduled for building immediately.  Call this
+        in a loop to drive maximum-parallelism execution of the graph.
         """
-        return self.topological_sort()
+        return [
+            node
+            for node in self.nodes.values()
+            if node.status == DAGNodeStatus.PENDING
+            and all(
+                dep.status == DAGNodeStatus.SUCCESS
+                for dep in node.direct_dependencies.values()
+            )
+        ]
 
-    def topological_sort(self) -> list[str]:
+    def mark_building(self, package_name: str) -> None:
+        """Transition a node from PENDING to BUILDING."""
+        self.nodes[package_name].status = DAGNodeStatus.BUILDING
+
+    def mark_succeeded(self, package_name: str) -> list["DAGNode"]:
         """
-        Perform topological sort on the dependency DAG using Kahn's algorithm.
+        Transition a node to SUCCESS and return dependents that became ready.
 
-        Returns:
-            List of package names in topologically sorted order
+        Enables reactive scheduling: the caller can immediately trigger
+        the returned nodes without rescanning the entire graph.
         """
-        in_degree = {}
-        for package_name in self.nodes:
-            in_degree[package_name] = 0
+        node = self.nodes[package_name]
+        node.status = DAGNodeStatus.SUCCESS
+        return [
+            dependent
+            for dependent in node.reverse_dependencies.values()
+            if dependent.status == DAGNodeStatus.PENDING
+            and all(
+                dep.status == DAGNodeStatus.SUCCESS
+                for dep in dependent.direct_dependencies.values()
+            )
+        ]
 
-        for package_name, node in self.nodes.items():
-            for _ in node.direct_dependencies:
-                in_degree[package_name] += 1
+    def mark_failed(self, package_name: str) -> list["DAGNode"]:
+        """
+        Transition a node to FAILED and return PENDING dependents that are
+        now blocked (they can never build in this scheduling run).
+        """
+        self.nodes[package_name].status = DAGNodeStatus.FAILED
+        return self._collect_blocked_dependents(package_name)
 
-        queue = deque([name for name, degree in in_degree.items() if degree == 0])
-        result = []
+    def is_complete(self) -> bool:
+        """True when every node has reached a terminal status."""
+        return all(node.status.is_terminal for node in self.nodes.values())
 
-        while queue:
-            current = queue.popleft()
-            result.append(current)
+    def get_blocked_nodes(self) -> list["DAGNode"]:
+        """
+        Return PENDING nodes that can never build because a transitive
+        dependency has failed.
+        """
+        failed_packages = [
+            name
+            for name, node in self.nodes.items()
+            if node.status == DAGNodeStatus.FAILED
+        ]
+        blocked: dict[str, "DAGNode"] = {}
+        for pkg in failed_packages:
+            for node in self._collect_blocked_dependents(pkg):
+                blocked[node.package] = node
+        return list(blocked.values())
 
-            current_node = self.nodes[current]
-            for dependent_name in current_node.reverse_dependencies:
-                in_degree[dependent_name] -= 1
+    # ── Graph queries ────────────────────────────────────────────────
 
-                if in_degree[dependent_name] == 0:
-                    queue.append(dependent_name)
-
-        if len(result) != len(self.nodes):
-            remaining = set(self.nodes.keys()) - set(result)
-            result.extend(remaining)
-
-        return result
+    def get_roots(self) -> list["DAGNode"]:
+        """Return nodes with no dependencies (entry points of the graph)."""
+        return [
+            node
+            for node in self.nodes.values()
+            if not node.direct_dependencies
+        ]
 
     def get_transitive_dependents(self, package_name: str) -> list["DAGNode"]:
         """Get all packages that transitively depend on the given package."""
@@ -111,140 +151,69 @@ class DependencyGraph:
 
         return list(dependent_nodes.values())
 
-    def calculate_build_levels(self, nodes_to_include: Optional[list["DAGNode"]] = None) -> dict[int, list["DAGNode"]]:
-        """
-        Calculate build levels ensuring dependencies are built before dependents.
-
-        Args:
-            nodes_to_include: Specific DAGNodes to include (defaults to all nodes in the DAG)
-
-        Returns:
-            Dictionary mapping levels to lists of DAGNodes to build at that level
-        """
-        nodes = nodes_to_include if nodes_to_include is not None else list(self.nodes.values())
-
-        node_depths = {}
-        memo = {}
-
-        for node in nodes:
-            if node.package in self.nodes:
-                node_depths[node.package] = self._calculate_package_depth(node.package, memo)
-            else:
-                node_depths[node.package] = 0
-
-        levels = {}
-        for node in nodes:
-            depth = node_depths[node.package]
-            if depth not in levels:
-                levels[depth] = []
-            levels[depth].append(node)
-
-        return levels
-
-    def calculate_build_levels_by_name(self, package_names: Optional[list[str]] = None) -> dict[int, list[str]]:
-        """
-        Calculate build levels by package names (legacy interface).
-
-        Args:
-            package_names: Specific package names to include (defaults to all)
-
-        Returns:
-            Dictionary mapping levels to lists of package names to build at that level
-        """
-        if package_names is None:
-            nodes_to_include = None
-        else:
-            nodes_to_include = []
-            for package_name in package_names:
-                if package_name in self.nodes:
-                    nodes_to_include.append(self.nodes[package_name])
-
-        levels_by_node = self.calculate_build_levels(nodes_to_include)
-
-        levels_by_name = {}
-        for depth, nodes in levels_by_node.items():
-            levels_by_name[depth] = [node.package for node in nodes]
-
-        return levels_by_name
-
-    def _calculate_package_depth(self, package_name: str, memo: dict[str, int]) -> int:
-        """Calculate the dependency depth of a package (memoized)."""
-        if package_name in memo:
-            return memo[package_name]
-
-        if package_name not in self.nodes:
-            memo[package_name] = 0
-            return 0
-
-        node = self.nodes[package_name]
-        if not node.direct_dependencies:
-            memo[package_name] = 0
-            return 0
-
-        max_depth = 0
-        for direct_dependency in node.direct_dependencies:
-            dep_depth = self._calculate_package_depth(direct_dependency, memo)
-            max_depth = max(max_depth, dep_depth + 1)
-
-        memo[package_name] = max_depth
-        return max_depth
-
-    def get_packages_by_status(self, status: str) -> list[str]:
-        """Get list of package names with the specified status."""
-        return [name for name, node in self.nodes.items() if node.status == status]
-
-    def get_nodes_by_status(self, status: "DAGNodeStatus") -> list["DAGNode"]:
-        """Get list of DAGNodes with the specified status."""
-        return [node for node in self.nodes.values() if node.status == status]
-
-    def calculate_node_depth(self, node: "DAGNode") -> int:
-        """
-        Calculate the dependency depth for a single DAGNode.
-
-        Args:
-            node: The DAGNode to calculate depth for
-
-        Returns:
-            Integer representing the dependency depth of the node
-        """
-        return self._calculate_package_depth(node.package, {})
-
-    def get_reverse_deps(self, package_name: str) -> list["DAGNode"]:
-        """
-        Get reverse dependencies for a package using the DAG structure.
-
-        This method extracts transitive dependents from the DAG and returns
-        the DAGNode objects representing packages that depend on the input package.
-
-        Args:
-            package_name: The package name to find reverse dependencies for
-
-        Returns:
-            List of DAGNodes representing packages that depend on the input package
-        """
-        if package_name not in self.nodes:
-            return []
-
-        transitive_dependents = self.get_transitive_dependents(package_name)
-        return list(transitive_dependents)
-
     def find_source_for_binary(self, binary_package_name: str) -> Optional[str]:
-        """
-        Find the source package name that provides a given binary package.
-
-        Args:
-            binary_package_name: The binary package to search for
-
-        Returns:
-            Source package name if found, None otherwise
-        """
-        for source_package_name, node in self.nodes.items():
+        """Find the source package that produces a given binary package."""
+        for source_name, node in self.nodes.items():
             if node.provides_binary_package(binary_package_name):
-                return source_package_name
+                return source_name
         return None
 
+    def get_nodes_by_status(self, status: "DAGNodeStatus") -> list["DAGNode"]:
+        """Return all nodes with the given status."""
+        return [node for node in self.nodes.values() if node.status == status]
+
+    def get_depth(self, package_name: str) -> int:
+        """
+        Dependency depth of a package: 0 for packages with no in-graph
+        dependencies, N for the longest chain of N edges to a root.
+        """
+        return self._calculate_depth(package_name, {})
+
+    def group_by_depth(
+        self, nodes_to_include: Optional[list["DAGNode"]] = None
+    ) -> dict[int, list["DAGNode"]]:
+        """
+        Group nodes by their structural dependency depth.
+
+        Depth-0 nodes have no in-graph dependencies, depth-1 nodes depend
+        only on depth-0 nodes, and so forth.  Useful for display and
+        analysis; scheduling should use ``get_ready_nodes`` instead.
+        """
+        nodes = (
+            nodes_to_include
+            if nodes_to_include is not None
+            else list(self.nodes.values())
+        )
+        memo: dict[str, int] = {}
+        levels: dict[int, list["DAGNode"]] = {}
+        for node in nodes:
+            depth = self._calculate_depth(node.package, memo)
+            levels.setdefault(depth, []).append(node)
+        return levels
+
+    def apply_version_check_results(
+        self,
+        version_check_results: Iterable["VersionCheckResult"],
+    ) -> set[str]:
+        """Mark nodes as stale when dependency version checks report mismatches."""
+        stale_packages = {
+            result.dependent_package
+            for result in version_check_results
+            if not result.is_correct and result.dependent_package in self.nodes
+        }
+
+        for node in self.nodes.values():
+            node.is_stale = node.package in stale_packages
+
+        return stale_packages
+
+    def get_stale_packages(self) -> set[str]:
+        """Return package names currently marked as stale."""
+        return {name for name, node in self.nodes.items() if node.is_stale}
+
+    # ── Serialization ────────────────────────────────────────────────
+
     def to_dict(self) -> dict:
-        """Convert the DAG to a dictionary for serialization."""
         return {
             "nodes": {
                 name: {
@@ -262,31 +231,60 @@ class DependencyGraph:
 
     @classmethod
     def from_dict(cls, data: dict) -> "DependencyGraph":
-        """Create a DAG from a dictionary."""
-        nodes = {}
-
-        for name, node_data in data["nodes"].items():
-            node = DAGNode(
-                package=node_data["package"],
-                version=node_data["version"],
-                architecture=node_data["architecture"],
-                reverse_dependencies={},
-                direct_dependencies={},
-                status=DAGNodeStatus(node_data["status"]),
-                commit_sha=node_data.get("commit_sha"),
+        nodes: dict[str, "DAGNode"] = {}
+        for name, nd in data["nodes"].items():
+            nodes[name] = DAGNode(
+                package=nd["package"],
+                version=nd["version"],
+                architecture=nd["architecture"],
+                status=DAGNodeStatus(nd["status"]),
+                commit_sha=nd.get("commit_sha"),
             )
-            nodes[name] = node
-
-        for name, node_data in data["nodes"].items():
+        for name, nd in data["nodes"].items():
             node = nodes[name]
-            for dep_name in node_data["reverse_dependencies"]:
+            for dep_name in nd["reverse_dependencies"]:
                 if dep_name in nodes:
                     node.reverse_dependencies[dep_name] = nodes[dep_name]
-            for dep_name in node_data["direct_dependencies"]:
+            for dep_name in nd["direct_dependencies"]:
                 if dep_name in nodes:
                     node.direct_dependencies[dep_name] = nodes[dep_name]
-
         return cls(nodes=nodes)
+
+    # ── Private helpers ──────────────────────────────────────────────
+
+    def _calculate_depth(self, package_name: str, memo: dict[str, int]) -> int:
+        """Calculate dependency depth with memoization."""
+        if package_name in memo:
+            return memo[package_name]
+        node = self.nodes.get(package_name)
+        if node is None or not node.direct_dependencies:
+            memo[package_name] = 0
+            return 0
+        depth = max(
+            self._calculate_depth(dep, memo) + 1
+            for dep in node.direct_dependencies
+        )
+        memo[package_name] = depth
+        return depth
+
+    def _collect_blocked_dependents(self, failed_package: str) -> list["DAGNode"]:
+        """Collect all PENDING transitive dependents of a failed package."""
+        blocked: list["DAGNode"] = []
+        visited: set[str] = set()
+        queue = [failed_package]
+        while queue:
+            current = queue.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            node = self.nodes.get(current)
+            if node is None:
+                continue
+            for dep_name, dep_node in node.reverse_dependencies.items():
+                if dep_name not in visited and dep_node.status == DAGNodeStatus.PENDING:
+                    blocked.append(dep_node)
+                    queue.append(dep_name)
+        return blocked
 
 
 class DAGNodeStatus(Enum):
@@ -296,6 +294,11 @@ class DAGNodeStatus(Enum):
     BUILDING = "building"
     SUCCESS = "success"
     FAILED = "failed"
+
+    @property
+    def is_terminal(self) -> bool:
+        """True when the node has reached a final state."""
+        return self in (DAGNodeStatus.SUCCESS, DAGNodeStatus.FAILED)
 
     @classmethod
     def from_pipeline_status(cls, pipeline_status: "PipelineStatus") -> "DAGNodeStatus":
@@ -333,12 +336,13 @@ class DAGNode:
     package: str
     version: str
     architecture: str
-    reverse_dependencies: dict[str, "DAGNode"]
-    direct_dependencies: dict[str, "DAGNode"]
+    reverse_dependencies: dict[str, "DAGNode"] = field(default_factory=dict)
+    direct_dependencies: dict[str, "DAGNode"] = field(default_factory=dict)
     project: Optional["Project"] = None
     status: DAGNodeStatus = DAGNodeStatus.PENDING
     buildinfo: Optional["BuildInfo"] = None
     commit_sha: Optional[str] = None
+    is_stale: bool = False
 
     def add_dependent(self, node: "DAGNode") -> None:
         """Add a dependent node."""

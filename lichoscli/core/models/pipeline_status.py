@@ -126,13 +126,5 @@ class PipelineStatus(Enum):
         return self.value
 
     def to_display_string(self) -> str:
-        """Convert to colored string for display in terminal."""
-        match self:
-            case PipelineStatus.FAILED | PipelineStatus.CANCELED | PipelineStatus.CANCELING:
-                return f"[red]{self.value}[/red]"
-            case PipelineStatus.SUCCESS:
-                return f"[green]{self.value}[/green]"
-            case PipelineStatus.RUNNING | PipelineStatus.MANUAL:
-                return f"[yellow]{self.value}[/yellow]"
-            case _:
-                return self.value
+        """Convert to string for display in terminal."""
+        return self.value

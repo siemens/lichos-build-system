@@ -51,6 +51,18 @@ def main() -> int:
         help="branch name for some commands",
     )
     parser.add_argument("--dump", action="store_true", help="some command allow dumping json data")
+    parser.add_argument(
+        "--output-backend",
+        dest="output_backend",
+        choices=["terminal"],
+        help="output rendering backend (default: terminal, env: LICHOS_OUTPUT_BACKEND)",
+    )
+    parser.add_argument(
+        "--prompt-backend",
+        dest="prompt_backend",
+        choices=["terminal"],
+        help="interactive prompt backend (default: terminal, env: LICHOS_PROMPT_BACKEND)",
+    )
 
     subparsers = parser.add_subparsers(dest="command", title="Commands")
 
@@ -98,13 +110,13 @@ def main() -> int:
         return 0 if result is None else result
 
     except KeyboardInterrupt:
-        print("\nOperation cancelled by user.")
+        logger.warning("Operation cancelled by user.")
         return 130
     except ValueError as e:
         logger.error(str(e))
         return 1
     except (argparse.ArgumentError, RuntimeError) as e:
-        print(f"Error: {e}")
+        logger.error("Error: %s", e)
         return 1
 
 

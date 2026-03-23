@@ -36,10 +36,7 @@ dependencies = [
     "GitPython",
     "python-gitlab",
     "pyyaml",
-    "rich",
-    "tabulate",
     "requests",
-    "prompt-toolkit",
     "diskcache",
     "cachetools",
     "xdg",
@@ -67,6 +64,9 @@ include = ["lichoscli*"]
 test = [
     "pytest",
     "pytest-cov"
+]
+questionary = [
+    "questionary",
 ]
 dev = [
     "pylint",

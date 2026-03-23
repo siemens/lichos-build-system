@@ -3,9 +3,8 @@
 
 import logging
 
-from gitlab import GitlabError
-
 from lichoscli.commands.base import Command
+from lichoscli.core.exceptions import ProviderAPIError
 from lichoscli.core.di import DIContainer
 from lichoscli.core.services import PackageService
 from lichoscli.utils import CI_PKG, CORE_PACKAGES
@@ -58,7 +57,10 @@ class HierarchyCommand(Command):
             return 1
 
         logger.info("Successfully created hierarchy at '%s'", self.args.target_path)
-        self._print_manual_setup_instructions()
+        self.output.warning("IMPORTANT: You must manually set the following group variables:")
+        for variable in self.GROUP_VARIABLES:
+            self.output.print(f"  - {variable}")
+        self.output.print(f"  - CI_00CI_PROJECT_PATH: {self.args.target_path}/{CI_PKG}")
         target_projects = self.projects.get_projects_for_namespace(self.args.target_path)
         if target_projects:
             logger.info("Hierarchy created successfully at: %s", self.args.target_path)
@@ -83,7 +85,7 @@ class HierarchyCommand(Command):
             try:
                 parent_group_gitlab = self.di_container.gitlab.groups.get(parent_path) if parent_path else None
                 parent_id = parent_group_gitlab.id if parent_group_gitlab else None
-            except GitlabError:
+            except ProviderAPIError:
                 parent_id = None
             group_data = {
                 "name": part,
@@ -121,22 +123,27 @@ class HierarchyCommand(Command):
 
     def _dry_run_preview(self) -> int:
         """Preview what would be done in a dry run."""
-        print("DRY RUN PREVIEW:")
-        print(f"Target hierarchy: {self.args.target_path}")
-        print(f"Source hierarchy: {self.di_container.group_rpath}")
-        print()
+        self.output.accent("DRY RUN PREVIEW:")
+        self.output.print(
+            f"Target hierarchy: {self.args.target_path}\n"
+            f"Source hierarchy: {self.di_container.group_rpath}"
+        )
+        self.output.print()
 
         if self.projects.hierarchy_exists(self.args.target_path):
-            print(f"NOTE: Hierarchy already exists at '{self.args.target_path}', would use existing one")
-            print("Actions that would be performed:")
+            self.output.warning(
+                f"NOTE: Hierarchy already exists at '{self.args.target_path}', would use existing one",
+            )
+            self.output.print("Actions that would be performed:")
         else:
-            print("Actions that would be performed:")
-            print(f"1. Create hierarchy group structure at: {self.args.target_path}")
+            self.output.print(
+                f"Actions that would be performed:\n1. Create hierarchy group structure at: {self.args.target_path}"
+            )
 
         self._preview_package_forks()
-        print("3. Note: You will need to manually set the following group variables:")
+        self.output.print("3. Note: You will need to manually set the following group variables:")
         for variable in self.GROUP_VARIABLES:
-            print(f"   - {variable}")
+            self.output.print(f"   - {variable}")
 
         return 0
 
@@ -145,16 +152,9 @@ class HierarchyCommand(Command):
         for package_name in CORE_PACKAGES:
             source_package = self.package_service.get_package(package_name)
             if source_package:
-                print(f"2. Fork {package_name} from: {source_package.path_with_namespace}")
-                print(f"   To: {self.args.target_path}/{package_name}")
+                self.output.print(f"2. Fork {package_name} from: {source_package.path_with_namespace}")
+                self.output.print(f"   To: {self.args.target_path}/{package_name}")
                 default_branch = getattr(source_package, "default_branch", None) or "main (fallback)"
-                print(f"   Default branch: {default_branch}")
+                self.output.print(f"   Default branch: {default_branch}")
             else:
-                print(f"2. WARNING: {package_name} not found in source hierarchy")
-
-    def _print_manual_setup_instructions(self) -> None:
-        """Print instructions for manual group variable setup."""
-        print("IMPORTANT: You must manually set the following group variables:")
-        for variable in self.GROUP_VARIABLES:
-            print(f"  - {variable}")
-        print(f"  - CI_00CI_PROJECT_PATH: {self.args.target_path}/{CI_PKG}")
+                self.output.warning(f"2. WARNING: {package_name} not found in source hierarchy")

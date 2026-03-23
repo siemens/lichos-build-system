@@ -10,6 +10,7 @@ from lichoscli.core.config import LichosConfig, ProviderType
 from lichoscli.core.di import DIContainer
 from lichoscli.providers.gitlab import GitLabClientFactory
 from lichoscli.providers.gitlab.container import GitLabServiceContainer
+from lichoscli.ui import UserInterface, UserInterfaceFactory
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +33,20 @@ class DIContainerFactory:
             ValueError: If the provider type is not supported
         """
         if config.provider == ProviderType.GITLAB:
-            return DIContainerFactory._create_gitlab_container(config)
+            container = DIContainerFactory._create_gitlab_container(config)
         elif config.provider == ProviderType.GITHUB:
-            return DIContainerFactory._create_github_container(config)
+            container = DIContainerFactory._create_github_container(config)
         else:
             raise ValueError(f"Unsupported provider type: {config.provider}")
+
+        container.register_reference(
+            UserInterface,
+            UserInterfaceFactory.create(
+                output_backend=config.output_backend,
+                prompt_backend=config.prompt_backend,
+            ),
+        )
+        return container
     
     @staticmethod
     def _create_gitlab_container(config: LichosConfig) -> GitLabServiceContainer:

@@ -6,14 +6,12 @@ import os
 import subprocess
 from typing import Optional
 
-from prompt_toolkit.shortcuts import checkboxlist_dialog, radiolist_dialog
-from rich import box
-from rich.prompt import Confirm
-from rich.table import Table
-
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
+from lichoscli.core.models.dag import DAGNodeStatus
 from lichoscli.core.services import DependencyService, PackageService, WorkspaceService
+from lichoscli.ui import Cell, Choice, Table
+from lichoscli.ui.presenters.dag import dag_to_tree, version_check_summary
 from lichoscli.utils import BuildUtils
 
 logger = logging.getLogger(__name__)
@@ -59,7 +57,7 @@ class WorkspaceCommand(Command):
             help="Don't wait for pipeline completion; use latest available pipeline results",
         )
 
-        add_package_parser = subparsers.add_parser("add-package", help="add a package to a workspace")
+        add_package_parser = subparsers.add_parser("add", help="add a package to a workspace")
         add_package_parser.add_argument("package", help="package name to add")
         add_package_parser.add_argument(
             "--rev-deps",
@@ -67,8 +65,8 @@ class WorkspaceCommand(Command):
             help="include reverse dependencies (packages that depend on this package) - may take longer"
         )
 
-        remove_package_parser = subparsers.add_parser("remove-package", help="remove a package from a workspace")
-        remove_package_parser.add_argument("package", help="package name to remove")
+        remove_package_parser = subparsers.add_parser("remove", help="remove a package from a workspace")
+        remove_package_parser.add_argument("package", nargs="?", help="package name to remove (if not specified, you'll be prompted to choose)")
 
         graph_parser = subparsers.add_parser("graph", help="show dependency graph for workspace packages")
         graph_parser.add_argument(
@@ -80,6 +78,102 @@ class WorkspaceCommand(Command):
         subparsers.add_parser("merge", help="merge all opened merge requests in the workspace")
 
         subparsers.add_parser("changes", help="show links to changes for each package in the workspace")
+
+    @staticmethod
+    def _workspace_choice_label(workspace) -> str:
+        if getattr(workspace, "packages", None):
+            package_names = [pkg.name for pkg in workspace.packages]
+            return f"{workspace.name} [{', '.join(package_names)}]"
+        return workspace.name
+
+    def _select_workspace_to_enter(self, workspaces) -> str | None:
+        return self.prompts.select_one(
+            title="Choose workspace",
+            text="Select a workspace to enter:",
+            choices=[Choice(value=workspace.name, label=self._workspace_choice_label(workspace)) for workspace in workspaces],
+        )
+
+    def _confirm_workspace_delete(self, branch: str, packages) -> bool:
+        package_names = [pkg.name for pkg in packages] if packages else []
+        self.output.warning(
+            f"Deleting workspace '{branch}' will remove the branch on all packages in that workspace.",
+        )
+        if package_names:
+            self.output.print("\n".join(f"  - {package_name}" for package_name in package_names))
+        else:
+            self.output.muted("  (no packages found)")
+
+        return self.prompts.confirm(
+            f"Are you sure you want to delete workspace '{branch}' and all its branches?",
+            default=False,
+        )
+
+    def _select_workspaces_to_delete(self, workspaces) -> list[str] | None:
+        return self.prompts.select_many(
+            title="Choose workspaces to delete",
+            text="Select workspaces to delete:",
+            choices=[Choice(value=workspace.name, label=self._workspace_choice_label(workspace)) for workspace in workspaces],
+        )
+
+    def _confirm_multiple_workspace_delete(self, selected_branches: list[str], workspace_map) -> bool:
+        self.output.warning(
+            "Deleting a workspace will remove the branch on all packages in that workspace.",
+        )
+        for branch in selected_branches:
+            workspace = workspace_map.get(branch)
+            if workspace and workspace.packages:
+                package_names = ", ".join(pkg.name for pkg in workspace.packages)
+                self.output.print(f"  {branch}: {package_names}")
+            else:
+                self.output.muted(f"  {branch}: (no packages)")
+
+        return self.prompts.confirm(
+            f"Are you sure you want to delete workspace(s) '{', '.join(selected_branches)}' including all branches on all packages?",
+            default=False,
+        )
+
+    def _select_packages_to_remove(self, packages) -> list[str] | None:
+        return self.prompts.select_many(
+            title="Choose packages to remove",
+            text="Select packages to remove from the workspace:",
+            choices=[Choice(value=pkg.name, label=pkg.name) for pkg in packages],
+        )
+
+    def _select_reverse_dependencies_from_options(self, package_name: str, deps) -> list[str] | None:
+        rev_dep_table = Table(title="Reverse dependencies for {0}".format(package_name))
+        rev_dep_table.add_column("Package Name", style="accent")
+        rev_dep_table.add_column("Version", style="success")
+        rev_dep_table.add_column("Graph Depth", justify="center")
+        for node, depth in deps:
+            rev_dep_table.add_row(node.package, node.version or "N/A", str(depth))
+        self.output.table(rev_dep_table)
+
+        choices = []
+        for node, depth in deps:
+            label = node.package
+            if node.version:
+                label += f" (v{node.version})"
+            label += f" [depth: {depth}]"
+            choices.append(Choice(value=node.package, label=label))
+
+        while True:
+            selected_packages = self.prompts.select_many(
+                title="Select packages",
+                text="Select packages to include in the workspace:",
+                choices=choices,
+            )
+
+            if selected_packages is None:
+                self.output.warning("Selection cancelled.")
+                return None
+
+            if not selected_packages:
+                self.output.warning("No packages selected.")
+                return []
+
+            self.output.print(f"Selected packages: {', '.join(selected_packages)}")
+            if self.prompts.confirm("Proceed with this selection?", default=True):
+                return selected_packages
 
     def action_create(self):
         """Create a new workspace."""
@@ -109,26 +203,25 @@ class WorkspaceCommand(Command):
                 all_packages, self.args.branch, wait_for_completion=False
             )
 
-            reverse_deps = dag.get_reverse_deps(package.name)
+            reverse_deps = dag.get_transitive_dependents(package.name)
 
             if not reverse_deps:
-                self.console.print(
-                    f"[yellow]No reverse dependencies found for package '[cyan]{package_name}[/cyan]'[/yellow]"
+                self.output.warning(
+                    f"No reverse dependencies found for package '{package_name}'",
                 )
-
             else:
                 selected_deps = self._select_reverse_dependencies(package_name, reverse_deps, dag)
                 if selected_deps is None:
-                    self.console.print("[yellow]Workspace creation cancelled[/yellow]")
+                    self.output.warning("Workspace creation cancelled")
                     return 0
 
                 package_names_to_add.extend(selected_deps)
 
         try:
             workspace = self.workspace_service.create_workspace(self.args.branch, package_names_to_add)
-            self.console.print(f"[green]✓ Created workspace with branch '[cyan]{self.args.branch}[/cyan]'[/green]")
-            self.console.print(
-                f"[green]✓ Added packages:[/green] [cyan]{', '.join([pkg.name for pkg in workspace.packages])}[/cyan]"
+            self.output.success(
+                f"Created workspace for branch '{self.args.branch}'\n"
+                f"Added packages: {', '.join(pkg.name for pkg in workspace.packages)}",
             )
             return 0
         except ValueError as e:
@@ -141,10 +234,10 @@ class WorkspaceCommand(Command):
         if self.args.workspace_name:
             branch_name = self.args.workspace_name
             os.environ["LICHOS_BRANCH"] = branch_name
-            self.console.print(f"[green]Entering workspace '[cyan]{branch_name}[/cyan]'[/green]")
+            self.output.success(f"Entering workspace '{branch_name}'")
             r = subprocess.run([os.environ.get("SHELL", "/bin/sh")], check=False)
             return r.returncode
-        
+
         workspaces = []
         package_name = BuildUtils.get_package_name(self.args.package)
         if package_name:
@@ -156,31 +249,13 @@ class WorkspaceCommand(Command):
             logger.error("No workspaces available to enter")
             return 1
 
-        choices = []
-        for workspace in workspaces:
-            choice_text = workspace.name
-            if workspace.packages:
-                package_names = [pkg.name for pkg in workspace.packages]
-                choice_text += f" [{', '.join(package_names)}]"
-            choices.append((workspace.name, choice_text))
-
-        self.console.print("\n[bold]Select workspace to enter:[/bold]")
-        try:
-            branch_name = radiolist_dialog(
-                title="Choose workspace:",
-                text="Select a workspace to enter:",
-                values=choices,
-            ).run()
-
-            if branch_name is None:
-                self.console.print("[yellow]Workspace selection cancelled[/yellow]")
-                return 0
-        except KeyboardInterrupt:
-            self.console.print("\n[yellow]Workspace selection cancelled[/yellow]")
+        branch_name = self._select_workspace_to_enter(workspaces)
+        if branch_name is None:
+            self.output.warning("Workspace selection cancelled")
             return 0
 
         os.environ["LICHOS_BRANCH"] = branch_name
-        self.console.print(f"[green]Entering workspace '[cyan]{branch_name}[/cyan]'[/green]")
+        self.output.success(f"Entering workspace '{branch_name}'")
 
         r = subprocess.run([os.environ.get("SHELL", "/bin/sh")], check=False)
         return r.returncode
@@ -196,23 +271,21 @@ class WorkspaceCommand(Command):
             workspaces = self.workspace_service.list_workspaces()
 
         if not workspaces:
-            self.console.print("[yellow]No workspaces found[/yellow]")
+            self.output.warning("No workspaces found")
             return 0
 
         current_workspace = self.workspace_service.get_current_workspace()
         current_name = current_workspace.name if current_workspace else None
 
-        self.console.print("\n[bold]Available workspaces:[/bold]")
+        ws_table = Table(title="Available Workspaces")
+        ws_table.add_column("Workspace", no_wrap=True)
+        ws_table.add_column("Packages")
+        ws_table.add_column("Current", no_wrap=True)
         for workspace in workspaces:
-            indicator = " [green](current)[/green]" if workspace.name == current_name else ""
-
-            if workspace.packages:
-                package_names = [pkg.name for pkg in workspace.packages]
-                packages_info = f" [dim]\\[{', '.join(package_names)}][/dim]"
-            else:
-                packages_info = ""
-
-            self.console.print(f"  [cyan]{workspace.name}[/cyan]{packages_info}{indicator}")
+            package_names = ", ".join(pkg.name for pkg in workspace.packages) if workspace.packages else "-"
+            current_cell = Cell("current", style="success") if workspace.name == current_name else ""
+            ws_table.add_row(workspace.name, package_names, current_cell)
+        self.output.table(ws_table)
 
         return 0
 
@@ -225,20 +298,11 @@ class WorkspaceCommand(Command):
             if not workspace:
                 logger.error("Workspace with branch '%s' does not exist", branch)
                 return 1
-            self.console.print(f"\n[bold yellow]Warning:[/bold yellow] Deleting workspace '[cyan]{branch}[/cyan]' will delete the branch on ALL packages in this workspace:")
-            if workspace.packages:
-                for pkg in workspace.packages:
-                    self.console.print(f"  [yellow]•[/yellow] {pkg.name}")
-            else:
-                self.console.print("  [dim](no packages found)[/dim]")
-            if not Confirm.ask(
-                f"\nAre you sure you want to delete workspace '[cyan]{branch}[/cyan]' and all its branches?",
-                default=False,
-            ):
-                self.console.print("[yellow]Workspace deletion cancelled[/yellow]")
+            if not self._confirm_workspace_delete(branch, workspace.packages):
+                self.output.warning("Workspace deletion cancelled")
                 return 0
             if self.workspace_service.delete_workspace(branch):
-                self.console.print(f"[green]✓ Deleted workspace with branch '[cyan]{branch}[/cyan]'[/green]")
+                self.output.success(f"Deleted workspace '{branch}'")
                 return 0
         workspaces = []
         package_name = BuildUtils.get_package_name(self.args.package)
@@ -248,70 +312,40 @@ class WorkspaceCommand(Command):
             workspaces = self.workspace_service.list_workspaces()
 
         if not workspaces:
-            self.console.print("[yellow]No workspaces available to delete[/yellow]")
+            self.output.warning("No workspaces found")
             return 0
 
-        choices = []
-        for workspace in workspaces:
-            choice_text = workspace.name
-            if workspace.packages:
-                package_names = [pkg.name for pkg in workspace.packages]
-                choice_text += f" [{', '.join(package_names)}]"
-            choices.append((workspace.name, choice_text))
-
-        self.console.print("\n[bold]Select workspaces to delete:[/bold]")
-        self.console.print("[dim]Use arrow keys to navigate, space to select/deselect, enter to confirm[/dim]")
-        try:
-            selected_branches = checkboxlist_dialog(
-                title="Choose workspaces to delete:",
-                text="Select workspaces to delete:",
-                values=choices,
-            ).run()
-
-            if not selected_branches:
-                self.console.print("[yellow]No workspaces selected for deletion[/yellow]")
-                return 0
-        except KeyboardInterrupt:
-            self.console.print("\n[yellow]Workspace deletion cancelled[/yellow]")
+        selected_branches = self._select_workspaces_to_delete(workspaces)
+        if selected_branches is None:
+            self.output.warning("Workspace deletion cancelled")
+            return 0
+        if not selected_branches:
+            self.output.warning("No workspaces selected for deletion")
             return 0
 
-        # Show warning about all packages that will be affected
-        self.console.print("\n[bold yellow]Warning:[/bold yellow] Deleting a workspace will delete the branch on ALL packages in that workspace.\n")
         workspace_map = {ws.name: ws for ws in workspaces}
-        for selected_branch in selected_branches:
-            ws = workspace_map.get(selected_branch)
-            if ws and ws.packages:
-                pkg_names = ", ".join(pkg.name for pkg in ws.packages)
-                self.console.print(f"  [cyan]{selected_branch}[/cyan] → packages: [yellow]{pkg_names}[/yellow]")
-            else:
-                self.console.print(f"  [cyan]{selected_branch}[/cyan] [dim](no packages)[/dim]")
-
-        # Show confirmation for all selected workspaces
-        workspace_list = "', '".join(selected_branches)
-        if not Confirm.ask(
-            f"\nAre you sure you want to delete workspace(s) '[cyan]{workspace_list}[/cyan]' including all branches on all packages?",
-            default=False,
-        ):
-            self.console.print("[yellow]Workspace deletion cancelled[/yellow]")
+        if not self._confirm_multiple_workspace_delete(selected_branches, workspace_map):
+            self.output.warning("Workspace deletion cancelled")
             return 0
 
-        # Delete all selected workspaces
         deleted_count = 0
         failed_branches = []
 
         for branch in selected_branches:
             if self.workspace_service.delete_workspace(branch):
-                self.console.print(f"[green]✓ Deleted workspace '[cyan]{branch}[/cyan]'[/green]")
+                self.output.success(f"Deleted workspace '{branch}'")
                 deleted_count += 1
             else:
                 logger.error("Workspace with branch '%s' does not exist", branch)
                 failed_branches.append(branch)
 
         if deleted_count > 0:
-            self.console.print(f"[green]✓ Successfully deleted {deleted_count} workspace(s)[/green]")
-
+            self.output.success(f"Successfully deleted {deleted_count} workspace(s)")
         if failed_branches:
-            self.console.print(f"[red]✗ Failed to delete workspace(s): {', '.join(failed_branches)}[/red]")
+            self.output.error(
+                f"Failed to delete workspace(s): {', '.join(failed_branches)}",
+            )
+        if failed_branches:
             return 1
 
         return 0
@@ -332,24 +366,28 @@ class WorkspaceCommand(Command):
             logger.error("Workspace with branch '%s' does not exist", branch)
             return 1
 
-        self.console.print(f"\n[bold]Workspace:[/bold] [cyan]{workspace.name}[/cyan]")
-
-        package_count = len(workspace.packages) if workspace.packages else 0
-        self.console.print(f"[bold]Packages:[/bold] {package_count}\n")
-
+        package_rows = []
         if workspace.packages:
-            col_width = max(len(pkg.name) for pkg in workspace.packages) + 2
-            self.console.print(f"  [bold]{'Package'.ljust(col_width)}  Pipeline[/bold]")
-            self.console.print(f"  {'-' * col_width}  {'--------'}")
             for package in workspace.packages:
                 latest_pipeline = package.pipelines.get_latest(branch)
-                if latest_pipeline:
-                    self.console.print(f"  [cyan]{package.name.ljust(col_width)}[/cyan]", end="  ")
-                    print(latest_pipeline.web_url)
-                else:
-                    self.console.print(f"  [cyan]{package.name.ljust(col_width)}[/cyan]  [dim]No pipeline found[/dim]")
-        else:
-            self.console.print("[yellow]No packages in workspace[/yellow]")
+                package_rows.append((package.name, latest_pipeline.web_url if latest_pipeline else None))
+
+        self.output.accent(f"Workspace: {workspace.name}")
+        self.output.print(f"Packages: {len(package_rows)}")
+
+        if not package_rows:
+            self.output.warning("No packages in workspace")
+            return 0
+
+        show_table = Table()
+        show_table.add_column("Package", no_wrap=True)
+        show_table.add_column("Pipeline")
+        for package_name, pipeline_url in package_rows:
+            if pipeline_url:
+                show_table.add_row(package_name, pipeline_url)
+            else:
+                show_table.add_row(package_name, Cell("No pipeline found", style="muted"))
+        self.output.table(show_table)
 
         return 0
 
@@ -362,10 +400,10 @@ class WorkspaceCommand(Command):
             return 1
 
         if not workspace.packages:
-            self.console.print(f"[yellow]No packages in workspace '[cyan]{branch}[/cyan]'[/yellow]")
+            self.output.warning(f"No packages in workspace '{branch}'")
             return 0
 
-        self.console.print(f"[bold]Checking dependency versions for workspace '[cyan]{branch}[/cyan]'...[/bold]\n")
+        self.output.accent(f"Checking dependency versions for workspace '{branch}'")
 
         wait_for_completion = not self.args.no_wait
 
@@ -374,15 +412,15 @@ class WorkspaceCommand(Command):
         dag = self.dependency_service.build_dependency_dag(workspace.packages, branch, wait_for_completion)
 
         if not dag.nodes:
-            self.console.print("[yellow]No dependency relationships found.[/yellow]")
+            self.output.warning("No dependency relationships found.")
             return 0
 
         all_version_results = self.dependency_service.check_all_dependency_versions_from_dag(dag)
 
         if not all_version_results:
-            self.console.print("[yellow]No dependency version data found.[/yellow]")
+            self.output.warning("No dependency version data found.")
             return 0
-        
+
         workspace_package_names = {pkg.name for pkg in workspace.packages}
         relevant_results = [
             result for result in all_version_results
@@ -390,14 +428,15 @@ class WorkspaceCommand(Command):
         ]
 
         if relevant_results:
-            self.dependency_service.display_dependency_version_verification(relevant_results, self.console)
+            msg, style = version_check_summary(relevant_results)
+            getattr(self.output, style)(msg)
             return 0
-    
-        self.console.print("[yellow]No dependency version data found for workspace packages.[/yellow]")
+
+        self.output.warning("No dependency version data found for workspace packages.")
 
         return 0
 
-    def action_add_package(self):
+    def action_add(self):
         """Add a package to a workspace."""
         branch = self.args.branch
         package_name = self.args.package
@@ -430,19 +469,19 @@ class WorkspaceCommand(Command):
             logger.info("Building dependency DAG for reverse dependency analysis")
             dag = self.dependency_service.build_dependency_dag(all_packages, self.args.branch, wait_for_completion=False)
 
-            reverse_deps = dag.get_reverse_deps(package.name)
+            reverse_deps = dag.get_transitive_dependents(package.name)
 
             if reverse_deps:
                 selected_deps = self._select_reverse_dependencies(resolved_package, reverse_deps, dag)
 
                 if selected_deps is None:
-                    self.console.print("[yellow]Package addition cancelled[/yellow]")
+                    self.output.warning("Package addition cancelled")
                     return 0
 
                 packages_to_add.extend(selected_deps)
             else:
-                self.console.print(
-                    f"[yellow]No reverse dependencies found for package '[cyan]{resolved_package}[/cyan]'[/yellow]"
+                self.output.warning(
+                    f"No reverse dependencies found for package '{resolved_package}'",
                 )
 
         added_packages = []
@@ -451,17 +490,17 @@ class WorkspaceCommand(Command):
                 added_packages.append(pkg_name)
 
         if added_packages:
-            self.console.print(
-                f"[green]✓ Added packages to workspace with branch '[cyan]{branch}[/cyan]':[/green] [cyan]{', '.join(added_packages)}[/cyan]"
+            self.output.success(
+                f"Added packages to workspace '{branch}': {', '.join(added_packages)}",
             )
         else:
-            self.console.print(
-                f"[yellow]No new packages added to workspace '[cyan]{branch}[/cyan]' (may already exist)[/yellow]"
+            self.output.warning(
+                f"No new packages added to workspace '{branch}' (they may already exist)",
             )
 
         return 0
 
-    def action_remove_package(self):
+    def action_remove(self):
         """Remove a package from a workspace."""
         branch = self.args.branch
         package_name = self.args.package
@@ -470,24 +509,43 @@ class WorkspaceCommand(Command):
             logger.error("Branch name is required")
             return 1
 
-        if not package_name:
-            logger.error("Package name is required")
-            return 1
-
         workspace = self.workspace_service.get_workspace(branch)
         if not workspace:
             logger.error("Workspace with branch '%s' does not exist", branch)
             return 1
 
+        if not package_name:
+            if not workspace.packages:
+                self.output.warning(f"No packages in workspace '{branch}'")
+                return 1
+            selected_packages = self._select_packages_to_remove(workspace.packages)
+            if selected_packages is None:
+                self.output.warning("Package removal cancelled")
+                return 0
+            if not selected_packages:
+                self.output.warning("Package removal cancelled")
+                return 0
+            for pkg_name in selected_packages:
+                resolved = BuildUtils.get_package_name(pkg_name)
+                if self.workspace_service.remove_package_from_workspace(branch, resolved):
+                    self.output.success(
+                        f"Removed package '{resolved}' from workspace '{branch}'",
+                    )
+                else:
+                    self.output.warning(
+                        f"Package '{resolved}' was not in workspace '{branch}'",
+                    )
+            return 0
+
         resolved_package = BuildUtils.get_package_name(package_name)
 
         if self.workspace_service.remove_package_from_workspace(branch, resolved_package):
-            self.console.print(
-                f"[green]✓ Removed package '[cyan]{resolved_package}[/cyan]' from workspace with branch '[cyan]{branch}[/cyan]'[/green]"
+            self.output.success(
+                f"Removed package '{resolved_package}' from workspace '{branch}'",
             )
         else:
-            self.console.print(
-                f"[yellow]Package '[cyan]{resolved_package}[/cyan]' was not in workspace '[cyan]{branch}[/cyan]'[/yellow]"
+            self.output.warning(
+                f"Package '{resolved_package}' was not in workspace '{branch}'",
             )
         return 0
 
@@ -507,79 +565,16 @@ class WorkspaceCommand(Command):
             return []
 
         unique_deps = self._deduplicate_dependencies(reverse_deps, dag)
-        self._display_dependencies_table(package_name, unique_deps)
-        choices = self._create_choices(unique_deps)
-
-        return self._handle_user_selection(package_name, reverse_deps, choices, dag)
+        return self._select_reverse_dependencies_from_options(package_name, unique_deps)
 
     def _deduplicate_dependencies(self, reverse_deps, dag):
         """Remove duplicate dependencies and return sorted list with depths."""
         unique_packages = {}
         for node in reverse_deps:
             if node.package not in unique_packages:
-                depth = dag.calculate_node_depth(node)
+                depth = dag.get_depth(node.package)
                 unique_packages[node.package] = (node, depth)
         return sorted(unique_packages.values(), key=lambda x: x[0].package)
-
-    def _display_dependencies_table(self, package_name: str, deps):
-        """Display table of reverse dependencies."""
-        self.console.print(f"\n[bold]Reverse dependencies found for package '[cyan]{package_name}[/cyan]':[/bold]")
-
-        table = Table(
-            title=f"Packages that depend on {package_name}",
-            box=box.ROUNDED,
-            show_header=True,
-            header_style="bold magenta",
-        )
-        table.add_column("Package Name", style="cyan")
-        table.add_column("Version", style="green")
-        table.add_column("Graph Depth", justify="center")
-
-        for node, depth in deps:
-            table.add_row(node.package, node.version or "N/A", str(depth))
-
-        self.console.print(table)
-
-    def _create_choices(self, deps):
-        """Create choices list for prompt-toolkit."""
-        choices = []
-        for node, depth in deps:
-            choice_text = node.package
-            if node.version:
-                choice_text += f" (v{node.version})"
-            choice_text += f" [depth: {depth}]"
-            choices.append((node.package, choice_text))
-        return choices
-
-    def _handle_user_selection(self, package_name: str, reverse_deps, choices, dag):
-        """Handle user selection with prompt-toolkit."""
-        self.console.print("\n[bold]Select packages to include in the workspace:[/bold]")
-        self.console.print("[dim]Use arrow keys to navigate, space to select/deselect, enter to confirm[/dim]")
-
-        try:
-            selected_packages = checkboxlist_dialog(
-                title="Select packages:",
-                text="Select packages to include in the workspace:",
-                values=choices,
-            ).run()
-
-            if selected_packages is None:
-                self.console.print("[yellow]Selection cancelled.[/yellow]")
-                return None
-
-            if not selected_packages:
-                self.console.print("[yellow]No packages selected.[/yellow]")
-                return []
-
-            self.console.print(f"\n[bold]Selected packages:[/bold] {', '.join(selected_packages)}")
-
-            if Confirm.ask("Proceed with this selection?", default=True):
-                return selected_packages
-            return self._select_reverse_dependencies(package_name, reverse_deps, dag)
-
-        except KeyboardInterrupt:
-            self.console.print("\n[yellow]Selection cancelled.[/yellow]")
-            return None
 
     def action_merge(self):
         """Merge all opened merge requests for each project in the workspace."""
@@ -590,10 +585,12 @@ class WorkspaceCommand(Command):
             return 1
 
         if not workspace.packages:
-            self.console.print(f"[yellow]No packages in workspace '[cyan]{self.args.branch}[/cyan]'[/yellow]")
+            self.output.warning(f"No packages in workspace '{self.args.branch}'")
             return 0
 
-        self.console.print(f"[bold]Merging opened merge requests for workspace '[cyan]{self.args.branch}[/cyan]'[/bold]\n")
+        self.output.accent(
+            f"Merging opened merge requests for workspace '{self.args.branch}'",
+        )
 
         total_merged = 0
         total_found = 0
@@ -607,39 +604,29 @@ class WorkspaceCommand(Command):
             )
 
             if not merge_requests:
-                self.console.print(
-                    f"[dim]Package '[cyan]{package.name}[/cyan]': No open merge requests[/dim]"
-                )
+                self.output.muted(f"Package '{package.name}': no open merge requests")
                 continue
 
             total_found += len(merge_requests)
 
             for mr in merge_requests:
-                self.console.print(
-                    f"Package '[cyan]{package.name}[/cyan]': Merging MR !{mr.iid} - {mr.title}"
-                )
+                self.output.print(f"Package '{package.name}': merging MR !{mr.iid} - {mr.title}")
 
                 if mr.merge():
                     total_merged += 1
-                    self.console.print(
-                        f"[green]✓ Successfully merged MR !{mr.iid}[/green]"
-                    )
+                    self.output.success(f"Successfully merged MR !{mr.iid}")
                 else:
                     failed_merges.append((package.name, mr.iid, mr.title))
-                    self.console.print(
-                        f"[red]✗ Failed to merge MR !{mr.iid}[/red]"
-                    )
+                    self.output.error(f"Failed to merge MR !{mr.iid}")
 
-        self.console.print()
-        self.console.print(f"[bold]Summary:[/bold]")
-        self.console.print(f"  Total merge requests found: {total_found}")
-        self.console.print(f"  Successfully merged: [green]{total_merged}[/green]")
+        self.output.accent("Summary")
+        self.output.print(f"Total merge requests found: {total_found}")
+        self.output.success(f"Successfully merged: {total_merged}")
 
         if failed_merges:
-            self.console.print(f"  Failed to merge: [red]{len(failed_merges)}[/red]")
-            self.console.print("\n[bold]Failed merge requests:[/bold]")
-            for pkg_name, mr_iid, mr_title in failed_merges:
-                self.console.print(f"  - {pkg_name}: !{mr_iid} - {mr_title}")
+            self.output.error(f"Failed to merge: {len(failed_merges)}")
+            for package_name, mr_iid, title in failed_merges:
+                self.output.error(f"  - {package_name}: !{mr_iid} - {title}")
 
         return 0 if not failed_merges else 1
 
@@ -665,7 +652,7 @@ class WorkspaceCommand(Command):
             return 1
 
         if not workspace.packages:
-            self.console.print(f"[yellow]No packages in workspace '[cyan]{branch}[/cyan]'[/yellow]")
+            self.output.warning(f"No packages in workspace '{branch}'")
             return 0
 
         rows = []
@@ -681,15 +668,10 @@ class WorkspaceCommand(Command):
             else:
                 rows.append((package.name, package.compare_url(package.default_branch, branch)))
 
-
-        self.console.print(f"\n[bold]Changes for workspace '[cyan]{branch}[/cyan]':[/bold]")
-        if rows:
-            col_width = max(len(name) for name, _ in rows) + 2
-            self.console.print(f"  [bold]{'Package'.ljust(col_width)}  Link[/bold]")
-            self.console.print(f"  {'-' * col_width}  {'----'}")
-            for name, url in rows:
-                self.console.print(f"  [cyan]{name.ljust(col_width)}[/cyan]", end="  ")
-                print(url)
+        self.output.accent(f"Changes for workspace '{branch}'")
+        for package_name, url in rows:
+            self.output.print(f"  {package_name}")
+            self.output.print(f"    {url}")
         return 0
 
     def action_graph(self):
@@ -701,51 +683,38 @@ class WorkspaceCommand(Command):
             return 1
 
         if not workspace.packages:
-            self.console.print(f"[yellow]No packages in workspace '[cyan]{branch}[/cyan]'[/yellow]")
+            self.output.warning(f"No packages in workspace '{branch}'")
             return 0
 
         logger.info("Building dependency graph for %d packages", len(workspace.packages))
 
-        self.console.print(f"Building dependency graph for workspace '[cyan]{branch}[/cyan]':")
+        self.output.accent(
+            f"Analyzing package dependencies and versions for workspace '{branch}'",
+        )
 
         wait_for_completion = not self.args.no_wait
 
         dag = self.dependency_service.build_dependency_dag(workspace.packages, branch, wait_for_completion)
 
         if not dag.nodes:
-            self.console.print("[yellow]No dependency relationships found.[/yellow]")
+            self.output.warning("No dependency relationships found.")
             return 0
+
+        version_results = self.dependency_service.check_all_dependency_versions_from_dag(dag)
+        dag.apply_version_check_results(version_results)
 
         if self.args.dump:
-            from rich.json import JSON
-            dag_data = dag.to_dict()
-            self.console.print(JSON.from_data(dag_data))
+            self.output.json(dag.to_dict())
             return 0
-
-        self.console.print(
-            f"\n[bold cyan]Dependency Analysis - {len(dag.nodes)} packages (workspace: {branch}):[/bold cyan]"
-        )
-        self.console.print("=" * 70)
-        self.console.print(f"[cyan]Total packages:[/cyan] {len(dag.nodes)}")
 
         total_deps = sum(len(node.direct_dependencies) for node in dag.nodes.values())
 
-        self.console.print(f"[cyan]Total dependency relationships:[/cyan] {total_deps}")
-
-        self.console.print()
-        self.dependency_service.print_dag_tree(dag, self.console)
-
-        self.console.print("\n[bold green]Dependency Levels[/bold green]")
-        self.console.print("-" * 20)
-
-        levels = dag.calculate_build_levels()
-        for level in sorted(levels.keys()):
-            nodes = levels[level]
-            level_color = "green" if level == 0 else "yellow" if level == 1 else "orange1" if level == 2 else "red"
-            package_names = sorted([node.package for node in nodes])
-            self.console.print(
-                f"[bold {level_color}]Level {level}[/bold {level_color}] (depth {level}): {', '.join(package_names)}"
-            )
+        self.output.accent(
+            f"Dependency Analysis - {len(dag.nodes)} packages (workspace: {branch})",
+        )
+        self.output.print("Total packages: {0}\nTotal dependency relationships: {1}".format(len(dag.nodes), total_deps))
+        self.output.print()
+        self.output.tree(dag_to_tree(dag))
 
         return 0
 

@@ -4,14 +4,13 @@
 import logging
 from datetime import datetime
 
-from rich.json import JSON
-from rich.table import Table
-
 from lichoscli.commands.base import Command
 from lichoscli.core.services import PackageService
+from lichoscli.ui import Cell, Table
 from lichoscli.utils import BuildUtils, TimeUtils
 
 logger = logging.getLogger(__name__)
+
 
 class StatusCommand(Command):
     """Show build status of package"""
@@ -21,7 +20,26 @@ class StatusCommand(Command):
         self.package_service = di_container.obtain_ref(PackageService)
         self.package_name = BuildUtils.get_package_name(args.package) if args.package else None
         self.dump = args.dump
-        self.group_rpath = self.package_service.get_projects().path
+
+
+    def _status_style(cls, status: str) -> str | None:
+        if status in ["success", "passed"]:
+            return "success"
+        if status in ["failed", "failure", "error"]:
+            return "error"
+        if status in ["canceled", "canceling"]:
+            return "warning"
+        if status in [
+            "running",
+            "pending",
+            "created",
+            "waiting_for_resource",
+            "preparing",
+            "scheduled",
+            "manual",
+        ]:
+            return "warning"
+        return None
 
     @classmethod
     def add_arguments(cls, sp):
@@ -34,13 +52,6 @@ class StatusCommand(Command):
         return self.print_all_status()
 
     def print_all_status(self):
-        table = Table(title="Package Status")
-        table.add_column("Name", no_wrap=True)
-        table.add_column("Type")
-        table.add_column("Enabled")
-        table.add_column("Status")
-        table.add_column("Pipeline")
-
         packages = self.package_service.get_packages_by_branch(self.args.branch)
 
         packages_sorted = sorted(packages, key=lambda p: p.path_with_namespace)
@@ -48,36 +59,43 @@ class StatusCommand(Command):
         all_successful = True
         failed_packages = []
 
+        table = Table(title="Package Status")
+        table.add_column("Name", no_wrap=True)
+        table.add_column("Type")
+        table.add_column("Enabled")
+        table.add_column("Status")
+        table.add_column("Pipeline")
+
         for package in packages_sorted:
             date = "-"
 
             pipeline = package.pipelines.get_latest(self.args.branch)
             if pipeline:
-                status_display = pipeline.status.to_display_string()
+                status_display = pipeline.status.to_string()
                 if not pipeline.status.is_successful:
                     all_successful = False
                     if pipeline.status.is_failed:
                         failed_packages.append(self.package_service.get_display_name(package))
-                
+
                 if pipeline.updated_at:
                     try:
-                        date = f"{datetime.fromisoformat(pipeline.updated_at):%Y-%m-%d %H:%M:%S}"
+                        date = "{:%Y-%m-%d %H:%M:%S}".format(datetime.fromisoformat(pipeline.updated_at))
                     except ValueError:
-                        date = f"(Invalid date: {pipeline.updated_at})"
+                        date = "(Invalid date: {0})".format(pipeline.updated_at)
             else:
                 status_display = "-"
-                all_successful = False  
+                all_successful = False
 
             table.add_row(
                 self.package_service.get_display_name(package),
                 self.package_service.pretty_format_ci_path(package),
                 str(package.builds_access_level),
-                status_display,
+                Cell(status_display, style=self._status_style(status_display)),
                 date,
             )
 
-        self.console.print(table)
-        
+        self.output.table(table)
+
         if not all_successful:
             return 1
 
@@ -96,27 +114,20 @@ class StatusCommand(Command):
             return 1
 
         if self.dump:
-            # Use the model's built-in JSON serialization
-            pipeline_data = latest_pipeline.to_dict()
-            self.console.print(JSON.from_data(pipeline_data))
+            self.output.json(latest_pipeline.to_dict())
             return 0
 
-        details_table = Table(title=f"Pipeline Details - {self.package_name}")
+        details_table = Table(title="Pipeline Details - {0}".format(self.package_name))
         details_table.add_column("Setting", no_wrap=True)
         details_table.add_column("Value")
-
         details_table.add_row("sha", latest_pipeline.sha or "-")
         details_table.add_row("ref", latest_pipeline.ref or "-")
         details_table.add_row("status", latest_pipeline.status.to_string() if latest_pipeline else "-")
         details_table.add_row("source", latest_pipeline.source or "-")
         details_table.add_row("web_url", latest_pipeline.web_url or "-")
-
         if latest_pipeline.user:
             details_table.add_row("user", latest_pipeline.user.username)
-
-        self.console.print(details_table)
-
-        pipeline_jobs = latest_pipeline.jobs.list()
+        self.output.table(details_table)
 
         jobs_table = Table(title="Pipeline Jobs")
         jobs_table.add_column("Id", no_wrap=True)
@@ -124,25 +135,14 @@ class StatusCommand(Command):
         jobs_table.add_column("Stage")
         jobs_table.add_column("Status")
         jobs_table.add_column("Started")
-
-        for job in pipeline_jobs:
+        for job in latest_pipeline.jobs.list():
             job_status = job.status or "-"
-            if job_status == "failed":
-                status_display = f"[red]{job_status}[/red]"
-            elif job_status == "success":
-                status_display = f"[green]{job_status}[/green]"
-            elif job_status == "running":
-                status_display = f"[yellow]{job_status}[/yellow]"
-            else:
-                status_display = job_status
-
             jobs_table.add_row(
                 str(job.id),
                 job.name or "-",
                 job.stage or "-",
-                status_display,
+                Cell(job_status, style=self._status_style(job_status)),
                 TimeUtils.format_time_range(started=job.started_at, finished=job.finished_at) or "-",
             )
-
-        self.console.print(jobs_table)
+        self.output.table(jobs_table)
         return 0

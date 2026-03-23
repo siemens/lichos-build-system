@@ -5,8 +5,9 @@ import unittest
 from unittest.mock import Mock
 
 from lichoscli.commands.trigger import TriggerCommand
-from lichoscli.core.services import PackageService
+from lichoscli.core.services import PackageService, WorkspaceService
 from lichoscli.core.models import Pipeline
+from lichoscli.ui import UserInterface
 from tests.mocks import create_mock_args
 
 
@@ -14,7 +15,22 @@ class TestTriggerCommand(unittest.TestCase):
     def setUp(self):
         self.di_container = Mock()
         self.package_service = Mock(spec=PackageService)
-        self.di_container.obtain_ref.return_value = self.package_service
+        self.workspace_service = Mock(spec=WorkspaceService)
+
+        mock_ui = Mock(spec=UserInterface)
+        mock_ui.output = Mock()
+        mock_ui.output.console = Mock()
+        mock_ui.prompts = Mock()
+        self.mock_ui = mock_ui
+
+        def obtain_ref_side_effect(service_type):
+            if service_type is UserInterface:
+                return mock_ui
+            if service_type is WorkspaceService:
+                return self.workspace_service
+            return self.package_service
+
+        self.di_container.obtain_ref.side_effect = obtain_ref_side_effect
 
     def test_parse_variables_valid(self):
         args = create_mock_args()
@@ -145,6 +161,54 @@ class TestTriggerCommand(unittest.TestCase):
         expected_vars = {"BUILD_TYPE": "release"}
         mock_package1.pipelines.trigger_build.assert_called_once_with("main", expected_vars)
         mock_package2.pipelines.trigger_build.assert_called_once_with("main", expected_vars)
+
+
+    def test_no_package_no_workspace_returns_error(self):
+        self.workspace_service.get_current_workspace.return_value = None
+        args = create_mock_args()
+        args.package = None
+        args.job = None
+        args.all = False
+        args.variable = None
+        args.branch = "main"
+
+        cmd = TriggerCommand(self.di_container, args)
+        result = cmd.execute()
+
+        self.assertEqual(result, 1)
+        self.workspace_service.get_current_workspace.assert_called_once()
+
+    def test_no_package_workspace_select_trigger(self):
+        mock_pkg1 = Mock()
+        mock_pkg1.name = "pkg-a"
+        mock_pkg2 = Mock()
+        mock_pkg2.name = "pkg-b"
+        mock_workspace = Mock()
+        mock_workspace.packages = [mock_pkg1, mock_pkg2]
+        self.workspace_service.get_current_workspace.return_value = mock_workspace
+
+        self.mock_ui.prompts.select_many.return_value = ["pkg-a"]
+
+        mock_package = Mock()
+        mock_pipeline = Mock(spec=Pipeline)
+        mock_pipeline.web_url = "https://gitlab.com/test/pipeline/1"
+        mock_package.pipelines.trigger_build.return_value = mock_pipeline
+        self.package_service.get_package.return_value = mock_package
+
+        args = create_mock_args()
+        args.package = None
+        args.job = None
+        args.all = False
+        args.variable = None
+        args.branch = "main"
+
+        cmd = TriggerCommand(self.di_container, args)
+        result = cmd.execute()
+
+        self.assertEqual(result, 0)
+        self.mock_ui.prompts.select_many.assert_called_once()
+        self.package_service.get_package.assert_called_once_with("pkg-a")
+        mock_package.pipelines.trigger_build.assert_called_once_with("main", None)
 
 
 if __name__ == "__main__":

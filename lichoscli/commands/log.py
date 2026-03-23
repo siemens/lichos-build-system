@@ -4,12 +4,9 @@
 import logging
 import time
 
-from rich.panel import Panel
-from rich.rule import Rule
-from rich.text import Text
-
 from lichoscli.commands.base import Command
 from lichoscli.core.services import PackageService
+from lichoscli.ui import Choice
 from lichoscli.utils import BuildUtils
 
 logger = logging.getLogger(__name__)
@@ -43,16 +40,32 @@ class LogCommand(Command):
             help="follow log output in real-time (stream live log as it's generated)",
         )
 
+    def _status_style(status: str) -> str | None:
+        if status == "success":
+            return "success"
+        if status == "failed":
+            return "error"
+        if status in {"canceled", "skipped"}:
+            return "warning"
+        return "warning"
+
+    def _select_job(self, jobs) -> str | None:
+        return self.prompts.select_one(
+            title="Select job",
+            text="Select a job to view its log:",
+            choices=[Choice(value=job.name, label=f"{job.name} [{job.status}]") for job in jobs],
+        )
+
     def _wait_for_job_transition(self, pkg, job, target_states, message, update_message=True):
         """Wait for job to transition to one of the target states."""
         if job.status in target_states:
             return job
 
-        self.console.print(message.format(job_name=job.name, status=job.status))
+        self.output.print(message.format(job_name=job.name, status=job.status))
 
         last_status = job.status
 
-        with self.console.status("[bold blue]Waiting for job status change...") as status:
+        with self.console.status("Waiting for job status change...") as status:
             while job and job.status not in target_states:
                 time.sleep(1)
                 latest_pipeline = pkg.pipelines.get_latest(self.args.branch)
@@ -61,16 +74,16 @@ class LogCommand(Command):
                 else:
                     job = None
                 if job is None:
-                    self.console.print("[red]Job not found.[/red]")
+                    self.output.error("Job not found.")
                     return None
 
                 if update_message and job.status != last_status:
                     status.stop()
-                    self.console.print(f"[yellow]Job status changed to: {job.status}[/yellow]")
+                    self.output.warning(f"Job status changed to: {job.status}")
                     last_status = job.status
                     status.start()
 
-        self.console.print(f"[green]Job reached target state with status: {job.status}[/green]")
+        self.output.success(f"Job reached target state with status: {job.status}")
         return job
 
     def _wait_for_job_start(self, pkg, job):
@@ -95,10 +108,13 @@ class LogCommand(Command):
         """Stream job log in real-time."""
         seen_lines = 0
 
-        self._print_header(job)
+        self.output.accent("Log Stream")
+        self.output.print(
+            f"Job: {job.name}\nStatus: {job.status}\n{'-' * 40}",
+        )
 
         if self._is_job_complete(job.status):
-            self._show_static_log(pkg)
+            self._render_static_log(pkg)
             return
 
         try:
@@ -116,15 +132,26 @@ class LogCommand(Command):
                 new_lines = self._get_new_log_lines(job, seen_lines)
 
                 if new_lines:
-                    self._display_lines(new_lines)
+                    for line in new_lines:
+                        self.output.print(line)
                     seen_lines += len(new_lines)
 
                 time.sleep(2)
 
-            self._print_footer(job.status)
+            self.output.print("-" * 40)
+            status_style = self._status_style(job.status)
+            output_method = {
+                "accent": self.output.accent,
+                "error": self.output.error,
+                "muted": self.output.muted,
+                "success": self.output.success,
+                "warning": self.output.warning,
+            }.get(status_style, self.output.print)
+            output_method(f"Job completed with status: {job.status}")
 
         except KeyboardInterrupt:
-            self._print_interrupted()
+            self.output.print("-" * 40)
+            self.output.warning("Log streaming interrupted by user")
 
     def _is_job_complete(self, status):
         """Check if job has completed."""
@@ -147,93 +174,54 @@ class LogCommand(Command):
         """Decode trace to string."""
         return trace.decode("utf-8", errors="replace") if isinstance(trace, bytes) else trace
 
-    def _display_lines(self, lines):
-        """Display lines to console with ANSI support."""
-        for line in lines:
-            self.console.print(Text.from_ansi(line))
-
-    def _print_header(self, job):
-        """Print job streaming header."""
-        self.console.print(
-            Panel(
-                f"[bold cyan]Job:[/bold cyan] {job.name}\n[bold yellow]Status:[/bold yellow] {job.status}",
-                title="[bold blue]Log Stream[/bold blue]",
-                border_style="blue",
-            )
-        )
-
-    def _print_footer(self, status):
-        """Print job completion footer."""
-        status_color = {
-            "success": "green",
-            "failed": "red",
-            "canceled": "yellow",
-            "skipped": "dim",
-        }.get(status, "white")
-
-        self.console.print(Rule())
-        self.console.print(f"[bold {status_color}]Job completed with status: {status}[/bold {status_color}]")
-
-    def _print_interrupted(self):
-        """Print interruption message."""
-        self.console.print(Rule())
-        self.console.print("[bold yellow]Log streaming interrupted by user[/bold yellow]")
-
     def normalize_gitlab_log(self, raw_log: str) -> str:
         # line endings: replace \r (carriage return) with \n
         # This avoids "merged" log lines caused by terminal cursor tricks
         return raw_log.replace("\r\n", "\n").replace("\r", "\n")
 
-    def _list_available_jobs(self, pkg):
-        """List available jobs with log links for the package."""
-        latest_pipeline = pkg.pipelines.get_latest(self.branch)
-
-        if latest_pipeline is None:
-            logger.warning("No pipeline found for package %s", self.package_name)
-            return 1
-
-        jobs = latest_pipeline.jobs.list()
-        
-        if not jobs:
-            logger.warning("No jobs found in pipeline")
-            return 1
-
-        self.console.print("[bold]Job log links:[/bold]")
-        for job in jobs:
-            self.console.print(f"  {job.name}: {job.web_url}")
-
-        return 0
-
     def execute(self):
         pkg = self.package_service.get_package(self.package_name)
         if pkg is None:
-            self.console.print(f"[red]Error: Package {self.package_name} not found.[/red]")
+            self.output.error(f"Error: Package {self.package_name} not found.")
             return 1
 
         if not self.jobname:
-            return self._list_available_jobs(pkg)
+            latest_pipeline = pkg.pipelines.get_latest(self.branch)
+            if latest_pipeline is None:
+                logger.warning("No pipeline found for package %s", self.package_name)
+                return 1
+            jobs = latest_pipeline.jobs.list()
+            if not jobs:
+                logger.warning("No jobs found in pipeline")
+                return 1
+            selected = self._select_job(jobs)
+            if selected is None:
+                return 0
+            self.jobname = selected
 
         job = pkg.merge_requests.get_job_by_name_from_mr(self.jobname, self.args.branch)
         if job is not None:
-            self.console.print(
-                f"[green]Found job '{self.jobname}' in merge request pipeline for branch {self.branch or 'default'}[/green]"
+            self.output.success(
+                f"Found job '{self.jobname}' in merge request pipeline for branch {self.branch or 'default'}",
             )
         else:
-            self.console.print("[dim]No job found in merge request, checking branch pipeline...[/dim]")
+            self.output.muted("No job found in merge request. Checking branch pipeline...")
             latest_pipeline = pkg.pipelines.get_latest(self.args.branch)
             if latest_pipeline:
                 job = latest_pipeline.jobs.get_by_name(self.jobname)
                 if job is not None:
-                    self.console.print(f"[green]Found job '{self.jobname}' in branch pipeline[/green]")
+                    self.output.success(f"Found job '{self.jobname}' in branch pipeline")
 
         if job is None:
-            self.console.print(f"[red]Error: Job '{self.jobname}' not found in merge request or branch pipeline[/red]")
+            self.output.error(
+                f"Error: Job '{self.jobname}' not found in merge request or branch pipeline",
+            )
             return 1
 
         if self.wait:
             job = self._wait_for_job_start(pkg, job)
             if job is None:
-                self.console.print(f"[red]Error: Job {self.jobname} did not start.[/red]")
+                self.output.error(f"Error: Job {self.jobname} did not start.")
                 return 1
 
         # Handle different modes
@@ -242,16 +230,16 @@ class LogCommand(Command):
         elif self.wait:
             job = self._wait_for_job_completion(pkg, job)
             if job is None:
-                self.console.print("[red]Error: Failed to wait for job completion.[/red]")
+                self.output.error("Error: Failed to wait for job completion.")
                 return 1
 
-            self._show_static_log(pkg)
+            self._render_static_log(pkg)
         else:
-            self._show_static_log(pkg)
+            self._render_static_log(pkg)
 
         return 0
 
-    def _show_static_log(self, pkg):
+    def _render_static_log(self, pkg):
         """Show the current static log content."""
         log = pkg.merge_requests.extract_log_from_job_mr(self.jobname, self.branch)
 
@@ -265,13 +253,7 @@ class LogCommand(Command):
             return
         log = self.normalize_gitlab_log(log)
         if not log.strip():
-            self.console.print(
-                Panel(
-                    "[italic dim]No log output available.[/italic dim]",
-                    title="[bold blue]Job Log[/bold blue]",
-                    border_style="dim",
-                )
-            )
+            self.output.muted("No log output available.")
         else:
-            text = Text.from_ansi(log)
-            self.console.print(text)
+            end = "" if log.endswith("\n") else "\n"
+            self.output.print(log, end=end)

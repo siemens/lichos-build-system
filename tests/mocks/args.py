@@ -26,6 +26,7 @@ def create_mock_args(group_rpath="test-group/pkg", **kwargs) -> Mock:
     args.project = kwargs.get("project", group_rpath)
     args.package = kwargs.get("package", "test-package")
     args.branch = kwargs.get("branch", "main")
+    args.architecture = kwargs.get("architecture", "amd64")
     args.dry = kwargs.get("dry", False)
     args.debug = kwargs.get("debug", False)
     args.verbose = kwargs.get("verbose", False)

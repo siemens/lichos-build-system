@@ -402,17 +402,14 @@ class GitLabBuildInfoService(BuildInfoService):
         max_wait_seconds: int,
     ) -> Optional["Pipeline"]:
         """Wait for a pipeline to complete and return the final result."""
-        from rich.console import Console
-
-        console = Console()
         start_time = time.time()
         poll_interval = 30
 
-        console.print(
-            f"[bold blue]Waiting for pipeline of project {project.name} to complete[/bold blue] "
-            f"(status: {pipeline.status.to_string()})"
+        logger.info(
+            "Waiting for pipeline of project %s to complete (status: %s)",
+            project.name,
+            pipeline.status.to_string(),
         )
-
         while time.time() - start_time < max_wait_seconds:
             time.sleep(poll_interval)
 
@@ -440,11 +437,17 @@ class GitLabBuildInfoService(BuildInfoService):
                 )
 
                 if pipeline.status.is_successful:
-                    console.print(
-                        f"[green]✓[/green] Pipeline for {project.name} completed successfully: {pipeline.status.to_string()}"
+                    logger.info(
+                        "Pipeline for %s completed successfully: %s",
+                        project.name,
+                        pipeline.status.to_string(),
                     )
                     return pipeline
-                console.print(f"[red]✗[/red] Pipeline for {project.name} failed: {pipeline.status.to_string()}")
+                logger.warning(
+                    "Pipeline for %s failed: %s",
+                    project.name,
+                    pipeline.status.to_string(),
+                )
                 logger.warning(
                     "Pipeline %s for %s failed. Looking for previous successful pipeline.",
                     pipeline.id,
@@ -469,7 +472,7 @@ class GitLabBuildInfoService(BuildInfoService):
             pipeline.status.to_string(),
         )
         console.print(
-            f"[yellow]Timeout waiting for pipeline of {project.name}[/yellow] "
+            f"Timeout waiting for pipeline of {project.name} "
             f"(waited {elapsed_minutes:.1f} minutes). Using previous successful pipeline."
         )
         return project.pipelines.get_some_latest_pipeline(target_branch)

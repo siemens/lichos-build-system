@@ -10,6 +10,7 @@ from argparse import Namespace
 from lichoscli.core.config import ConfigBuilder, LichosConfig, ProviderType
 from lichoscli.core.container_factory import DIContainerFactory
 from lichoscli.providers.gitlab.container import GitLabServiceContainer
+from lichoscli.ui import OutputBackend, PromptBackend, UserInterface
 
 
 class TestConfigBuilder:
@@ -25,6 +26,8 @@ class TestConfigBuilder:
             debug=True,
             verbose=False,
             dump=False,
+            output_backend="terminal",
+            prompt_backend="terminal",
         )
         
         builder = ConfigBuilder(args)
@@ -36,6 +39,8 @@ class TestConfigBuilder:
         assert config.provider == ProviderType.GITLAB
         assert config.debug is True
         assert config.dry_run is False
+        assert config.output_backend == OutputBackend.TERMINAL
+        assert config.prompt_backend == PromptBackend.TERMINAL
     
     @patch('lichoscli.core.config.GitRepo')
     def test_build_with_git_auto_detect(self, mock_git_repo):
@@ -58,6 +63,7 @@ class TestConfigBuilder:
         args = Namespace(
             host=None, pkg_group=None, branch=None,
             dry=False, debug=False, verbose=False, dump=False,
+            output_backend=None, prompt_backend=None,
         )
 
         config = ConfigBuilder(args).build()
@@ -96,6 +102,7 @@ class TestConfigBuilder:
         args = Namespace(
             host=None, pkg_group=None, branch=None,
             dry=False, debug=False, verbose=False, dump=False,
+            output_backend=None, prompt_backend=None,
         )
 
         config = ConfigBuilder(args).build()
@@ -138,6 +145,7 @@ class TestConfigBuilder:
         args = Namespace(
             host=None, pkg_group=None, branch=None,
             dry=False, debug=False, verbose=False, dump=False,
+            output_backend=None, prompt_backend=None,
         )
 
         config = ConfigBuilder(args).build()
@@ -163,6 +171,7 @@ class TestConfigBuilder:
         args = Namespace(
             host=None, pkg_group=None, branch=None,
             dry=False, debug=False, verbose=False, dump=False,
+            output_backend=None, prompt_backend=None,
         )
 
         config = ConfigBuilder(args).build()
@@ -187,6 +196,8 @@ class TestConfigBuilder:
             debug=False,
             verbose=False,
             dump=False,
+            output_backend=None,
+            prompt_backend=None,
         )
         
         builder = ConfigBuilder(args)
@@ -207,6 +218,7 @@ class TestConfigBuilder:
         args = Namespace(
             host="h", pkg_group="g", branch="from-cli",
             dry=False, debug=False, verbose=False, dump=False,
+            output_backend=None, prompt_backend=None,
         )
 
         with patch.dict("os.environ", {"LICHOS_BRANCH": "from-env"}):
@@ -224,6 +236,7 @@ class TestConfigBuilder:
         args = Namespace(
             host="h", pkg_group="g", branch=None,
             dry=False, debug=False, verbose=False, dump=False,
+            output_backend=None, prompt_backend=None,
         )
 
         with patch.dict("os.environ", {"LICHOS_BRANCH": "from-env"}):
@@ -241,6 +254,7 @@ class TestConfigBuilder:
         args = Namespace(
             host="h", pkg_group="g", branch=None,
             dry=False, debug=False, verbose=False, dump=False,
+            output_backend=None, prompt_backend=None,
         )
 
         with patch.dict("os.environ", {}, clear=False):
@@ -249,6 +263,30 @@ class TestConfigBuilder:
             config = ConfigBuilder(args).build()
 
         assert config.branch == "from-git"
+
+    @patch('lichoscli.core.config.GitRepo')
+    def test_backend_precedence_env_wins(self, mock_git_repo):
+        """UI backend selection can be controlled via environment when CLI is unset."""
+        mock_git_repo.auto_detect.return_value = None
+        mock_git_repo.return_value.active_branch = "from-git"
+
+        args = Namespace(
+            host="h", pkg_group="g", branch=None,
+            dry=False, debug=False, verbose=False, dump=False,
+            output_backend=None, prompt_backend=None,
+        )
+
+        with patch.dict(
+            "os.environ",
+            {
+                "LICHOS_OUTPUT_BACKEND": "terminal",
+                "LICHOS_PROMPT_BACKEND": "terminal",
+            },
+        ):
+            config = ConfigBuilder(args).build()
+
+        assert config.output_backend == OutputBackend.TERMINAL
+        assert config.prompt_backend == PromptBackend.TERMINAL
     
     def test_detect_provider_gitlab(self):
         """Test provider detection for GitLab."""
@@ -278,6 +316,7 @@ class TestDIContainerFactory:
         
         assert isinstance(container, GitLabServiceContainer)
         assert container.group_rpath == "platform/packages"
+        assert isinstance(container.obtain_ref(UserInterface), UserInterface)
     
     def test_create_github_container_not_implemented(self):
         """Test that GitHub container raises NotImplementedError."""

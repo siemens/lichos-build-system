@@ -7,8 +7,8 @@ import logging
 import os
 
 from lichoscli.commands.base import Command
-from lichoscli.core.models import BuildDependency, Project
-from lichoscli.core.services import DependencyService, PackageService
+from lichoscli.core.models import BuildDependency, BuildInfo, Project
+from lichoscli.core.services import BuildInfoService, DependencyService, PackageService
 from lichoscli.utils.build import BuildUtils
 
 logger = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ class BuildInfoCommand(Command):
         super().__init__(di_container, args)
         self.package_service = di_container.obtain_ref(PackageService)
         self.dependency_service = di_container.obtain_ref(DependencyService)
+        self.buildinfo_service = di_container.obtain_ref(BuildInfoService)
 
     @classmethod
     def add_arguments(cls, sp):
@@ -55,7 +56,7 @@ class BuildInfoCommand(Command):
 
         package: Project = self.package_service.get_package(self.args.package)
         if not package:
-            print(f"Package '{self.args.package}' not found.")
+            self.output.error(f"Package '{self.args.package}' not found.")
             return 1
 
         architecture = BuildUtils.normalize_architecture(self.args.architecture)
@@ -70,16 +71,27 @@ class BuildInfoCommand(Command):
 
         wait_for_completion = not self.args.no_wait
 
-        dependencies = self.dependency_service.fetch_build_dependencies(
+        buildinfo = self.buildinfo_service.get_buildinfo(
             package, self.args.branch, wait_for_completion, architecture
         )
 
-        if not dependencies:
-            print(f"No build dependencies found for package '{package.name}'")
+        if not buildinfo:
+            self.output.warning(f"No buildinfo found for package '{package.name}'")
             return 0
 
-        output = self._format_forward_dependencies(package.name, dependencies)
-        print(output)
+        metadata_output = self._format_buildinfo_metadata(buildinfo)
+        self.output.print(metadata_output)
+
+        dependencies = (
+            list(buildinfo.installed_build_depends.values())
+            if buildinfo.installed_build_depends
+            else []
+        )
+
+        if dependencies:
+            output = self._format_forward_dependencies(package.name, dependencies)
+            self.output.print(output)
+
         return 0
 
     def _format_forward_dependencies(
@@ -105,7 +117,9 @@ class BuildInfoCommand(Command):
 
         for arch in sorted(deps_by_arch.keys()):
             arch_deps = deps_by_arch[arch]
-            lines.extend([f"\nArchitecture: {arch} ({len(arch_deps)} packages)", "-" * 40])
+            lines.extend(
+                [f"\nArchitecture: {arch} ({len(arch_deps)} packages)", "-" * 40]
+            )
 
             for dep in sorted(arch_deps, key=lambda x: x.package_name):
                 dep_info = f"  • {dep.package_name}"
@@ -126,6 +140,28 @@ class BuildInfoCommand(Command):
 
         return "\n".join(lines)
 
+    def _format_buildinfo_metadata(self, buildinfo: BuildInfo) -> str:
+        """Format buildinfo metadata for display."""
+        lines = ["\nBuild Information:", "=" * 19]
+
+        if buildinfo.format:
+            lines.append(f"Format: {buildinfo.format}")
+
+        if buildinfo.source:
+            lines.append(f"Source: {buildinfo.source}")
+
+        if buildinfo.binary:
+            lines.append(f"Binary: {' '.join(buildinfo.binary)}")
+
+        if buildinfo.architecture:
+            lines.append(f"Architecture: {buildinfo.architecture}")
+
+        if buildinfo.version:
+            lines.append(f"Version: {buildinfo.version}")
+
+        lines.append("=" * 50)
+        return "\n".join(lines)
+
     def _handle_package_rev_deps(self, package: Project, architecture: str) -> int:
         """Handle reverse dependency operations for a specific package."""
         wait_for_completion = not self.args.no_wait
@@ -135,57 +171,64 @@ class BuildInfoCommand(Command):
             package.name,
         )
 
-        all_projects: list[Project] = self.package_service.get_packages_by_branch(self.args.branch)
+        all_projects: list[Project] = self.package_service.get_packages_by_branch(
+            self.args.branch
+        )
         if not all_projects:
-            self.console.print("[red]No projects found in the group.[/red]")
+            self.output.error("No projects found in the group.")
             return 1
 
         logger.info("Building DAG for %d packages", len(all_projects))
 
-        self.console.print(f"Building dependency Graph for branch '[cyan]{self.args.branch}[/cyan]':")
+        self.output.print(
+            f"Building dependency Graph for branch '{self.args.branch}':"
+        )
 
         dag = self.dependency_service.build_dependency_dag(
             all_projects, self.args.branch, wait_for_completion, architecture
         )
 
         if not dag.nodes:
-            self.console.print("[yellow]No dependency relationships found.[/yellow]")
+            self.output.warning("No dependency relationships found.")
             return 0
 
         if package.name not in dag.nodes:
-            self.console.print(f"[yellow]Package '{package.name}' not found in dependency graph.[/yellow]")
+            self.output.warning(
+                f"Package '{package.name}' not found in dependency graph.",
+            )
             return 0
 
         direct_dependents = dag.nodes[package.name].reverse_dependencies
         transitive_dependents = dag.get_transitive_dependents(package.name)
 
-        self.console.print(
-            f"\n[bold cyan]Reverse Dependencies for '{package.name}' (branch: {self.args.branch}):[/bold cyan]"
+        self.output.accent(
+            f"\nReverse Dependencies for '{package.name}' (branch: {self.args.branch}):",
         )
-        self.console.print("=" * 70)
+        self.output.print("=" * 70)
 
         if not direct_dependents:
-            self.console.print(f"[yellow]No packages depend on '{package.name}'.[/yellow]")
+            self.output.warning(
+                f"No packages depend on '{package.name}'.",
+            )
             return 0
 
-        self.console.print(f"\n[bold green]Direct Reverse Dependencies ({len(direct_dependents)} packages):[/bold green]")
+        self.output.success(
+            f"\nDirect Reverse Dependencies ({len(direct_dependents)} packages):",
+        )
         for dep_name in sorted(direct_dependents):
-            self.console.print(f"  • [cyan]{dep_name}[/cyan]")
+            self.output.print(f"  • {dep_name}")
 
         if len(transitive_dependents) > len(direct_dependents):
-            self.console.print(
-                f"\n[bold yellow]All Dependencies (transitive, {len(transitive_dependents)} packages):[/bold yellow]"
+            self.output.warning(
+                f"\nAll Dependencies (transitive, {len(transitive_dependents)} packages):",
             )
 
-            levels = dag.calculate_build_levels(transitive_dependents)
+            levels = dag.group_by_depth(transitive_dependents)
 
             for level_index, level in enumerate(sorted(levels.keys())):
                 level_nodes = levels[level]
-                level_color = (
-                    "green" if level == 0 else ("yellow" if level == 1 else "orange1" if level == 2 else "red")
-                )
-                self.console.print(f"  [bold {level_color}]Level {level_index}:[/bold {level_color}]")
+                self.output.print(f"  Level {level_index}:")
                 for node in sorted(level_nodes, key=lambda n: n.package):
-                    self.console.print(f"    • [cyan]{node.package}[/cyan]")
+                    self.output.print(f"    • {node.package}")
 
         return 0

@@ -8,9 +8,9 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
-from gitlab.exceptions import GitlabError
 
 from lichoscli.commands.base import Command
+from lichoscli.core.exceptions import ProviderAPIError
 from lichoscli.core.di import DIContainer
 from lichoscli.core.models.git import GitRepo
 from lichoscli.core.services import PackageService
@@ -67,6 +67,10 @@ class ReleaseCommand(Command):
             if not self._tag_package(package_name, git_tag, branch, self.args.dry):
                 logger.error("Failed to tag packages %s", package_name)
                 return 1
+
+        if not self._tag_image_projects(git_tag, self.args.branch, self.args.dry):
+            logger.error("Failed to tag image projects")
+            return 1
             
         if self.args.submodule_project:
             if not self._update_and_tag_submodule_project(self.args.submodule_project, git_tag, self.args.branch):
@@ -163,26 +167,50 @@ class ReleaseCommand(Command):
         Returns:
             bool: True if tagging was successful, False otherwise
         """
-        logger.info("Tagging package '%s' with tag '%s'", package_name, tag)
-
         package = self.package_service.get_package(package_name)
         if not package:
             logger.error("Package '%s' not found", package_name)
             return False
 
+        return self._tag_project(package, tag, branch, dry_run)
+
+    def _tag_image_projects(self, tag: str, branch: str, dry_run: bool) -> bool:
+        """Tag all image projects available on the release branch."""
+        image_projects = [
+            project for project in self.package_service.get_packages_by_branch(branch)
+            if project.is_image
+        ]
+
+        if not image_projects:
+            logger.info("No image projects found on branch '%s'", branch)
+            return True
+
+        logger.info("Tagging %d image projects with tag '%s'", len(image_projects), tag)
+
+        for project in sorted(image_projects, key=lambda item: item.name):
+            if not self._tag_project(project, tag, branch, dry_run):
+                logger.error("Failed to tag image project '%s'", project.name)
+                return False
+
+        return True
+
+    def _tag_project(self, project, tag: str, branch: str, dry_run: bool) -> bool:
+        """Tag an already resolved project with the snapshot tag."""
+        logger.info("Tagging project '%s' with tag '%s'", project.name, tag)
+
         if dry_run:
             logger.info(
-                "DRY RUN: Would create tag '%s' on package '%s' from branch '%s'",
+                "DRY RUN: Would create tag '%s' on project '%s' from branch '%s'",
                 tag,
-                package_name,
+                project.name,
                 branch,
             )
             return True
 
-        if self._tag_already_exists(package, tag, package_name):
+        if self._tag_already_exists(project, tag, project.name):
             return True
 
-        return self._create_new_tag(package, tag, branch, package_name)
+        return self._create_new_tag(project, tag, branch, project.name)
 
     def _tag_already_exists(self, package, tag: str, package_name: str) -> bool:
         """Check if tag already exists for the package"""
@@ -191,7 +219,7 @@ class ReleaseCommand(Command):
             if existing_tag:
                 logger.warning("Tag '%s' already exists for package '%s'", tag, package_name)
                 return True
-        except GitlabError:
+        except ProviderAPIError:
             # Tag doesn't exist, which is expected for new tags
             pass
         return False
@@ -203,7 +231,7 @@ class ReleaseCommand(Command):
             package.tags.create(name=tag, target=branch, message=f"Release snapshot {tag}")
             logger.info("Successfully created tag '%s' for package '%s'", tag, package_name)
             return True
-        except GitlabError as e:
+        except ProviderAPIError as e:
             logger.error(
                 "Failed to create tag '%s' for package '%s': %s",
                 tag,

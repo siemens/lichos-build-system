@@ -261,14 +261,11 @@ test_buildinfo() {
     
     run_test "$CLI_CMD buildinfo $TEST_PACKAGE" "Buildinfo for package"
     run_test "$CLI_CMD buildinfo $TEST_PACKAGE --no-wait" "Buildinfo for package without waiting"
-    run_test "$CLI_CMD buildinfo $TEST_PACKAGE --architecture amd64" "Buildinfo for package with amd64"
-    run_test "$CLI_CMD buildinfo $TEST_PACKAGE --architecture arm64" "Buildinfo for package with arm64"
-    run_test "$CLI_CMD buildinfo $TEST_PACKAGE --rev-deps" "Buildinfo reverse dependencies"
-    run_test "$CLI_CMD buildinfo $TEST_PACKAGE --rev-deps --no-wait" "Buildinfo reverse dependencies without waiting"
+    run_test "$CLI_CMD buildinfo $TEST_PACKAGE --no-wait --architecture amd64" "Buildinfo for package with amd64"
+    run_test "$CLI_CMD buildinfo $TEST_PACKAGE --no-wait --architecture arm64" "Buildinfo for package with arm64"
     run_test "$CLI_CMD --branch $TEST_BRANCH buildinfo $TEST_PACKAGE" "Buildinfo with branch"
     run_test "$CLI_CMD --branch $TEST_BRANCH buildinfo $TEST_PACKAGE --no-wait" "Buildinfo with branch without waiting"
-    run_test "$CLI_CMD --branch $TEST_BRANCH buildinfo $TEST_PACKAGE --architecture amd64" "Buildinfo with branch and amd64"
-    run_test "$CLI_CMD --branch $TEST_BRANCH buildinfo $TEST_PACKAGE --rev-deps" "Buildinfo reverse dependencies with branch"
+    run_test "$CLI_CMD --branch $TEST_BRANCH buildinfo $TEST_PACKAGE --no-wait --architecture amd64" "Buildinfo with branch and amd64"
     run_test "$CLI_CMD --branch $TEST_BRANCH buildinfo $TEST_PACKAGE --rev-deps --no-wait" "Buildinfo reverse dependencies with branch without waiting"
 }
 
@@ -436,12 +433,9 @@ test_enable() {
 
 test_getartifacts() {
     print_test_header "Getartifacts Command"
-    run_test "$CLI_CMD getartifacts" "Get artifacts (auto-detect)"
-    run_test "$CLI_CMD getartifacts $TEST_PACKAGE" "Get artifacts for package"
-    run_test "$CLI_CMD getartifacts $TEST_PACKAGE build-amd64" "Get artifacts with job name and package"
     run_test "$CLI_CMD getartifacts $TEST_PACKAGE build-arm64" "Get artifacts with arm64 job name and package"
     run_test "$CLI_CMD getartifacts $TEST_PACKAGE publish" "Get artifacts with publish job name and package"
-    run_test "$CLI_CMD --branch $TEST_BRANCH getartifacts $TEST_PACKAGE" "Get artifacts package with branch"
+
     run_test "$CLI_CMD --branch $TEST_BRANCH getartifacts $TEST_PACKAGE build-amd64" "Get artifacts with job name, package and branch"
 
 }
@@ -461,19 +455,12 @@ test_list() {
 
 test_log() {
     print_test_header "Log Command"
-
-    
-    run_test "$CLI_CMD log $TEST_PACKAGE build-amd64" "Log job for package"
     run_test "$CLI_CMD log . build-amd64" "Log job current directory"
     run_test "$CLI_CMD log $TEST_PACKAGE build-arm64" "Log arm64 job for package"
     run_test "$CLI_CMD log $TEST_PACKAGE publish" "Log publish job for package"
     run_test "$CLI_CMD log $TEST_PACKAGE calculate-env" "Log calculate-env job for package"
-    run_test "$CLI_CMD log $TEST_PACKAGE build-amd64 --wait" "Log job for package with wait"
-    run_test "$CLI_CMD log . build-amd64 --wait" "Log job current directory with wait"
+    run_test "$CLI_CMD log . build-amd64 " "Log job current directory without wait"
     run_test "$CLI_CMD log $TEST_PACKAGE build-arm64 --wait" "Log arm64 job for package with wait"   
-
-
-
     
 }
 

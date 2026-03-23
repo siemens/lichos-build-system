@@ -4,11 +4,10 @@
 import logging
 from typing import Any, Callable
 
-from rich.table import Table
-
 from lichoscli.commands.base import Command
 from lichoscli.core.exceptions import ProjectFetchingError
 from lichoscli.core.services import PackageService
+from lichoscli.ui import Cell, Table
 from lichoscli.utils import BuildUtils
 
 logger = logging.getLogger(__name__)
@@ -47,12 +46,13 @@ class VerifyCommand(Command):
         violations = self.validate_package_settings(package)
 
         if violations:
-            self.console.print(f"[red]Package '{package_name}' has validation errors:[/red]")
-            for violation in violations:
-                self.console.print(f"  - {violation}")
+            self.output.error(
+                f"Package '{package_name}' has validation errors:\n"
+                + "\n".join(f"  - {violation}" for violation in violations),
+            )
             return 1
 
-        self.console.print(f"[green]Package '{package_name}' passed all validations[/green]")
+        self.output.success(f"Package '{package_name}' passed all validations")
         return 0
 
     def verify_all_packages(self) -> int:
@@ -71,7 +71,7 @@ class VerifyCommand(Command):
             violation_count = len(violations)
             total_violations += violation_count
 
-            details = "\n".join(violations) if self.detailed and violations else ""
+            details = " | ".join(violations) if self.detailed and violations else ""
 
             results.append(
                 [
@@ -82,51 +82,35 @@ class VerifyCommand(Command):
                 ]
             )
 
+        table = Table(title="Package Verification Results")
+        table.add_column("Package", no_wrap=True)
+        table.add_column("Status", no_wrap=True)
+        table.add_column("Issues", justify="center", no_wrap=True)
         if self.detailed:
-            table = Table(title="Package Verification Results")
-            table.add_column("Package", no_wrap=True)
-            table.add_column("Status")
-            table.add_column("Issues", justify="center")
-            table.add_column("Details", max_width=80)
+            table.add_column("Details")
+        for result in results:
+            row = [
+                result[0],
+                Cell(result[1], style="success" if result[1] == "PASS" else "error"),
+                str(result[2]),
+            ]
+            if self.detailed:
+                row.append(result[3] if len(result) > 3 else "")
+            table.add_row(*row)
+        self.output.table(table)
 
-            for package_name, status, violation_count, details in results:
-                status_color = "[green]" if status == "PASS" else "[red]"
-                table.add_row(
-                    package_name,
-                    f"{status_color}{status}[/{status_color}]",
-                    str(violation_count),
-                    details or "",
-                )
-
-            self.console.print(table)
-        else:
-            table = Table(title="Package Verification Results")
-            table.add_column("Package", no_wrap=True)
-            table.add_column("Status")
-            table.add_column("Issues", justify="center")
-
-            for package_name, status, violation_count in [row[:3] for row in results]:
-                status_color = "[green]" if status == "PASS" else "[red]"
-                table.add_row(
-                    package_name,
-                    f"{status_color}{status}[/{status_color}]",
-                    str(violation_count),
-                )
-
-            self.console.print(table)
-
-        total_packages = len(packages)
-        failed_packages = sum(1 for result in results if "FAIL" in result[1])
-
-        self.console.print(
-            f"\n[blue]Summary: {total_packages - failed_packages}/{total_packages} packages passed validation[/blue]"
-        )
+        total_packages = len(results)
+        failed_packages = sum(1 for result in results if result[1] == "FAIL")
+        self.output.print(f"\nSummary: {total_packages - failed_packages}/{total_packages} packages passed validation")
 
         if total_violations > 0:
-            self.console.print(f"[yellow]Total validation issues found: {total_violations}[/yellow]")
+            self.output.warning(f"Total validation issues found: {total_violations}")
+        else:
+            self.output.success("All packages passed validation")
+
+        if total_violations > 0:
             return 1
 
-        self.console.print("[green]All packages passed validation[/green]")
         return 0
 
     def validate_package_settings(self, package) -> list[str]:

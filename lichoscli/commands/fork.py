@@ -104,10 +104,10 @@ class ForkCommand(Command):
         # Configure CI settings to use destination namespace's 00ci
         ci_config_path = self._configure_forked_package_ci(forked_package, destination_projects)
 
-        self.console.print(
-            f"[green]Successfully forked package[/green] '{self.args.package}' to '{self.destination_namespace}'"
+        self.output.success(
+            f"Successfully forked package '{self.args.package}' to '{self.destination_namespace}'",
         )
-        self.console.print(f"Forked package CI/CD configured to use: {ci_config_path}")
+        self.output.print(f"Forked package CI/CD configured to use: {ci_config_path}")
         return 0
 
     def _configure_forked_package_ci(self, forked_package: "Project", destination_projects) -> str:
@@ -176,33 +176,33 @@ class ForkCommand(Command):
 
     def _dry_run_preview(self) -> int:
         """Show a simple preview of what would be forked."""
-        self.console.print("[bold]DRY RUN PREVIEW[/bold]")
-        self.console.print(f"Package to fork: [cyan]{self.args.package}[/cyan]")
-        self.console.print(f"Source hierarchy: [yellow]{self.source_namespace}[/yellow]")
-        self.console.print(f"Destination namespace: [green]{self.destination_namespace}[/green]")
+        self.output.accent("DRY RUN PREVIEW")
+        self.output.print(f"Package to fork: {self.args.package}")
+        self.output.print(f"Source hierarchy: {self.source_namespace}")
+        self.output.print(f"Destination namespace: {self.destination_namespace}")
 
         # Simple validation - just check if basic namespaces exist
         if not self.projects.hierarchy_exists(self.destination_namespace):
-            self.console.print(f"[red]ERROR:[/red] Target hierarchy '{self.destination_namespace}' does not exist")
+            self.output.error(f"ERROR: Target hierarchy '{self.destination_namespace}' does not exist")
             return 1
 
         # Get source package to determine package type
         source_projects = self.projects.get_projects_for_namespace(self.source_namespace)
         if not source_projects:
-            self.console.print(f"[red]ERROR:[/red] Cannot access source hierarchy '{self.source_namespace}'")
+            self.output.error(f"ERROR: Cannot access source hierarchy '{self.source_namespace}'")
             return 1
 
         base_package = source_projects.get(self.args.package)
         if not base_package:
-            self.console.print(
-                f"[red]ERROR:[/red] Package '{self.args.package}' not found in source hierarchy '{self.source_namespace}'"
+            self.output.error(
+                f"ERROR: Package '{self.args.package}' not found in source hierarchy '{self.source_namespace}'",
             )
             return 1
 
         # Show what CI config would be used
         package_type = self._determine_package_type(base_package)
         ci_config_path = CIConfigUtils.get_ci_path(self.destination_namespace, ci_typ=package_type)
-        self.console.print(f"CI/CD would be configured to: [blue]{ci_config_path}[/blue]")
+        self.output.print(f"CI/CD would be configured to: {ci_config_path}")
 
-        self.console.print("\n[green]Use without --dry to execute the fork[/green]")
+        self.output.success("\nUse without --dry to execute the fork")
         return 0

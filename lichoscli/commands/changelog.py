@@ -40,7 +40,7 @@ class ChangelogCommand(Command):
 
     def execute(self) -> int:
         if not self.repo.is_valid:
-            self.console.print("[red]Not a valid git repository.[/red]")
+            self.output.error("Not a valid git repository.")
             return 1
 
         changelog = self.generate_changelog()
@@ -49,9 +49,9 @@ class ChangelogCommand(Command):
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(changelog, encoding='utf-8')
-            self.console.print(f"[green]Changelog written to {output_path}[/green]")
+            self.output.success(f"Changelog written to {output_path}")
         except OSError as e:
-            self.console.print(f"[red]Failed to write changelog to {output_path}: {e}[/red]")
+            self.output.error(f"Failed to write changelog to {output_path}: {e}")
             return 1
         
         return 0

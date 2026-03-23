@@ -92,7 +92,7 @@ class CollectSourcesCommand(Command):
                 shutil.copy(target_packages_file, os.path.join(self.output_dir, "target-packages"))
                 shutil.copy(target_packages_file, os.path.join(self.output_dir, "reports", "target-packages"))
                 pkg_list_path = os.path.join(self.output_dir, "target-packages")
-                self.console.print(f"[green]✓[/green] Copied package list for capywfa: [cyan]{pkg_list_path}[/cyan]")
+                self.output.success(f"✓ Copied package list for capywfa: {pkg_list_path}")
 
             return 0
         finally:

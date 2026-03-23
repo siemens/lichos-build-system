@@ -36,18 +36,14 @@ class TestGetartifactsCommand:
         mock_di_container.package_service.get_package.return_value = mock_package
 
         result = command.execute()
-        mock_logger.warning.assert_called_with("No pipeline found for package %s", "test-package")
+        mock_logger.error.assert_called_with("No pipeline found for branch %s", "main")
         assert result == 1
 
-    @patch("lichoscli.commands.base.Console")
-    def test_execute_with_links(self, mock_console_class, mock_di_container, mock_args):
+    def test_execute_no_job_user_selects_single(self, mock_di_container, mock_args):
         args = mock_args()
         args.package = "test-package"
         args.job = None
         args.branch = "main"
-
-        mock_console = Mock()
-        mock_console_class.return_value = mock_console
 
         command = GetartifactsCommand(mock_di_container, args)
 
@@ -55,10 +51,10 @@ class TestGetartifactsCommand:
         mock_pipeline = Mock()
         mock_job1 = Mock()
         mock_job1.name = "build-job"
-        mock_job1.web_url = "http://example.com/build"
+        mock_job1.status = "success"
         mock_job2 = Mock()
         mock_job2.name = "test-job"
-        mock_job2.web_url = "http://example.com/test"
+        mock_job2.status = "failed"
 
         mock_jobs = Mock()
         mock_jobs.list.return_value = [mock_job1, mock_job2]
@@ -69,15 +65,84 @@ class TestGetartifactsCommand:
         mock_package.pipelines = mock_pipelines
 
         mock_di_container.package_service.get_package.return_value = mock_package
+        mock_di_container.user_interface.prompts.select_many.return_value = ["build-job"]
+
+        with patch.object(command, "_download_specific_job_artifacts", return_value=0) as mock_download:
+            result = command.execute()
+
+        mock_di_container.user_interface.prompts.select_many.assert_called_once()
+        mock_download.assert_called_once_with(mock_package, "artifacts", "build-job")
+        assert result == 0
+
+    def test_execute_no_job_user_selects_multiple(self, mock_di_container, mock_args):
+        args = mock_args()
+        args.package = "test-package"
+        args.job = None
+        args.branch = "main"
+
+        command = GetartifactsCommand(mock_di_container, args)
+
+        mock_package = Mock()
+        mock_pipeline = Mock()
+        mock_job1 = Mock()
+        mock_job1.name = "build-job"
+        mock_job1.status = "success"
+        mock_job2 = Mock()
+        mock_job2.name = "test-job"
+        mock_job2.status = "success"
+
+        mock_jobs = Mock()
+        mock_jobs.list.return_value = [mock_job1, mock_job2]
+        mock_pipeline.jobs = mock_jobs
+
+        mock_pipelines = Mock()
+        mock_pipelines.get_latest.return_value = mock_pipeline
+        mock_package.pipelines = mock_pipelines
+
+        mock_di_container.package_service.get_package.return_value = mock_package
+        mock_di_container.user_interface.prompts.select_many.return_value = ["build-job", "test-job"]
+
+        with patch.object(command, "_download_specific_job_artifacts", return_value=0) as mock_download:
+            result = command.execute()
+
+        mock_di_container.user_interface.prompts.select_many.assert_called_once()
+        assert mock_download.call_count == 2
+        mock_download.assert_any_call(mock_package, "artifacts", "build-job")
+        mock_download.assert_any_call(mock_package, "artifacts", "test-job")
+        assert result == 0
+
+    def test_execute_no_job_user_cancels(self, mock_di_container, mock_args):
+        args = mock_args()
+        args.package = "test-package"
+        args.job = None
+        args.branch = "main"
+
+        command = GetartifactsCommand(mock_di_container, args)
+
+        mock_package = Mock()
+        mock_pipeline = Mock()
+        mock_job = Mock()
+        mock_job.name = "build-job"
+        mock_job.status = "success"
+
+        mock_jobs = Mock()
+        mock_jobs.list.return_value = [mock_job]
+        mock_pipeline.jobs = mock_jobs
+
+        mock_pipelines = Mock()
+        mock_pipelines.get_latest.return_value = mock_pipeline
+        mock_package.pipelines = mock_pipelines
+
+        mock_di_container.package_service.get_package.return_value = mock_package
+        mock_di_container.user_interface.prompts.select_many.return_value = None
 
         result = command.execute()
-        mock_console.print.assert_any_call("[bold]Artifacts links:[/bold]")
-        mock_console.print.assert_any_call("  build-job: http://example.com/build/artifacts/browse")
+
+        mock_di_container.user_interface.prompts.select_many.assert_called_once()
         assert result == 0
 
     @patch("lichoscli.commands.getartifacts.GetartifactsCommand.move_artifacts_to_directory")
-    @patch("lichoscli.commands.getartifacts.GetartifactsCommand.clear_artifacts_directory")
-    def test_execute_with_job_name_and_tempdir(self, mock_clear, mock_move, mock_di_container, mock_args):
+    def test_execute_with_job_name_and_tempdir(self, mock_move, mock_di_container, mock_args):
         args = mock_args()
         args.package = "test-package"
         args.job = "build-job"
@@ -110,12 +175,10 @@ class TestGetartifactsCommand:
             mock_progress.return_value = tempdir
             result = command.execute()
 
-        mock_clear.assert_called_once()
         mock_move.assert_called_once_with("artifacts", tempdir)
         assert result == 0
 
-    @patch("lichoscli.commands.getartifacts.GetartifactsCommand.clear_artifacts_directory")
-    def test_execute_with_job_name_and_no_tempdir(self, mock_clear, mock_di_container, mock_args):
+    def test_execute_with_job_name_and_no_tempdir(self, mock_di_container, mock_args):
         args = mock_args()
         args.package = "test-package"
         args.job = "build-job"
@@ -131,5 +194,4 @@ class TestGetartifactsCommand:
         mock_di_container.package_service.get_package.return_value = mock_package
 
         result = command.execute()
-        mock_clear.assert_called_once()
         assert result == 1

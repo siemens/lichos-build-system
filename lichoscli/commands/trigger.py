@@ -4,7 +4,8 @@
 import logging
 
 from lichoscli.commands.base import Command
-from lichoscli.core.services import PackageService
+from lichoscli.core.services import PackageService, WorkspaceService
+from lichoscli.ui.models import Choice
 from lichoscli.utils import BuildUtils
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ class TriggerCommand(Command):
         self.branch = args.branch
         self.variables = self._parse_variables(args.variable) if hasattr(args, 'variable') and args.variable else None
         self.package_service = di_container.obtain_ref(PackageService)
+        self.workspace_service = di_container.obtain_ref(WorkspaceService)
 
     @classmethod
     def add_arguments(cls, sp):
@@ -59,8 +61,37 @@ class TriggerCommand(Command):
         if self.all_packages:
             return self._trigger_all_packages()
 
-        logger.error("Please specify a package or use --all to trigger all packages.")
-        return 1
+        workspace = self.workspace_service.get_current_workspace()
+        if not workspace:
+            logger.error("No active workspace found. Please specify a package name, use --all, or enter a workspace.")
+            return 1
+
+        choices = [Choice(value=p.name, label=p.name) for p in workspace.packages]
+        selected_names = self.prompts.select_many(
+            "Select packages",
+            "Choose packages to trigger",
+            choices,
+        )
+        if not selected_names:
+            return 0
+
+        failed_count = 0
+        for name in selected_names:
+            package = self.package_service.get_package(name)
+            if package is None:
+                logger.error("Package '%s' not found", name)
+                failed_count += 1
+                continue
+            self.package_name = name
+            pipeline = package.pipelines.trigger_build(self.branch, self.variables)
+            if pipeline:
+                self.output.success(
+                    f"✓ Triggered pipeline for {name}: {pipeline.web_url}",
+                )
+            else:
+                logger.error("Failed to trigger pipeline for package %s", name)
+                failed_count += 1
+        return failed_count
 
     def _retrigger_job(self):
         """Retrigger a specific job from the latest pipeline."""
@@ -96,11 +127,11 @@ class TriggerCommand(Command):
         success = job.retry()
         
         if success:
-            self.console.print(
-                f"[green]✓[/green] Successfully retriggered job [cyan]{job.name}[/cyan] "
-                f"from pipeline {latest_pipeline.id}"
+            self.output.success(
+                f"✓ Successfully retriggered job {job.name} "
+                f"from pipeline {latest_pipeline.id}",
             )
-            self.console.print(f"  Job URL: {job.web_url}")
+            self.output.print(f"  Job URL: {job.web_url}")
             return 0
         else:
             logger.error("Failed to retrigger job '%s'", job.name)
@@ -110,9 +141,9 @@ class TriggerCommand(Command):
         """List available jobs in the pipeline to help user find the correct job name."""
         jobs = pipeline.jobs.list()
         if jobs:
-            self.console.print("\n[bold]Available jobs in this pipeline:[/bold]")
+            self.output.accent("\nAvailable jobs in this pipeline:")
             for job in jobs:
-                self.console.print(f"  • {job.name} (stage: {job.stage}, status: {job.status})")
+                self.output.print(f"  • {job.name} (stage: {job.stage}, status: {job.status})")
         else:
             logger.warning("No jobs found in pipeline")
 
@@ -132,12 +163,12 @@ class TriggerCommand(Command):
             logger.error("Failed to trigger pipeline for package %s", self.package_name)
             return 1
 
-        self.console.print(
-            f"Successfully triggered pipeline for [cyan]{self.package_name}[/cyan]"
+        self.output.success(
+            f"Successfully triggered pipeline for {self.package_name}",
         )
         if self.variables:
-            self.console.print(f"  Variables: {', '.join(f'{k}={v}' for k, v in self.variables.items())}")
-        self.console.print(f"  Pipeline URL: {pipeline.web_url}")
+            self.output.print(f"  Variables: {', '.join(f'{k}={v}' for k, v in self.variables.items())}")
+        self.output.print(f"  Pipeline URL: {pipeline.web_url}")
         return 0
 
     def _trigger_all_packages(self):
@@ -193,8 +224,8 @@ class TriggerCommand(Command):
             pipeline = package.pipelines.trigger_build(self.branch, self.variables)
             
             if pipeline:
-                self.console.print(
-                    f"[green]✓[/green] Triggered pipeline for [cyan]{package.name}[/cyan]: {pipeline.web_url}"
+                self.output.success(
+                    f"✓ Triggered pipeline for {package.name}: {pipeline.web_url}",
                 )
             else:
                 failed_count += 1

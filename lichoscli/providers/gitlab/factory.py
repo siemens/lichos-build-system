@@ -6,23 +6,24 @@ from lichoscli.core.services import (
     BuildInfoService,
     CacheService,
     PackageService,
+    PkgGroupDiscoveryService,
     RepoParserService,
     SourceCollectionService,
 )
 from lichoscli.providers.docker import DockerContainerService
-from lichoscli.providers.filesystem import (
-    FilesystemNotifyService,
-    FilesystemStorageService,
-)
+from lichoscli.providers.filesystem import FilesystemNotifyService
 from lichoscli.providers.filesystem.cache_service import DiskCacheService
+from lichoscli.providers.gitlab.client import GitLabClientFactory
 from lichoscli.providers.gitlab.services.buildinfo_service import GitLabBuildInfoService
 from lichoscli.providers.gitlab.services.dependency_service import GitLabDependencyService
 from lichoscli.providers.gitlab.services.environment_service import GitLabEnvironmentService
 from lichoscli.providers.gitlab.services.gitlab_issue_writer import GitLabIssueWriter
 from lichoscli.providers.gitlab.services.notify_service import GitLabNotifyService
 from lichoscli.providers.gitlab.services.package_service import GitLabPackageService
+from lichoscli.providers.gitlab.services.pkg_group_discovery_service import GitLabPkgGroupDiscoveryService
 from lichoscli.providers.gitlab.services.storage_service import GitLabStorageService
 from lichoscli.providers.gitlab.services.workspace_service import GitLabWorkspaceService
+from lichoscli.ui.interfaces import UserInterface
 
 if TYPE_CHECKING:
     from lichoscli.providers.gitlab.container import GitLabServiceContainer
@@ -81,8 +82,12 @@ class GitLabServiceFactory:
     def create_gitlab_notify_service(self) -> GitLabNotifyService:
         return GitLabNotifyService(self._get_issue_writer())
 
-    def create_fs_storage_service(self) -> FilesystemStorageService:
-        return FilesystemStorageService()
+    def create_pkg_group_discovery_service(self) -> GitLabPkgGroupDiscoveryService:
+        return GitLabPkgGroupDiscoveryService(
+            self.container.gitlab,
+            lambda host: GitLabClientFactory(host).create(),
+        )
 
     def create_fs_notify_service(self) -> FilesystemNotifyService:
-        return FilesystemNotifyService()
+        ui = self.container.obtain_ref(UserInterface)
+        return FilesystemNotifyService(ui.output)

@@ -56,14 +56,13 @@ class GitLabEnvironmentService(EnvironmentService):
             env = self.expand_environment_variables(env)
 
             image = env.get("IMAGE")
-            repo_setup = env.get("REPO_SETUP_CMD")
             build_cmd = env.get("BUILD_CMD")
 
-            if not all([image, repo_setup, build_cmd]):
+            if not all([image, build_cmd]):
                 logger.error("Missing required environment variables (IMAGE, REPO_SETUP_CMD, BUILD_CMD).")
                 return None
 
-            return BuildEnvironment(variables=env, image=image, repo_setup_cmd=repo_setup, build_cmd=build_cmd)
+            return BuildEnvironment(variables=env, image=image, build_cmd=build_cmd)
 
         except (OSError, AttributeError) as e:
             logger.error("Failed to prepare build environment: %s", e)

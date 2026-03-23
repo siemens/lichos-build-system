@@ -398,12 +398,6 @@ class TestCIConfigUtils:
 
         assert result == 1
 
-    def test_build_script_command_unittest(self):
-        """Test script command building"""
-        result = BuildUtils.build_script_command("apt update", "make install")
-        assert result == "apt update ; make install"
-
-
 if __name__ == "__main__":
     # Run pytest for the pytest-style tests
     pytest.main([__file__, "-v"])

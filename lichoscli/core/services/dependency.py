@@ -142,28 +142,6 @@ class DependencyService(ABC):
         """
 
     @abstractmethod
-    def display_dependency_version_verification(
-        self, version_check_results: list[VersionCheckResult], console
-    ) -> None:
-        """
-        Display comprehensive dependency version verification results in a table format.
-
-        Args:
-            version_check_results: List of version check results to display
-            console: Rich console instance for output formatting
-        """
-
-    @abstractmethod
-    def print_dag_tree(self, dag: DependencyGraph, console) -> None:
-        """
-        Print the DAG as a tree structure using Rich library.
-
-        Args:
-            dag: The DAG to display
-            console: Rich console instance for output formatting
-        """
-
-    @abstractmethod
     def get_dag_changed_packages(self, old_dag: DependencyGraph, new_dag: DependencyGraph) -> dict[str, tuple]:
         """
         Get packages with changed commits between two DAG states.

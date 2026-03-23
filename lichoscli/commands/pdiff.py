@@ -49,8 +49,8 @@ class PDiffCommand(Command):
         for d in pref.commit.diff(oref.commit, create_patch=True):
             a = f"a/{d.a_blob.path}" if d.a_blob and d.a_blob.path else "/dev/null"
             b = f"b/{d.b_blob.path}" if d.b_blob and d.b_blob.path else "/dev/null"
-            print(f"diff {oref} {pref}")
-            print(f"--- {a}\n+++ {b}")
-            print(d.diff.decode("utf-8"))
+            self.output.print(f"diff {oref} {pref}")
+            self.output.print(f"--- {a}\n+++ {b}")
+            self.output.print(d.diff.decode("utf-8"))
 
         return 0

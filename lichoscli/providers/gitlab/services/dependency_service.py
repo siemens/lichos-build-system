@@ -9,10 +9,6 @@ from typing import TYPE_CHECKING
 
 from gitlab import GitlabError
 from packaging import version
-from rich import box
-from rich.table import Table
-from rich.text import Text
-from rich.tree import Tree
 
 from lichoscli.core.models import (
     BuildDependency,
@@ -267,11 +263,12 @@ class GitLabDependencyService(DependencyService):
             pkg_version = buildinfo.version if buildinfo else "unknown"
             target_branch = branch if branch else package.default_branch
             commit_sha = package.get_latest_commit_sha(target_branch)
-    
+
             node_status = DAGNodeStatus.PENDING
             try:
-                # Use the pipeline already fetched during buildinfo phase if available
-                latest_pipeline = cached_pipeline if cached_pipeline else package.pipelines.get_latest(target_branch)
+                latest_pipeline = package.pipelines.get_latest(target_branch, use_cache=True)
+                if not latest_pipeline:
+                    latest_pipeline = cached_pipeline
                 if latest_pipeline:
                     node_status = DAGNodeStatus.from_pipeline_status(latest_pipeline.status)
             except GitlabError as e:
@@ -320,119 +317,6 @@ class GitLabDependencyService(DependencyService):
         logger.info("Built DAG with %d nodes and dependency relationships", len(nodes))
         return dag
 
-    def display_dependency_version_verification(
-        self, version_check_results: list[VersionCheckResult], console
-    ) -> None:
-        """Display comprehensive dependency version verification results in a table format."""
-        if not version_check_results:
-            console.print("\n[dim]All dependency versions match the expected values — no mismatches found.[/dim]")
-            return
-
-        console.print(
-            f"\n[bold blue]Dependency Version Verification ({len(version_check_results)} checks):[/bold blue]"
-        )
-
-        results_by_package = {}
-        for result in version_check_results:
-            if result.dependent_package not in results_by_package:
-                results_by_package[result.dependent_package] = []
-            results_by_package[result.dependent_package].append(result)
-
-        correct_count = sum(1 for r in version_check_results if r.is_correct)
-        incorrect_count = len(version_check_results) - correct_count
-
-        if incorrect_count == 0:
-            console.print(f"[green] All {correct_count} dependency version checks passed![/green]")
-        else:
-            console.print(f"[yellow] {incorrect_count} version mismatches found, {correct_count} correct[/yellow]")
-
-        table = Table(box=box.ROUNDED, title="Dependency Version Verification Details", expand=True)
-        table.add_column("Dependent Package", style="bold cyan", no_wrap=False)
-        table.add_column("Dependency", style="white", no_wrap=False)
-        table.add_column("Used Version", style="dim", no_wrap=False)
-        table.add_column("Expected Version", style="dim", no_wrap=False)
-        table.add_column("Status", justify="center", width=12)
-
-        for package_name in sorted(results_by_package.keys()):
-            results = results_by_package[package_name]
-
-            for i, result in enumerate(results):
-                pkg_display = package_name if i == 0 else ""
-
-                if result.is_correct:
-                    status = "[green]✓ Correct[/green]"
-                    used_version_style = "green"
-                    expected_version_style = "green"
-                else:
-                    status = "[red]✗ Mismatch[/red]"
-                    used_version_style = "red"
-                    expected_version_style = "bold green"
-
-                table.add_row(
-                    pkg_display,
-                    result.binary_package,
-                    f"[{used_version_style}]{result.used_version}[/{used_version_style}]",
-                    f"[{expected_version_style}]{result.expected_version}[/{expected_version_style}]",
-                    status,
-                )
-
-        console.print(table)
-
-    def print_dag_tree(self, dag: DependencyGraph, console) -> None:
-        """Print the DAG as a tree structure using Rich library."""
-        if not dag.nodes:
-            console.print("[dim]Empty DAG[/dim]")
-            return
-
-        root_nodes = [node for node in dag.nodes.values() if not node.direct_dependencies]
-
-        if not root_nodes:
-            console.print("[yellow]No root nodes found (circular dependency?)[/yellow]")
-            root_nodes = list(dag.nodes.values())
-
-        tree = Tree("[bold blue]Package Dependency Tree[/bold blue]")
-        visited = set()
-
-        for root in root_nodes:
-            self._add_rich_node(tree, root, visited)
-
-        console.print(tree)
-
-    def _add_rich_node(self, parent_tree: Tree, node: DAGNode, visited: set) -> None:
-        """Add a node and its dependents to the Rich tree."""
-        if node.package in visited:
-            circular_text = Text(f"{node.package} ", style="dim")
-            circular_text.append("(circular)", style="red italic")
-            parent_tree.add(circular_text)
-            return
-
-        visited.add(node.package)
-
-        node_text = Text()
-        status_color = self._get_status_color(node.status)
-
-        node_text.append(node.package, style=f"bold {status_color}")
-
-        if node.version:
-            node_text.append(f" v{node.version}", style="dim cyan")
-
-        current_branch = parent_tree.add(node_text)
-        dependents = sorted(node.reverse_dependencies.values(), key=lambda x: x.package)
-
-        for dependent in dependents:
-            self._add_rich_node(current_branch, dependent, visited.copy())
-
-    def _get_status_color(self, status) -> str:
-        """Get Rich color for build status."""
-        status_colors = {
-            "pending": "yellow",
-            "building": "blue",
-            "success": "green",
-            "failed": "red",
-        }
-        status_str = status.value if hasattr(status, "value") else str(status)
-        return status_colors.get(status_str.lower(), "white")
-
     def get_dag_changed_packages(self, old_dag: DependencyGraph, new_dag: DependencyGraph) -> dict[str, tuple]:
         """Get packages with changed commits between two DAG states."""
         changed_packages = {}
@@ -444,7 +328,8 @@ class GitLabDependencyService(DependencyService):
             old_commit = old_node.commit_sha
             new_commit = new_node.commit_sha
 
-            changed_packages[package_name] = (new_node.project, old_commit, new_commit)
+            if old_commit != new_commit:
+                changed_packages[package_name] = (new_node.project, old_commit, new_commit)
 
         for package_name in set(new_dag.nodes.keys()) - set(old_dag.nodes.keys()):
             new_node = new_dag.nodes[package_name]

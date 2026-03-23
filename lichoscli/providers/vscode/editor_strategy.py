@@ -8,10 +8,8 @@ import subprocess
 import time
 from typing import Optional
 
-from rich.console import Console
-from rich.status import Status
-
 from lichoscli.core.services import EditorConfig, EditorLaunchResult, EditorStrategy
+from lichoscli.ui.interfaces import OutputWriter
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +17,10 @@ logger = logging.getLogger(__name__)
 class VSCodeEditorStrategy(EditorStrategy):
     """VS Code implementation of EditorStrategy."""
 
-    def __init__(self):
+    def __init__(self, output: OutputWriter):
         """Initialize the VS Code editor strategy."""
-        self.console = Console()
+        self.output = output
+        self.console = output.console
 
     def get_editor_name(self) -> str:
         """Get the name of this editor strategy."""
@@ -69,10 +68,10 @@ class VSCodeEditorStrategy(EditorStrategy):
                 start_new_session=True,
             )
 
-            self.console.print("[green]✓[/green] VS Code launched with remote SSH connection to container")
-            self.console.print(f"SSH config updated: [cyan]{config.ssh_config_path}[/cyan]")
-            self.console.print(f"Remote path: [cyan]{config.project_path}[/cyan]")
-            self.console.print(f"VS Code process started with PID: [yellow]{process.pid}[/yellow]")
+            self.console.print("✓ VS Code launched with remote SSH connection to container")
+            self.console.print(f"SSH config updated: {config.ssh_config_path}")
+            self.console.print(f"Remote path: {config.project_path}")
+            self.console.print(f"VS Code process started with PID: {process.pid}")
 
             return EditorLaunchResult(success=True, process_id=process.pid)
 
@@ -80,11 +79,11 @@ class VSCodeEditorStrategy(EditorStrategy):
             error_msg = f"Failed to launch VS Code automatically: {e}"
             logger.warning(error_msg)
 
-            self.console.print("[red]✗[/red] VS Code launch failed. You can manually connect using:")
-            self.console.print(f"  [cyan]code --remote ssh-remote+{config.container_name} {config.project_path}[/cyan]")
-            self.console.print(f"Or use SSH directly: [cyan]ssh {config.container_name}[/cyan]")
+            self.console.print("✗ VS Code launch failed. You can manually connect using:")
+            self.console.print(f"  code --remote ssh-remote+{config.container_name} {config.project_path}")
+            self.console.print(f"Or use SSH directly: ssh {config.container_name}")
             if config.ssh_port:
-                self.console.print(f"Or with explicit port: [cyan]ssh root@localhost -p {config.ssh_port}[/cyan]")
+                self.console.print(f"Or with explicit port: ssh root@localhost -p {config.ssh_port}")
 
             return EditorLaunchResult(success=False, error_message=error_msg)
 
@@ -94,8 +93,8 @@ class VSCodeEditorStrategy(EditorStrategy):
             logger.error("Container name is required to wait for connection")
             return False
 
-        with Status("[bold blue]Waiting for container setup to complete...", console=self.console) as status:
-            status.update("[bold blue]This may take a few minutes while installing packages and configuring SSH...")
+        with self.console.status("Waiting for container setup to complete...") as status:
+            status.update("This may take a few minutes while installing packages and configuring SSH...")
 
             start_time = time.time()
             setup_completed = False
@@ -108,27 +107,27 @@ class VSCodeEditorStrategy(EditorStrategy):
                     logs_output = logs_result.stdout + logs_result.stderr
 
                     if "Container ready for VS Code Remote - SSH connection" in logs_output:
-                        status.update("[green]✓ Container setup completed!")
+                        status.update("Container setup completed!")
                         setup_completed = True
                         break
 
                     if "Installing openssh-server..." in logs_output:
-                        status.update("[blue]Installing SSH server packages...")
+                        status.update("Installing SSH server packages...")
                     elif "Creating developer user..." in logs_output:
-                        status.update("[blue]Setting up developer user...")
+                        status.update("Setting up developer user...")
                     elif "Configuring SSH daemon..." in logs_output:
-                        status.update("[blue]Configuring SSH daemon...")
+                        status.update("Configuring SSH daemon...")
                     elif "Starting SSH daemon..." in logs_output:
-                        status.update("[blue]Starting SSH daemon...")
+                        status.update("Starting SSH daemon...")
                     elif "SSH daemon started successfully" in logs_output:
-                        status.update("[blue]SSH daemon started successfully...")
+                        status.update("SSH daemon started successfully...")
 
                 time.sleep(3)
 
         if not setup_completed:
-            self.console.print("[yellow]⚠[/yellow] Setup timeout reached, but continuing to test SSH connection...")
+            self.console.print("⚠ Setup timeout reached, but continuing to test SSH connection...")
 
-        with Status("[bold blue]Testing SSH connection...", console=self.console) as status:
+        with self.console.status("Testing SSH connection...") as status:
             ssh_ready_start = time.time()
 
             while time.time() - ssh_ready_start < 60:
@@ -152,17 +151,17 @@ class VSCodeEditorStrategy(EditorStrategy):
                 test_result = subprocess.run(test_cmd, capture_output=True, text=True, check=False)
 
                 if test_result.returncode == 0:
-                    status.update("[green]✓ SSH connection successful!")
+                    status.update("✓ SSH connection successful!")
                     break
 
                 elapsed = int(time.time() - ssh_ready_start)
-                status.update(f"[blue]SSH connection attempt {elapsed//5 + 1} (waiting...)")
+                status.update(f"SSH connection attempt {elapsed//5 + 1} (waiting...)")
                 time.sleep(1)
             else:
-                self.console.print("[red]✗[/red] SSH connection failed after timeout")
+                self.console.print("✗ SSH connection failed after timeout")
                 return False
 
-        self.console.print("[green]✓[/green] SSH connection successful!")
+        self.console.print("✓ SSH connection successful!")
         return True
 
     def cleanup_connection(self, config: EditorConfig) -> None:

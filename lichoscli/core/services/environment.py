@@ -15,13 +15,12 @@ class BuildEnvironment:
 
     variables: dict[str, str]
     image: str
-    repo_setup_cmd: str
     build_cmd: str
 
     @property
     def full_script(self) -> str:
         """Get the complete build script combining setup and build commands."""
-        return f"{self.repo_setup_cmd} ; {self.build_cmd}"
+        return self.build_cmd
 
 
 class EnvironmentService(ABC):

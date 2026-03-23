@@ -5,11 +5,13 @@
 Core fixtures for DI container and basic mocks.
 """
 
+from io import StringIO
 from unittest.mock import Mock
 
 import pytest
 
 from lichoscli.core.di import DIContainer
+from lichoscli.ui.terminal import TerminalConsole
 from lichoscli.core.models.git.git_url import GitUrl
 from lichoscli.core.services import (
     BuildInfoService,
@@ -20,6 +22,7 @@ from lichoscli.core.services import (
     PackageService,
     WorkspaceService,
 )
+from lichoscli.ui import UserInterface
 
 
 @pytest.fixture
@@ -35,6 +38,16 @@ def mock_di_container():
     container_service = Mock(spec=ContainerService)
     environment_service = Mock(spec=EnvironmentService)
     url_parser = Mock(spec=GitUrl)
+    user_interface = Mock()
+    user_interface.output = Mock()
+    user_interface.output.console = TerminalConsole(StringIO())
+    user_interface.output.print = Mock()
+    user_interface.output.table = Mock()
+    user_interface.output.json = Mock()
+    user_interface.prompts = Mock()
+    user_interface.prompts.confirm = Mock(return_value=True)
+    user_interface.prompts.select_one = Mock(return_value=None)
+    user_interface.prompts.select_many = Mock(return_value=None)
 
     package_service.hierarchy_exists = Mock(return_value=True)
     package_service.get_projects = Mock()
@@ -63,6 +76,8 @@ def mock_di_container():
             return environment_service
         elif service_type == GitUrl:
             return url_parser
+        elif service_type == UserInterface:
+            return user_interface
         else:
             raise ValueError(f"Unknown service type: {service_type}")
 
@@ -77,6 +92,7 @@ def mock_di_container():
     container.environment_service = environment_service
     container.url_parser = url_parser
     container.git_url = url_parser
+    container.user_interface = user_interface
     container.get_editor_strategy = Mock(return_value=Mock())
 
     return container

@@ -48,6 +48,10 @@ class ServiceError(LichosCliError):
     """Exception raised for service-related errors."""
 
 
+class ProviderAPIError(LichosCliError):
+    """Exception raised when a provider API call fails."""
+
+
 class ProviderError(LichosCliError):
     """Exception raised for provider-specific errors."""
 

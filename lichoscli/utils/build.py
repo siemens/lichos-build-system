@@ -84,11 +84,6 @@ class BuildUtils:
         return sanitized
 
     @staticmethod
-    def build_script_command(repo_setup_cmd: str, build_cmd: str) -> str:
-        """Build the script command string"""
-        return f"{repo_setup_cmd} ; {build_cmd}"
-
-    @staticmethod
     def expand_var(env):
         for key, value in env.items():
             if value is None:  # skip protected variables

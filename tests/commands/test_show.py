@@ -51,6 +51,7 @@ def test_show_package_info_success(mock_di_container, mock_args):
 
     assert ret == 0
     package_service.get_package.assert_called_once_with("mypkg")
+    mock_di_container.user_interface.output.table.assert_called_once()
 
 
 def test_show_branches_success(mock_di_container, mock_args):
@@ -76,6 +77,7 @@ def test_show_branches_success(mock_di_container, mock_args):
 
         assert ret == 0
         package_service.get_package.assert_called_once_with("mypkg")
+        mock_di_container.user_interface.output.table.assert_called_once()
 
 
 def test_show_branches_none(mock_di_container, mock_args):

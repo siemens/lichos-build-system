@@ -244,7 +244,7 @@ class TestGitLabClientFactory:
     def test_host_with_existing_scheme(self, mock_gitlab, mock_yaml, mock_file, mock_os_exists):
         """Test initialization with host that already has a scheme."""
         mock_os_exists.side_effect = lambda path: path.endswith("config.yml")
-        mock_config = {"hosts": {"http://gitlab.example.com": {"token": "test-token"}}}
+        mock_config = {"hosts": {"gitlab.example.com": {"token": "test-token"}}}
         mock_yaml.return_value = mock_config
         mock_gl_instance = MagicMock()
         mock_gitlab.return_value = mock_gl_instance
@@ -253,7 +253,7 @@ class TestGitLabClientFactory:
         factory._init_from_glab_config(host="http://gitlab.example.com")
 
         mock_gitlab.assert_called_once_with(
-            url="http://gitlab.example.com", private_token="test-token", api_version="4"
+            url="https://gitlab.example.com", private_token="test-token", api_version="4"
         )
 
     @patch("os.path.exists")

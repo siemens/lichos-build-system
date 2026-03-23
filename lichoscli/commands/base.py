@@ -5,10 +5,9 @@ import argparse
 import logging
 from abc import ABC, abstractmethod
 
-from gitlab import GitlabError
-from rich.console import Console
-
 from lichoscli.core.di import DIContainer
+from lichoscli.core.exceptions import ProviderAPIError
+from lichoscli.ui import UserInterface
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +17,10 @@ class Command(ABC):
     def __init__(self, di_container: DIContainer, args):
         self.di_container = di_container
         self.args = args
-        self.console = Console()
+        self.ui = self.di_container.obtain_ref(UserInterface)
+        self.output = self.ui.output
+        self.prompts = self.ui.prompts
+        self.console = self.output.console
 
     def validate_args(self) -> None:
         """Validate command-specific arguments. Override in subclasses if needed."""
@@ -64,6 +66,6 @@ class CommandExecutor:
         command_instance.validate_args()
         try:
             return command_instance.execute()
-        except GitlabError as e:
-            logger.error("GitLab API error occurred: %s", e)
+        except ProviderAPIError as e:
+            logger.error("Provider API error: %s", e)
             return 1

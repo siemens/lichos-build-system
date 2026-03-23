@@ -16,8 +16,10 @@ from lichoscli.core.services import (
     DependencyService,
     EditorStrategy,
     EnvironmentService,
+    NoOpStorageService,
     NotifyService,
     PackageService,
+    PkgGroupDiscoveryService,
     RepoParserService,
     SourceCollectionService,
     StorageService,
@@ -25,6 +27,7 @@ from lichoscli.core.services import (
 )
 from lichoscli.providers.gitlab.factory import GitLabServiceFactory
 from lichoscli.providers.vscode import VSCodeEditorStrategy
+from lichoscli.ui.interfaces import UserInterface
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +71,10 @@ class GitLabServiceContainer(DIContainer):
         self._factories[EnvironmentService] = factory.create_environment_service
         self._factories[RepoParserService] = factory.create_repo_parser_service
         self._factories[SourceCollectionService] = factory.create_source_collection_service
+        self._factories[PkgGroupDiscoveryService] = factory.create_pkg_group_discovery_service
 
-        vscode_editor_strategy = VSCodeEditorStrategy()
-        self._editor_strategies = {"code": vscode_editor_strategy}
+        # EditorStrategy is wired after UserInterface is registered (deferred)
+        self._editor_strategies = {}
 
         if self.project_id:
             self._factories[StorageService] = factory.create_gitlab_storage_service
@@ -81,10 +85,10 @@ class GitLabServiceContainer(DIContainer):
                 self.project_id,
             )
         else:
-            self._factories[StorageService] = factory.create_fs_storage_service
+            self._services[StorageService] = NoOpStorageService()
             self._factories[NotifyService] = factory.create_fs_notify_service
 
-            logger.debug("Registered filesystem storage and notification services for local execution")
+            logger.debug("Registered no-op storage and filesystem notification services for local execution")
 
     def obtain_ref(self, ref_type: type[T]) -> T:
         if ref_type in self._services:
@@ -98,9 +102,13 @@ class GitLabServiceContainer(DIContainer):
         raise ReferenceNotFoundError(f"Service {ref_type.__name__} is not registered")
 
     def get_editor_strategy(self, editor_name: str) -> EditorStrategy:
-        """Get an editor strategy by name."""
+        """Get an editor strategy by name (lazy-created on first access)."""
         if editor_name not in self._editor_strategies:
-            raise ReferenceNotFoundError(f"Editor strategy '{editor_name}' is not registered")
+            ui = self._services.get(UserInterface)
+            if editor_name == "code":
+                self._editor_strategies["code"] = VSCodeEditorStrategy(ui.output)
+            else:
+                raise ReferenceNotFoundError(f"Editor strategy '{editor_name}' is not registered")
 
         return self._editor_strategies[editor_name]
 

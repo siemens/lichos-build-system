@@ -3,10 +3,10 @@
 
 """Simple progress bar utilities for CLI operations."""
 
+from contextlib import nullcontext
 from typing import Callable, Optional, TypeVar
 
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from lichoscli.ui.interfaces import ConsoleLike
 
 T = TypeVar("T")
 
@@ -18,7 +18,7 @@ class ProgressUtils:
     def execute_with_progress(
         business_logic: Callable[[], T],
         description: str,
-        console: Optional[Console] = None,
+        console: Optional[ConsoleLike] = None,
         success_message: Optional[str] = None,
         error_message: Optional[str] = None,
     ) -> T:
@@ -31,7 +31,7 @@ class ProgressUtils:
         Args:
             business_logic: Function to execute (can be lambda or any callable)
             description: Description to show during execution
-            console: Optional Rich console instance
+            console: Optional console-like output instance
             success_message: Optional message to show on success
             error_message: Optional message to show on error
 
@@ -41,25 +41,18 @@ class ProgressUtils:
         Raises:
             Any exception raised by the business_logic function
         """
-        if console is None:
-            console = Console()
+        status_context = console.status(description) if console is not None else nullcontext()
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            progress.add_task(description)
-
+        with status_context:
             try:
                 result = business_logic()
 
-                if success_message:
-                    console.print(f"[green]✓[/green] {success_message}")
+                if success_message and console is not None:
+                    console.success(success_message)
 
                 return result
 
-            except Exception as e:
-                if error_message:
-                    console.print(f"[red]✗[/red] {error_message}")
-                raise e
+            except Exception as exc:
+                if error_message and console is not None:
+                    console.error(error_message)
+                raise exc

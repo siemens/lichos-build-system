@@ -5,6 +5,7 @@ import logging
 import os
 from typing import Optional
 from urllib.parse import urlparse
+from lichoscli.core.config import UserConfigStore
 
 import gitlab
 import yaml
@@ -36,6 +37,12 @@ class GitLabClientFactory:
         if env_token and host_to_use:
             return self._init_from_env(env_token, host_to_use)
 
+        config_token, config_host = self._get_token_from_config()
+        host_to_use = host_to_use or config_host
+        if config_token and host_to_use:
+            logger.debug("Using GitLab token from user config for host %s", host_to_use)
+            return self._init_from_env(config_token, host_to_use)
+
         try:
             return self._init_from_glab_config(self.host)
         except (FileNotFoundError, ValueError) as e:
@@ -58,6 +65,11 @@ class GitLabClientFactory:
             logger.debug("Using GitLab host from environment variable: LICHOS_GITLAB_HOST")
             return host
         return None
+
+    def _get_token_from_config(self) -> tuple[Optional[str], Optional[str]]:
+        """Return (token, host) stored in the user config file, or (None, None)."""
+        data = UserConfigStore.read()
+        return data.get("token"), data.get("host")
 
     def _init_from_env(self, token: str, host: str) -> gitlab.Gitlab:
         gitlab_url = self._ensure_url_scheme(host)
@@ -93,7 +105,7 @@ class GitLabClientFactory:
                 config_path = os.path.expanduser("~/AppData/Local/glab-cli/config.yml")
 
             if not os.path.exists(config_path):
-                raise FileNotFoundError(f"glab config not found at {config_path}")
+                raise FileNotFoundError("glab config not found at {}".format(config_path))
 
             with open(config_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f)
@@ -103,14 +115,18 @@ class GitLabClientFactory:
                 raise ValueError("No hosts found in glab config")
 
             if host:
-                if host not in hosts:
-                    raise ValueError(f"Host {host} not found in glab config")
-                host_config = hosts[host]
+                # glab stores keys as bare netloc (e.g. "gitlab.example.com"), but
+                # the caller may pass a full URL with scheme and/or trailing slash.
+                # Normalise to netloc so the lookup always works.
+                host_key = self._host_to_key(host)
+                if host_key not in hosts:
+                    raise ValueError("Host {} not found in glab config".format(host))
+                host_config = hosts[host_key]
+                gitlab_url = self._ensure_url_scheme(host_key)
             else:
-                host = next(iter(hosts))
-                host_config = hosts[host]
-
-            gitlab_url = self._ensure_url_scheme(host)
+                host_key = next(iter(hosts))
+                host_config = hosts[host_key]
+                gitlab_url = self._ensure_url_scheme(host_key)
 
             gl = gitlab.Gitlab(url=gitlab_url, private_token=host_config.get("token"), api_version="4")
 
@@ -130,3 +146,19 @@ class GitLabClientFactory:
         except Exception as e:
             logger.error("Failed to initialize GitLab client: %s", str(e))
             raise
+
+    @staticmethod
+    def _host_to_key(host: str) -> str:
+        """Normalise a host string to the bare netloc used as a key in glab config.
+
+        Examples::
+
+            "https://gitlab.example.com/"  -> "gitlab.example.com"
+            "gitlab.example.com"           -> "gitlab.example.com"
+            "https://host:8443/path"     -> "host:8443"
+        """
+        parsed = urlparse(host)
+        if parsed.netloc:
+            return parsed.netloc
+        parsed = urlparse("https://{}".format(host))
+        return parsed.netloc

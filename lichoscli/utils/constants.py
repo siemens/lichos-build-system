@@ -10,3 +10,8 @@ CORE_PACKAGES: list[str] = [CI_PKG, BUILD_IMAGE_PKG, SNAPSHOT_PKG]
 # CI constants
 CI_DEFAULT_PIPELINE_NAME = "gbp"
 CI_TEMPLATE = "{name}.yml@{group}/{pkg}"
+CI_PUBLISH_JOB_NAME = "publish"
+CI_WORKSPACE_JOB_NAME = "workspace-scheduling"
+
+# Scheduler constants
+SCHEDULER_REPORT_TITLE = "Scheduler Report for {0}"

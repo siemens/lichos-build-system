@@ -12,6 +12,7 @@ from lichoscli.core.models.git.git_url import GitUrl
 from lichoscli.core.services import (
     BuildInfoService,
     CacheService,
+    CommitStatusService,
     ContainerService,
     DependencyService,
     EditorStrategy,
@@ -25,6 +26,7 @@ from lichoscli.core.services import (
     StorageService,
     WorkspaceService,
 )
+from lichoscli.core.services.scheduler_service import SchedulerService
 from lichoscli.providers.gitlab.factory import GitLabServiceFactory
 from lichoscli.providers.vscode import VSCodeEditorStrategy
 from lichoscli.ui.interfaces import UserInterface
@@ -72,6 +74,8 @@ class GitLabServiceContainer(DIContainer):
         self._factories[RepoParserService] = factory.create_repo_parser_service
         self._factories[SourceCollectionService] = factory.create_source_collection_service
         self._factories[PkgGroupDiscoveryService] = factory.create_pkg_group_discovery_service
+        self._factories[CommitStatusService] = factory.create_commit_status_service
+        self._factories[SchedulerService] = factory.create_scheduler_service
 
         # EditorStrategy is wired after UserInterface is registered (deferred)
         self._editor_strategies = {}

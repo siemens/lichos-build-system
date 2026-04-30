@@ -190,6 +190,7 @@ class GitLabWorkspaceService(WorkspaceService):
         return GitLabWorkspace(
             name=name,
             packages=packages,
+            protected=packages[0].is_branch_protected(name) if packages else False,
         )
 
     def _get_branch_to_packages_mapping(self) -> dict[str, list[str]]:

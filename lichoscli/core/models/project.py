@@ -146,6 +146,17 @@ class Project(ABC):
         """
 
     @abstractmethod
+    def is_branch_protected(self, branch_name: str) -> bool:
+        """Check if a branch is protected in this project.
+
+        Args:
+            branch_name: Name of the branch to check
+
+        Returns:
+            True if the branch is protected, False otherwise
+        """
+
+    @abstractmethod
     def save(self):
         """Save changes to the project."""
 

@@ -3,7 +3,7 @@
 
 from .artifacts import Artifacts
 from .build import BuildDependency, BuildInfo, BuildParameters, ReverseDependency
-from .dag import DAGNode, DAGNodeStatus, DependencyGraph
+from .dag import DAGNode, DAGNodeStatus, DependencyGraph, WorkspaceStatus
 from .job import Job
 from .jobs import Jobs
 from .merge_request import MergeRequest
@@ -28,6 +28,7 @@ __all__ = [
     "DependencyGraph",
     "DAGNode",
     "DAGNodeStatus",
+    "WorkspaceStatus",
     "Project",
     "Projects",
     "MergeRequest",

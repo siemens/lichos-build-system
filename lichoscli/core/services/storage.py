@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from lichoscli.core.models.dag import DependencyGraph
+from lichoscli.utils.constants import SCHEDULER_REPORT_TITLE
 
 
 class StorageService(ABC):
@@ -78,7 +79,7 @@ class StorageService(ABC):
             The loaded dependency graph or None if not found
         """
         try:
-            title = f"Scheduler Report for {workspace_name}"
+            title = SCHEDULER_REPORT_TITLE.format(workspace_name)
             storage_id = self.find_storage_by_title(title)
 
             if not storage_id:
@@ -101,12 +102,12 @@ class StorageService(ABC):
             True if successfully saved, False otherwise
         """
         try:
-            title = f"Scheduler Report for {workspace_name}"
+            title = SCHEDULER_REPORT_TITLE.format(workspace_name)
 
             storage_id = self.find_storage_by_title(title)
 
             if not storage_id:
-                description = f"Automated scheduler DAG state storage for workspace '{workspace_name}'"
+                description = "Automated scheduler DAG state storage for workspace '{0}'".format(workspace_name)
                 storage_id = self.create_storage(title, description)
 
             return self.save_state(storage_id, dag)

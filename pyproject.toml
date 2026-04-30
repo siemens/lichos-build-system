@@ -37,6 +37,7 @@ dependencies = [
     "python-gitlab",
     "pyyaml",
     "requests",
+    "packaging",
     "diskcache",
     "cachetools",
     "xdg",

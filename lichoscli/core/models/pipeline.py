@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional
 
 from .pipeline_status import PipelineStatus
+from lichoscli.utils.constants import CI_PUBLISH_JOB_NAME
 
 if TYPE_CHECKING:
     from .jobs import Jobs
@@ -72,6 +73,19 @@ class Pipeline(ABC):
     @abstractmethod
     def cancel(self) -> bool:
         """Cancel the pipeline."""
+
+    def is_publish_complete(self) -> bool:
+        """Return True when the publish job has completed successfully."""
+        job = self.jobs.get_by_name(CI_PUBLISH_JOB_NAME)
+        return job is not None and job.status == "success"
+
+    def is_successful(self) -> bool:
+        """Return True when this pipeline has produced usable artifacts."""
+        return self.is_publish_complete()
+
+    def has_failed_jobs(self) -> bool:
+        """Return True if any job in this pipeline has failed."""
+        return self.jobs.has_any_failed()
 
     def to_dict(self) -> dict:
         """Convert pipeline to JSON-serializable dictionary."""

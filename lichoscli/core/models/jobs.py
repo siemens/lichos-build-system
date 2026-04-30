@@ -24,5 +24,9 @@ class Jobs(ABC):
         """Get all jobs in this pipeline."""
 
     @abstractmethod
+    def has_any_failed(self) -> bool:
+        """Return True if any job in this pipeline has failed."""
+
+    @abstractmethod
     def extract_log_from_job(self, job_name: str) -> Optional[str]:
         """Extract log from a job by name."""

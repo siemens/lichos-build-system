@@ -8,6 +8,7 @@ from .dependency_service import DependencyService
 from .gitlab_issue_writer import GitLabIssueWriter
 from .notify_service import GitLabNotifyService
 from .package_service import PackageService
+from .scheduler_service import GitLabSchedulerService
 from .storage_service import GitLabStorageService
 from .workspace_service import GitLabWorkspaceService
 
@@ -16,6 +17,7 @@ __all__ = [
     "DependencyService",
     "GitLabIssueWriter",
     "GitLabNotifyService",
+    "GitLabSchedulerService",
     "GitLabStorageService",
     "PackageService",
     "GitLabWorkspaceService",

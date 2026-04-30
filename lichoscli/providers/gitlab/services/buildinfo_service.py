@@ -260,28 +260,27 @@ class GitLabBuildInfoService(BuildInfoService):
             if not pipeline:
                 return BuildInfoResult()
 
-        if pipeline.status.is_final:
-            if pipeline.status.is_successful:
-                logger.debug(
-                    "Found successful pipeline %s for %s",
-                    pipeline.id,
-                    project.name,
-                )
-            else:
+        if pipeline.is_successful():
+            logger.debug(
+                "Found successful pipeline %s for %s",
+                pipeline.id,
+                project.name,
+            )
+        elif pipeline.status.is_final:
+            logger.warning(
+                "Latest pipeline %s for %s finished with status: %s but did not succeed. Looking for previous successful pipeline.",
+                pipeline.id,
+                project.name,
+                pipeline.status.to_string(),
+            )
+            pipeline = project.pipelines.get_some_latest_pipeline(branch_name)
+            if not pipeline:
                 logger.warning(
-                    "Latest pipeline %s for %s failed with status: %s. Looking for previous successful pipeline.",
-                    pipeline.id,
+                    "No successful pipeline found for package %s on branch %s",
                     project.name,
-                    pipeline.status.to_string(),
+                    branch_name,
                 )
-                pipeline = project.pipelines.get_some_latest_pipeline(branch_name)
-                if not pipeline:
-                    logger.warning(
-                        "No successful pipeline found for package %s on branch %s",
-                        project.name,
-                        branch_name,
-                    )
-                    return BuildInfoResult()
+                return BuildInfoResult()
         elif pipeline.status.is_waiting or pipeline.status.is_active:
             logger.info(
                 "Pipeline %s for project %s is %s, waiting for completion...",
@@ -405,11 +404,23 @@ class GitLabBuildInfoService(BuildInfoService):
         start_time = time.time()
         poll_interval = 30
 
-        logger.info(
+        logger.warning(
             "Waiting for pipeline of project %s to complete (status: %s)",
             project.name,
             pipeline.status.to_string(),
         )
+        
+        if pipeline.is_successful():
+            return pipeline
+        if pipeline.has_failed_jobs():
+            logger.warning(
+                "Pipeline %s for %s has no active jobs. "
+                "Looking for previous successful pipeline.",
+                pipeline.id,
+                project.name,
+            )
+            return project.pipelines.get_some_latest_pipeline(target_branch)
+
         while time.time() - start_time < max_wait_seconds:
             time.sleep(poll_interval)
 
@@ -426,37 +437,29 @@ class GitLabBuildInfoService(BuildInfoService):
             else:
                 pipeline = current_pipeline
 
-            if pipeline.status.is_final:
+            if pipeline.is_publish_complete():
                 elapsed_minutes = (time.time() - start_time) / 60
                 logger.info(
-                    "Pipeline %s for %s completed after %.1f minutes with status: %s",
+                    "Publish job for %s completed successfully after %.1f minutes",
+                    project.name,
+                    elapsed_minutes,
+                )
+                return pipeline
+
+            if pipeline.status.is_final or pipeline.has_failed_jobs():
+                elapsed_minutes = (time.time() - start_time) / 60
+                logger.warning(
+                    "Pipeline %s for %s finished after %.1f minutes with status %s but publish job did not complete. "
+                    "Looking for previous successful pipeline.",
                     pipeline.id,
                     project.name,
                     elapsed_minutes,
                     pipeline.status.to_string(),
                 )
-
-                if pipeline.status.is_successful:
-                    logger.info(
-                        "Pipeline for %s completed successfully: %s",
-                        project.name,
-                        pipeline.status.to_string(),
-                    )
-                    return pipeline
-                logger.warning(
-                    "Pipeline for %s failed: %s",
-                    project.name,
-                    pipeline.status.to_string(),
-                )
-                logger.warning(
-                    "Pipeline %s for %s failed. Looking for previous successful pipeline.",
-                    pipeline.id,
-                    project.name,
-                )
                 return project.pipelines.get_some_latest_pipeline(target_branch)
 
             logger.debug(
-                "Pipeline %s for %s still %s, continuing to wait...",
+                "Pipeline %s for %s still %s, waiting for publish job...",
                 pipeline.id,
                 project.name,
                 pipeline.status.to_string(),
@@ -471,9 +474,10 @@ class GitLabBuildInfoService(BuildInfoService):
             elapsed_minutes,
             pipeline.status.to_string(),
         )
-        console.print(
-            f"Timeout waiting for pipeline of {project.name} "
-            f"(waited {elapsed_minutes:.1f} minutes). Using previous successful pipeline."
+        logger.info(
+            "Timeout waiting for pipeline of %s (waited %.1f minutes). Using previous successful pipeline.",
+            project.name,
+            elapsed_minutes,
         )
         return project.pipelines.get_some_latest_pipeline(target_branch)
 

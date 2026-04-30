@@ -190,8 +190,11 @@ class TestGitLabClientFactory:
         with pytest.raises(Exception, match="Unexpected error"):
             factory._init_from_glab_config()
 
+    @patch.object(GitLabClientFactory, "_get_token_from_config", return_value=(None, None))
+    @patch.object(GitLabClientFactory, "_get_host_from_env", return_value=None)
+    @patch.object(GitLabClientFactory, "_get_token_from_env", return_value=None)
     @patch.object(GitLabClientFactory, "_init_from_glab_config")
-    def test_create_with_host(self, mock_init):
+    def test_create_with_host(self, mock_init, _tok, _host, _cfg):
         """Test create method with host."""
         mock_gl_instance = MagicMock()
         mock_init.return_value = mock_gl_instance
@@ -202,8 +205,11 @@ class TestGitLabClientFactory:
         mock_init.assert_called_once_with("gitlab.example.com")
         assert result == mock_gl_instance
 
+    @patch.object(GitLabClientFactory, "_get_token_from_config", return_value=(None, None))
+    @patch.object(GitLabClientFactory, "_get_host_from_env", return_value=None)
+    @patch.object(GitLabClientFactory, "_get_token_from_env", return_value=None)
     @patch.object(GitLabClientFactory, "_init_from_glab_config")
-    def test_create_without_host(self, mock_init):
+    def test_create_without_host(self, mock_init, _tok, _host, _cfg):
         """Test create method without host."""
         mock_gl_instance = MagicMock()
         mock_init.return_value = mock_gl_instance

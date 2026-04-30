@@ -205,6 +205,14 @@ class GitLabProject(Project, CacheMixin):
         except GitlabError:
             return False
 
+    def is_branch_protected(self, branch_name: str) -> bool:
+        """Check if a branch is protected in this project."""
+        try:
+            protected = self.protectedbranches.list()
+            return any(pb.name == branch_name for pb in protected)
+        except GitlabError:
+            return False
+
     def get_branch(self, branch_name: str):
         """Get a branch by name, with caching to avoid redundant API calls.
 

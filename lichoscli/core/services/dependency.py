@@ -2,9 +2,14 @@
 # Copyright (c) 2026 Siemens AG
 
 from abc import ABC, abstractmethod
+import logging
 from typing import NamedTuple
 
+from packaging import version
+
 from ..models import BuildDependency, DependencyGraph, Project
+
+logger = logging.getLogger(__name__)
 
 
 class VersionCheckResult(NamedTuple):
@@ -74,7 +79,6 @@ class DependencyService(ABC):
             True if dependent_project depends on target_project, False otherwise
         """
 
-    @abstractmethod
     def compare_versions(self, version1: str, version2: str) -> bool:
         """
         Compare if two versions are equivalent.
@@ -86,8 +90,17 @@ class DependencyService(ABC):
         Returns:
             True if versions are equivalent, False otherwise
         """
+        if not version1 or not version2:
+            return False
 
-    @abstractmethod
+        normalized_v1 = self.normalize_version(version1)
+        normalized_v2 = self.normalize_version(version2)
+
+        try:
+            return version.parse(normalized_v1) == version.parse(normalized_v2)
+        except (version.InvalidVersion, ValueError, TypeError):
+            return normalized_v1 == normalized_v2
+
     def normalize_version(self, version_string: str) -> str:
         """
         Normalize a version string by removing epoch and debian revision.
@@ -98,27 +111,73 @@ class DependencyService(ABC):
         Returns:
             Normalized version string
         """
+        if not version_string:
+            return ""
 
-    @abstractmethod
+        if ":" in version_string:
+            version_string = version_string.split(":", 1)[1]
+
+        if "-" in version_string:
+            version_string = version_string.rsplit("-", 1)[0]
+        return version_string
+
     def check_all_dependency_versions_from_dag(
         self,
-        dag: DependencyGraph
+        dag: DependencyGraph,
     ) -> list[VersionCheckResult]:
-        """
-        Check dependency versions for all packages using the DAG for optimization.
+        """ Check dependency versions for all packages using the DAG for optimization."""
+        results = []
 
-        This method leverages the pre-built DAG to efficiently check all dependency
-        relationships without redundant buildinfo fetches or dependency lookups.
-        The project references are now embedded directly in DAG nodes.
+        for package_name, node in dag.nodes.items():
+            target_buildinfo = node.buildinfo
+            if not target_buildinfo or not target_buildinfo.version:
+                logger.warning(
+                    "Missing buildinfo or version for package '%s', skipping version checks for its dependents",
+                    package_name,
+                )
+                continue
 
-        Args:
-            dag: Pre-built dependency DAG containing all package relationships with embedded projects
-            branch: Branch to get buildinfo from. If None, uses default branch
-            wait_for_completion: Whether to wait for pipeline completion.
+            target_version = target_buildinfo.version
+            target_binary_packages = target_buildinfo.binary or []
 
-        Returns:
-            List of version check results for all dependency relationships in the DAG
-        """
+            if not target_binary_packages:
+                logger.warning(
+                    "No binary packages found for '%s', skipping version checks for its dependents",
+                    package_name,
+                )
+                continue
+
+            for dependent_name in node.reverse_dependencies:
+                dependent_node = dag.nodes.get(dependent_name)
+                if not dependent_node or not dependent_node.buildinfo:
+                    logger.warning(
+                        "Missing node or buildinfo for dependent package '%s', skipping version check against '%s'",
+                        dependent_name,
+                        package_name,
+                    )
+                    continue
+
+                dependent_buildinfo = dependent_node.buildinfo
+
+                for binary_pkg in target_binary_packages:
+                    build_dep = dependent_buildinfo.get_build_dependency(binary_pkg)
+                    if build_dep:
+                        used_version = build_dep.version
+                        is_correct = self.compare_versions(used_version, target_version)
+
+                        results.append(
+                            VersionCheckResult(
+                                dependent_package=dependent_name,
+                                dependent_version=dependent_buildinfo.version or "unknown",
+                                used_version=used_version,
+                                expected_version=target_version,
+                                is_correct=is_correct,
+                                binary_package=binary_pkg,
+                                source_package=package_name,
+                            )
+                        )
+
+        return results
 
     @abstractmethod
     def build_dependency_dag(

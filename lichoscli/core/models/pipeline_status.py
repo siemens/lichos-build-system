@@ -99,6 +99,26 @@ class PipelineStatus(Enum):
         }
 
     @classmethod
+    def in_progress_values(cls) -> frozenset:
+        """String values for statuses that are in-progress (waiting or active, excludes success/failure)."""
+        return frozenset(s.value for s in cls.waiting_states() | cls.active_states())
+
+    @classmethod
+    def non_failure_values(cls) -> frozenset:
+        """String values for statuses that are not a definitive failure (in-progress plus success)."""
+        return frozenset(s.value for s in cls.waiting_states() | cls.active_states() | {cls.SUCCESS})
+
+    @classmethod
+    def failure_values(cls) -> frozenset:
+        """String values for statuses that represent a definitive failure."""
+        return frozenset(s.value for s in {cls.FAILED, cls.CANCELED, cls.CANCELING})
+
+    @classmethod
+    def non_success_final_values(cls) -> frozenset:
+        """String values for statuses that are final but not successful (failures plus skipped)."""
+        return frozenset(s.value for s in {cls.FAILED, cls.CANCELED, cls.CANCELING, cls.SKIPPED})
+
+    @classmethod
     def from_string(cls, status_str: str) -> "PipelineStatus":
         """
         Create PipelineStatus from string value.

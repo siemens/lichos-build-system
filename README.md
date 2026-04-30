@@ -250,6 +250,7 @@ The scheduler:
 - **Builds level by level** - waits for each level to complete before starting the next
 - **Monitors progress** with real-time status updates and web links
 - **Stops on failure** to prevent cascading build issues
+- **Posts commit statuses** for each package node via the GitLab Commit Status API, reflecting the current scheduler state (`running`, `success`, `failed`, or `canceled`) under the `workspace-scheduling` context — this acts as a **merge gate**: a package's merge request cannot be merged until its build has succeeded, preventing broken or outdated packages from landing while their dependencies are still building or have failed
 
 ### Build Dependencies Analysis
 

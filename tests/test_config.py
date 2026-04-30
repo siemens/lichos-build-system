@@ -180,13 +180,15 @@ class TestConfigBuilder:
         assert config.pkg_group == "my-org/my-group"
         assert config.branch == "main"
     
+    @patch('lichoscli.core.config.UserConfigStore')
     @patch('lichoscli.core.config.GitRepo')
-    def test_build_missing_required_fields(self, mock_git_repo):
+    def test_build_missing_required_fields(self, mock_git_repo, mock_config_store):
         """Test that config is built with None values when fields are missing."""
         # Mock GitRepo.auto_detect() to return None (no git repo found)
         mock_git_repo.auto_detect.return_value = None
         mock_git_repo.return_value.is_valid = False
         mock_git_repo.return_value.active_branch = "main"
+        mock_config_store.read.return_value = {}
         
         args = Namespace(
             host=None,

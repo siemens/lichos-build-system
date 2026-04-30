@@ -8,7 +8,6 @@ import os
 from typing import TYPE_CHECKING
 
 from gitlab import GitlabError
-from packaging import version
 
 from lichoscli.core.models import (
     BuildDependency,
@@ -17,7 +16,7 @@ from lichoscli.core.models import (
     DependencyGraph,
     Project,
 )
-from lichoscli.core.services import DependencyService, VersionCheckResult
+from lichoscli.core.services import DependencyService
 from lichoscli.utils.build import BuildUtils
 
 if TYPE_CHECKING:
@@ -115,104 +114,6 @@ class GitLabDependencyService(DependencyService):
                 return True
         return False
 
-    def compare_versions(self, version1: str, version2: str) -> bool:
-        """
-        Compare if two versions are equivalent.
-
-        Args:
-            version1: First version string
-            version2: Second version string
-
-        Returns:
-            True if versions are equivalent, False otherwise
-        """
-        if not version1 or not version2:
-            return False
-
-        normalized_v1 = self.normalize_version(version1)
-        normalized_v2 = self.normalize_version(version2)
-
-        try:
-            return version.parse(normalized_v1) == version.parse(normalized_v2)
-        except (version.InvalidVersion, ValueError, TypeError):
-            return normalized_v1 == normalized_v2
-
-    def normalize_version(self, version_string: str) -> str:
-        """
-        Normalize a version string by removing epoch and debian revision.
-
-        Args:
-            version_string: Version string to normalize
-
-        Returns:
-            Normalized version string
-        """
-        if not version_string:
-            return ""
-
-        if ":" in version_string:
-            version_string = version_string.split(":", 1)[1]
-
-        if "-" in version_string:
-            version_string = version_string.rsplit("-", 1)[0]
-        return version_string
-
-    def check_all_dependency_versions_from_dag(
-        self,
-        dag: DependencyGraph
-    ) -> list[VersionCheckResult]:
-        """
-        Check dependency versions for all packages using the DAG for optimization.
-
-        This method leverages the pre-built DAG to efficiently check all dependency
-        relationships without redundant buildinfo fetches or dependency lookups.
-        Uses embedded project references from DAG nodes instead of external lookups.
-        """
-
-        results = []
-
-        for package_name, node in dag.nodes.items():
-            target_package = node.project
-            if not target_package:
-                continue
-
-            target_buildinfo = node.buildinfo
-            if not target_buildinfo or not target_buildinfo.version:
-                continue
-
-            target_version = target_buildinfo.version
-            target_binary_packages = target_buildinfo.binary or []
-
-            if not target_binary_packages:
-                continue
-
-            for dependent_name in node.reverse_dependencies:
-                dependent_node = dag.nodes.get(dependent_name)
-                if not dependent_node or not dependent_node.buildinfo or not dependent_node.project:
-                    continue
-
-                dependent_buildinfo = dependent_node.buildinfo
-
-                for binary_pkg in target_binary_packages:
-                    build_dep = dependent_buildinfo.get_build_dependency(binary_pkg)
-                    if build_dep:
-                        used_version = build_dep.version
-                        is_correct = self.compare_versions(used_version, target_version)
-
-                        results.append(
-                            VersionCheckResult(
-                                dependent_package=dependent_name,
-                                dependent_version=dependent_buildinfo.version or "unknown",
-                                used_version=used_version,
-                                expected_version=target_version,
-                                is_correct=is_correct,
-                                binary_package=binary_pkg,
-                                source_package=package_name,
-                            )
-                        )
-
-        return results
-
     def build_dependency_dag(
         self,
         all_packages: list[Project],
@@ -262,17 +163,23 @@ class GitLabDependencyService(DependencyService):
                 continue
             pkg_version = buildinfo.version if buildinfo else "unknown"
             target_branch = branch if branch else package.default_branch
-            commit_sha = package.get_latest_commit_sha(target_branch)
 
             node_status = DAGNodeStatus.PENDING
+            commit_sha = None
+            pipeline_url = None
             try:
                 latest_pipeline = package.pipelines.get_latest(target_branch, use_cache=True)
                 if not latest_pipeline:
                     latest_pipeline = cached_pipeline
                 if latest_pipeline:
                     node_status = DAGNodeStatus.from_pipeline_status(latest_pipeline.status)
+                    commit_sha = latest_pipeline.sha
+                    pipeline_url = latest_pipeline.web_url
             except GitlabError as e:
                 logger.debug("Could not get pipeline status for %s: %s", package.name, e)
+
+            if not commit_sha:
+                commit_sha = package.get_latest_commit_sha(target_branch)
 
             node = DAGNode(
                 package=package.name,
@@ -283,6 +190,7 @@ class GitLabDependencyService(DependencyService):
                 status=node_status,
                 buildinfo=buildinfo,
                 commit_sha=commit_sha,
+                pipeline_url=pipeline_url,
                 project=package,
             )
             nodes[package.name] = node
@@ -346,7 +254,8 @@ class GitLabDependencyService(DependencyService):
         1. Number of packages in the graph
         2. Dependencies between packages (direct and reverse)
         3. Commit hashes of each package
-        4. Status of each package (derived from pipeline status)
+        4. Package versions (a new pipeline on the same commit produces a new version)
+        5. Status of each package (derived from pipeline status)
 
         Args:
             old_dag: Previous DAG state
@@ -371,7 +280,7 @@ class GitLabDependencyService(DependencyService):
                        added, removed)
             return True
 
-        # Check each package for changes in commit hash, dependencies, or status
+        # Check each package for changes in commit hash, version, dependencies, or status
         for package_name in old_packages:
             old_node = old_dag.nodes[package_name]
             new_node = new_dag.nodes[package_name]
@@ -380,6 +289,13 @@ class GitLabDependencyService(DependencyService):
             if old_node.commit_sha != new_node.commit_sha:
                 logger.info("DAG state changed: %s commit changed (%s -> %s)",
                            package_name, old_node.commit_sha, new_node.commit_sha)
+                return True
+
+            # Check if package version changed (new pipeline run on same
+            # commit still produces a new binary version)
+            if old_node.version != new_node.version:
+                logger.info("DAG state changed: %s version changed (%s -> %s)",
+                           package_name, old_node.version, new_node.version)
                 return True
 
             old_deps = set(old_node.direct_dependencies.keys())

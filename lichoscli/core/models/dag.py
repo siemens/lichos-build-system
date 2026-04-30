@@ -2,15 +2,27 @@
 # Copyright (c) 2026 Siemens AG
 
 import json
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Iterable, Optional
 from .pipeline_status import PipelineStatus
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from lichoscli.core.services import VersionCheckResult
     from lichoscli.core.models.project import Project
     from .build import BuildInfo
+
+
+class WorkspaceStatus(Enum):
+    """Workspace-level scheduling status posted globally to all packages."""
+
+    BUILDING = "running"
+    FAILED = "failed"
+    SUCCESS = "success"
+    STALE = "canceled"
 
 
 @dataclass
@@ -20,17 +32,7 @@ class DependencyGraph:
     nodes: dict[str, "DAGNode"]
 
     def __str__(self) -> str:
-        dag_dict = {
-            pkg_name: {
-                "version": node.version,
-                "commit_sha": node.commit_sha,
-                "status": node.status.value,
-                "direct_dependencies": list(node.direct_dependencies.keys()),
-                "reverse_dependencies": list(node.reverse_dependencies.keys()),
-            }
-            for pkg_name, node in self.nodes.items()
-        }
-        return json.dumps(dag_dict, indent=2)
+        return json.dumps(self.to_dict(), indent=2)
 
     # ── Node management ──────────────────────────────────────────────
 
@@ -71,7 +73,7 @@ class DependencyGraph:
 
     def mark_building(self, package_name: str) -> None:
         """Transition a node from PENDING to BUILDING."""
-        self.nodes[package_name].status = DAGNodeStatus.BUILDING
+        self.nodes[package_name].set_status(DAGNodeStatus.BUILDING)
 
     def mark_succeeded(self, package_name: str) -> list["DAGNode"]:
         """
@@ -81,7 +83,8 @@ class DependencyGraph:
         the returned nodes without rescanning the entire graph.
         """
         node = self.nodes[package_name]
-        node.status = DAGNodeStatus.SUCCESS
+        node.set_status(DAGNodeStatus.SUCCESS)
+        node.is_stale = False
         return [
             dependent
             for dependent in node.reverse_dependencies.values()
@@ -97,7 +100,7 @@ class DependencyGraph:
         Transition a node to FAILED and return PENDING dependents that are
         now blocked (they can never build in this scheduling run).
         """
-        self.nodes[package_name].status = DAGNodeStatus.FAILED
+        self.nodes[package_name].set_status(DAGNodeStatus.FAILED)
         return self._collect_blocked_dependents(package_name)
 
     def is_complete(self) -> bool:
@@ -132,24 +135,7 @@ class DependencyGraph:
 
     def get_transitive_dependents(self, package_name: str) -> list["DAGNode"]:
         """Get all packages that transitively depend on the given package."""
-        dependent_nodes = {}
-        to_visit = [package_name]
-        visited = set()
-
-        while to_visit:
-            current = to_visit.pop()
-            if current in visited:
-                continue
-            visited.add(current)
-
-            if current in self.nodes:
-                node = self.nodes[current]
-                for dependent_name in node.reverse_dependencies:
-                    if dependent_name not in visited and dependent_name in self.nodes:
-                        dependent_nodes[dependent_name] = self.nodes[dependent_name]
-                        to_visit.append(dependent_name)
-
-        return list(dependent_nodes.values())
+        return self._traverse_dependents(package_name)
 
     def find_source_for_binary(self, binary_package_name: str) -> Optional[str]:
         """Find the source package that produces a given binary package."""
@@ -211,6 +197,35 @@ class DependencyGraph:
         """Return package names currently marked as stale."""
         return {name for name, node in self.nodes.items() if node.is_stale}
 
+    def compute_workspace_status(self) -> "WorkspaceStatus":
+        """Derive the global workspace status from all node statuses.
+
+        Rules applied in priority order:
+        1. Any node FAILED → FAILED
+        2. Any node BUILDING or PENDING (with builds expected) → BUILDING
+        3. Any node marked stale → STALE
+        4. Otherwise → SUCCESS
+        """
+        has_failed = False
+        has_active = False
+        has_stale = False
+
+        for node in self.nodes.values():
+            if node.status == DAGNodeStatus.FAILED:
+                has_failed = True
+            elif node.status in (DAGNodeStatus.BUILDING, DAGNodeStatus.PENDING):
+                has_active = True
+            if node.is_stale:
+                has_stale = True
+
+        if has_failed:
+            return WorkspaceStatus.FAILED
+        if has_active:
+            return WorkspaceStatus.BUILDING
+        if has_stale:
+            return WorkspaceStatus.STALE
+        return WorkspaceStatus.SUCCESS
+
     # ── Serialization ────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
@@ -269,9 +284,27 @@ class DependencyGraph:
 
     def _collect_blocked_dependents(self, failed_package: str) -> list["DAGNode"]:
         """Collect all PENDING transitive dependents of a failed package."""
-        blocked: list["DAGNode"] = []
+        return self._traverse_dependents(
+            failed_package,
+            predicate=lambda node: node.status == DAGNodeStatus.PENDING,
+        )
+
+    def _traverse_dependents(
+        self,
+        start_package: str,
+        predicate: Optional[callable] = None,
+    ) -> list["DAGNode"]:
+        """BFS over reverse_dependencies collecting matching dependents.
+
+        Args:
+            start_package: Package name to start traversal from.
+            predicate: Optional filter; only nodes satisfying it are collected
+                       and further traversed.  When *None*, all reachable
+                       dependents are collected.
+        """
+        collected: dict[str, "DAGNode"] = {}
         visited: set[str] = set()
-        queue = [failed_package]
+        queue = [start_package]
         while queue:
             current = queue.pop()
             if current in visited:
@@ -281,10 +314,13 @@ class DependencyGraph:
             if node is None:
                 continue
             for dep_name, dep_node in node.reverse_dependencies.items():
-                if dep_name not in visited and dep_node.status == DAGNodeStatus.PENDING:
-                    blocked.append(dep_node)
-                    queue.append(dep_name)
-        return blocked
+                if dep_name in visited:
+                    continue
+                if predicate is not None and not predicate(dep_node):
+                    continue
+                collected[dep_name] = dep_node
+                queue.append(dep_name)
+        return list(collected.values())
 
 
 class DAGNodeStatus(Enum):
@@ -299,6 +335,10 @@ class DAGNodeStatus(Enum):
     def is_terminal(self) -> bool:
         """True when the node has reached a final state."""
         return self in (DAGNodeStatus.SUCCESS, DAGNodeStatus.FAILED)
+
+    def can_transition_to(self, target: "DAGNodeStatus") -> bool:
+        """Check whether transitioning from this status to *target* is valid."""
+        return target in _VALID_TRANSITIONS.get(self, set())
 
     @classmethod
     def from_pipeline_status(cls, pipeline_status: "PipelineStatus") -> "DAGNodeStatus":
@@ -329,6 +369,21 @@ class DAGNodeStatus(Enum):
         return cls.PENDING
 
 
+_VALID_TRANSITIONS: dict[DAGNodeStatus, set[DAGNodeStatus]] = {
+    DAGNodeStatus.PENDING: {
+        DAGNodeStatus.BUILDING,
+        DAGNodeStatus.SUCCESS,
+        DAGNodeStatus.FAILED,
+    },
+    DAGNodeStatus.BUILDING: {
+        DAGNodeStatus.SUCCESS,
+        DAGNodeStatus.FAILED,
+    },
+    DAGNodeStatus.SUCCESS: set(),
+    DAGNodeStatus.FAILED: set(),
+}
+
+
 @dataclass
 class DAGNode:
     """A node in the DAG representing a package and its reverse dependencies."""
@@ -342,6 +397,7 @@ class DAGNode:
     status: DAGNodeStatus = DAGNodeStatus.PENDING
     buildinfo: Optional["BuildInfo"] = None
     commit_sha: Optional[str] = None
+    pipeline_url: Optional[str] = None
     is_stale: bool = False
 
     def add_dependent(self, node: "DAGNode") -> None:
@@ -361,7 +417,9 @@ class DAGNode:
 
     def provides_binary_package(self, binary_package_name: str) -> bool:
         """Check if this node provides a specific binary package."""
-        return binary_package_name in self.binary_packages
+        if not self.buildinfo or not self.buildinfo.binary:
+            return False
+        return binary_package_name in self.buildinfo.binary
 
     def set_status(self, new_status: "DAGNodeStatus") -> None:
         self.status = new_status

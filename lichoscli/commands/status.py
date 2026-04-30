@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 
 from lichoscli.commands.base import Command
+from lichoscli.core.models.pipeline_status import PipelineStatus
 from lichoscli.core.services import PackageService
 from lichoscli.ui import Cell, Table
 from lichoscli.utils import BuildUtils, TimeUtils
@@ -29,15 +30,7 @@ class StatusCommand(Command):
             return "error"
         if status in ["canceled", "canceling"]:
             return "warning"
-        if status in [
-            "running",
-            "pending",
-            "created",
-            "waiting_for_resource",
-            "preparing",
-            "scheduled",
-            "manual",
-        ]:
+        if status in PipelineStatus.in_progress_values():
             return "warning"
         return None
 

@@ -10,17 +10,17 @@ from lichoscli.core.models.dag import DAGNode, DAGNodeStatus, DependencyGraph
 from lichoscli.providers.gitlab.services.dependency_service import GitLabDependencyService
 
 
-def _make_node(package: str, commit_sha: str | None, project=None) -> DAGNode:
+def _make_node(package: str, commit_sha: str | None, project=None, version: str = "1.0") -> DAGNode:
     """Helper to create a minimal DAGNode."""
     return DAGNode(
         package=package,
-        version="1.0",
+        version=version,
         architecture="amd64",
         reverse_dependencies={},
         direct_dependencies={},
         status=DAGNodeStatus.PENDING,
         commit_sha=commit_sha,
-        project=project or Mock(path_with_namespace=f"group/{package}"),
+        project=project or Mock(path_with_namespace="group/{}".format(package)),
     )
 
 
@@ -124,3 +124,52 @@ class TestGetDagChangedPackages(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestHasDagStateChanged(unittest.TestCase):
+    def setUp(self):
+        buildinfo_service = Mock()
+        self.service = GitLabDependencyService(buildinfo_service)
+
+    def test_unchanged_dag_returns_false(self):
+        """Identical DAGs should report no changes."""
+        old_dag = _make_dag([_make_node("pkg-a", commit_sha="abc", version="1.0")])
+        new_dag = _make_dag([_make_node("pkg-a", commit_sha="abc", version="1.0")])
+
+        self.assertFalse(self.service.has_dag_state_changed(old_dag, new_dag))
+
+    def test_commit_change_returns_true(self):
+        """A changed commit SHA should be detected."""
+        old_dag = _make_dag([_make_node("pkg-a", commit_sha="abc", version="1.0")])
+        new_dag = _make_dag([_make_node("pkg-a", commit_sha="def", version="1.0")])
+
+        self.assertTrue(self.service.has_dag_state_changed(old_dag, new_dag))
+
+    def test_version_change_same_commit_returns_true(self):
+        """A new pipeline on the same commit produces a new version and must be detected."""
+        old_dag = _make_dag([_make_node("pkg-a", commit_sha="abc", version="1.0+lichos37")])
+        new_dag = _make_dag([_make_node("pkg-a", commit_sha="abc", version="1.0+lichos38")])
+
+        self.assertTrue(self.service.has_dag_state_changed(old_dag, new_dag))
+
+    def test_package_count_change_returns_true(self):
+        """Adding a package should be detected."""
+        old_dag = _make_dag([_make_node("pkg-a", commit_sha="abc")])
+        new_dag = _make_dag([
+            _make_node("pkg-a", commit_sha="abc"),
+            _make_node("pkg-b", commit_sha="def"),
+        ])
+
+        self.assertTrue(self.service.has_dag_state_changed(old_dag, new_dag))
+
+    def test_status_change_returns_true(self):
+        """A pipeline status change should be detected."""
+        old_node = _make_node("pkg-a", commit_sha="abc")
+        old_node.status = DAGNodeStatus.SUCCESS
+        new_node = _make_node("pkg-a", commit_sha="abc")
+        new_node.status = DAGNodeStatus.FAILED
+
+        old_dag = _make_dag([old_node])
+        new_dag = _make_dag([new_node])
+
+        self.assertTrue(self.service.has_dag_state_changed(old_dag, new_dag))

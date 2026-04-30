@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Siemens AG
 
-from lichoscli.core.models import DAGNode, DAGNodeStatus, DependencyGraph
+from lichoscli.core.models import DAGNode, DAGNodeStatus, DependencyGraph, WorkspaceStatus
 from lichoscli.core.services import VersionCheckResult
 
 
@@ -334,3 +334,79 @@ def test_dependency_graph_apply_version_check_results_marks_stale_nodes():
     assert dag.get_stale_packages() == {"pkg-b"}
     assert dag.nodes["pkg-a"].is_stale is False
     assert dag.nodes["pkg-b"].is_stale is True
+
+
+# ── compute_workspace_status ────────────────────────────────────────
+
+
+def test_compute_workspace_status_all_success():
+    dag = _diamond_dag()
+    for node in dag.nodes.values():
+        node.set_status(DAGNodeStatus.SUCCESS)
+    assert dag.compute_workspace_status() == WorkspaceStatus.SUCCESS
+
+
+def test_compute_workspace_status_any_failed():
+    dag = _diamond_dag()
+    dag.nodes["A"].set_status(DAGNodeStatus.SUCCESS)
+    dag.nodes["B"].set_status(DAGNodeStatus.FAILED)
+    dag.nodes["C"].set_status(DAGNodeStatus.SUCCESS)
+    dag.nodes["D"].set_status(DAGNodeStatus.SUCCESS)
+    assert dag.compute_workspace_status() == WorkspaceStatus.FAILED
+
+
+def test_compute_workspace_status_building():
+    dag = _diamond_dag()
+    dag.nodes["A"].set_status(DAGNodeStatus.SUCCESS)
+    dag.nodes["B"].set_status(DAGNodeStatus.BUILDING)
+    dag.nodes["C"].set_status(DAGNodeStatus.SUCCESS)
+    dag.nodes["D"].set_status(DAGNodeStatus.SUCCESS)
+    assert dag.compute_workspace_status() == WorkspaceStatus.BUILDING
+
+
+def test_compute_workspace_status_pending_means_building():
+    dag = _diamond_dag()
+    for node in dag.nodes.values():
+        node.set_status(DAGNodeStatus.SUCCESS)
+    dag.nodes["D"].status = DAGNodeStatus.PENDING
+    assert dag.compute_workspace_status() == WorkspaceStatus.BUILDING
+
+
+def test_compute_workspace_status_stale():
+    dag = _diamond_dag()
+    for node in dag.nodes.values():
+        node.set_status(DAGNodeStatus.SUCCESS)
+    dag.nodes["B"].is_stale = True
+    assert dag.compute_workspace_status() == WorkspaceStatus.STALE
+
+
+def test_compute_workspace_status_failed_takes_priority_over_building():
+    dag = _diamond_dag()
+    dag.nodes["A"].set_status(DAGNodeStatus.FAILED)
+    dag.nodes["B"].set_status(DAGNodeStatus.BUILDING)
+    dag.nodes["C"].set_status(DAGNodeStatus.SUCCESS)
+    dag.nodes["D"].set_status(DAGNodeStatus.SUCCESS)
+    assert dag.compute_workspace_status() == WorkspaceStatus.FAILED
+
+
+def test_mark_succeeded_clears_is_stale_flag():
+    """A node built after being marked stale must not leave workspace in STALE state."""
+    dag = _diamond_dag()
+    for node in dag.nodes.values():
+        node.set_status(DAGNodeStatus.PENDING)
+        node.is_stale = True
+    dag.mark_building("A")
+    dag.mark_succeeded("A")
+    assert not dag.nodes["A"].is_stale
+
+
+def test_compute_workspace_status_success_after_stale_nodes_rebuilt():
+    """Workspace status must be SUCCESS when all formerly-stale nodes have been rebuilt."""
+    dag = _diamond_dag()
+    for node in dag.nodes.values():
+        node.set_status(DAGNodeStatus.PENDING)
+        node.is_stale = True
+    for name in list(dag.nodes.keys()):
+        dag.mark_building(name)
+        dag.mark_succeeded(name)
+    assert dag.compute_workspace_status() == WorkspaceStatus.SUCCESS

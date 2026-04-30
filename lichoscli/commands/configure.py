@@ -20,7 +20,6 @@ class ConfigureCommand(Command):
 
     def __init__(self, di_container: DIContainer, args):
         super().__init__(di_container, args)
-        self.discovery = di_container.obtain_ref(PkgGroupDiscoveryService)
 
     def execute(self) -> int:
 
@@ -46,8 +45,19 @@ class ConfigureCommand(Command):
             return 1
 
         host = self._normalize_host(host)
+
+        if current_token:
+            token_prompt = "GitLab personal access token (leave blank to keep existing)"
+        else:
+            token_prompt = "GitLab personal access token"
+
+        new_token = self.prompts.secret_input(token_prompt)
+        token = new_token or current_token
+
+        UserConfigStore.write(host, current_pkg_group or "", token)
+        discovery = self.di_container.obtain_ref(PkgGroupDiscoveryService)
         self.output.info("Searching for pkg groups on {0}...".format(host))
-        groups = self.discovery.search_pkg_groups(_SEARCH_QUERY, host=host)
+        groups = discovery.search_pkg_groups(_SEARCH_QUERY, host=host)
         if not groups:
             self.output.error(
                 "No projects matching '{0}' found on {1}.".format(_SEARCH_QUERY, host)
@@ -60,20 +70,12 @@ class ConfigureCommand(Command):
             "Choose the group that contains the {0} project:".format(_SEARCH_QUERY),
             choices,
         )
-        
+
         if pkg_group is None:
             self.output.info("Cancelled.")
             return 0
-            
-        if current_token:
-            token_prompt = "GitLab personal access token (leave blank to keep existing)"
-        else:
-            token_prompt = "GitLab personal access token"
-        
-        new_token = self.prompts.secret_input(token_prompt)
-        token = new_token or current_token
 
-        if not self.prompts.confirm("Overwrite existing configuration?", default=True):
+        if not self.prompts.confirm("Save configuration?", default=True):
             self.output.info("Aborted.")
             return 0
 

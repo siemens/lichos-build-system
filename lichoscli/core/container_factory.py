@@ -4,7 +4,7 @@
 """Factory for creating provider-specific DI containers."""
 
 import logging
-from typing import Callable, Any
+from typing import Any
 
 from lichoscli.core.config import LichosConfig, ProviderType
 from lichoscli.core.di import DIContainer

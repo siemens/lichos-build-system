@@ -24,3 +24,13 @@ class Workspace(ABC):
     @abstractmethod
     def packages(self) -> list["Project"]:
         """List of package objects that have branches with this workspace name."""
+
+    @property
+    @abstractmethod
+    def is_protected(self) -> bool:
+        """Whether this workspace's branch is a protected branch.
+
+        When True, no workspace-scheduling commit status should be posted.
+        Protected branches (e.g. main, release/*) represent stable refs that
+        must not receive scheduler-driven external status checks.
+        """

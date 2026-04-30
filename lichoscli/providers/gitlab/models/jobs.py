@@ -10,6 +10,7 @@ from gitlab import GitlabError
 from gitlab.v4.objects import ProjectPipeline as GitLabPipeline
 
 from lichoscli.core.models import Job, Jobs
+from lichoscli.core.models.pipeline_status import PipelineStatus
 
 from .job import GitLabJob
 
@@ -75,6 +76,19 @@ class GitLabJobs(Jobs):
         except GitlabError as e:
             logger.error("Failed to get jobs for pipeline: %s", str(e))
             return []
+
+    def has_any_failed(self) -> bool:
+        """Return True if any job or bridge (trigger) in this pipeline has a non-success final status."""
+        _non_success = PipelineStatus.non_success_final_values()
+        try:
+            jobs = self._pipeline.jobs.list(all=True)
+            if any(j.status in _non_success for j in jobs):
+                return True
+            bridges = self._pipeline.bridges.list(all=True)
+            return any(b.status in _non_success for b in bridges)
+        except GitlabError as e:
+            logger.error("Failed to check job statuses for pipeline: %s", str(e))
+            return False
 
     def extract_log_from_job(self, job_name: str) -> Optional[str]:
         """Extract log from a job by name."""

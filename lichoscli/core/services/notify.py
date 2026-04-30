@@ -6,8 +6,10 @@
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional
 
+from lichoscli.utils.constants import SCHEDULER_REPORT_TITLE
+
 if TYPE_CHECKING:
-    from lichoscli.core.models.dag import DAGNode, DependencyGraph, DAGNodeStatus
+    from lichoscli.core.models.dag import DAGNode
 
 
 class NotificationData:
@@ -85,29 +87,6 @@ class NotifyService(ABC):
         """
         raise NotImplementedError
 
-    def create_notification(self, dag: "DependencyGraph", branch: str) -> NotificationData:
-        from lichoscli.core.models.dag import DAGNodeStatus
-
-        pipeline_urls = {}
-        for package_name, node in dag.nodes.items():
-            if node.project:
-                pipeline = node.project.pipelines.get_latest(branch, use_cache=False)
-                pipeline_urls[package_name] = pipeline.web_url if pipeline else "N/A"
-
-        failed_nodes = dag.get_nodes_by_status(DAGNodeStatus.FAILED)
-        successful_nodes = dag.get_nodes_by_status(DAGNodeStatus.SUCCESS)
-
-        failed_packages = [node.package for node in failed_nodes]
-        successful_packages = [node.package for node in successful_nodes]
-
-        return NotificationData(
-            failed_packages=failed_packages,
-            successful_packages=successful_packages,
-            dag_nodes=dag.nodes,
-            pipeline_urls=pipeline_urls,
-            package_comparison_urls={},
-        )
-
     def send_workspace_notification(self, workspace_name: str, data: NotificationData) -> bool:
         """
         Send notification for a workspace, creating notification target if needed.
@@ -120,12 +99,12 @@ class NotifyService(ABC):
             True if notification was sent successfully, False otherwise
         """
         try:
-            title = f"Scheduler Report for {workspace_name}"
+            title = SCHEDULER_REPORT_TITLE.format(workspace_name)
 
             notification_id = self.find_notification_target_by_title(title)
 
             if not notification_id:
-                description = f"Automated scheduler reports and state storage for workspace '{workspace_name}'"
+                description = "Automated scheduler reports and state storage for workspace '{0}'".format(workspace_name)
                 notification_id = self.create_notification_target(title, description)
 
             return self.send_notification(notification_id, data)

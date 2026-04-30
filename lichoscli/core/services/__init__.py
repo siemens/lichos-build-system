@@ -3,6 +3,7 @@
 
 from .buildinfo import BuildInfoResult, BuildInfoService
 from .cache import CacheService
+from .commit_status import CommitNodeStatus, CommitStatusService
 from .container import ContainerConfig, ContainerResult, ContainerService
 from .dependency import DependencyService, VersionCheckResult
 from .editor import EditorConfig, EditorLaunchResult, EditorStrategy
@@ -11,6 +12,8 @@ from .notify import NotificationData, NotifyService
 from .package import PackageService
 from .pkg_group_discovery import PkgGroupDiscoveryService
 from .repo_parser import RepoParserService
+from .scheduler_listener import SchedulerListener
+from .scheduler_service import SchedulerService
 from .source_collection import SourceCollectionService
 from .storage import NoOpStorageService, StorageService
 from .workspace import WorkspaceService
@@ -38,4 +41,8 @@ __all__ = [
     "EditorConfig",
     "EditorLaunchResult",
     "PkgGroupDiscoveryService",
+    "CommitStatusService",
+    "CommitNodeStatus",
+    "SchedulerService",
+    "SchedulerListener",
 ]

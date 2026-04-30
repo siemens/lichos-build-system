@@ -10,17 +10,24 @@ from lichoscli.core.services import (
     RepoParserService,
     SourceCollectionService,
 )
+from lichoscli.core.services.commit_status import CommitStatusService
+from lichoscli.core.services.dependency import DependencyService
+from lichoscli.core.services.notify import NotifyService
+from lichoscli.core.services.scheduler_service import SchedulerService
+from lichoscli.core.services.storage import StorageService
 from lichoscli.providers.docker import DockerContainerService
 from lichoscli.providers.filesystem import FilesystemNotifyService
 from lichoscli.providers.filesystem.cache_service import DiskCacheService
 from lichoscli.providers.gitlab.client import GitLabClientFactory
 from lichoscli.providers.gitlab.services.buildinfo_service import GitLabBuildInfoService
+from lichoscli.providers.gitlab.services.commit_status_service import GitLabCommitStatusService
 from lichoscli.providers.gitlab.services.dependency_service import GitLabDependencyService
 from lichoscli.providers.gitlab.services.environment_service import GitLabEnvironmentService
 from lichoscli.providers.gitlab.services.gitlab_issue_writer import GitLabIssueWriter
 from lichoscli.providers.gitlab.services.notify_service import GitLabNotifyService
 from lichoscli.providers.gitlab.services.package_service import GitLabPackageService
 from lichoscli.providers.gitlab.services.pkg_group_discovery_service import GitLabPkgGroupDiscoveryService
+from lichoscli.providers.gitlab.services.scheduler_service import GitLabSchedulerService
 from lichoscli.providers.gitlab.services.storage_service import GitLabStorageService
 from lichoscli.providers.gitlab.services.workspace_service import GitLabWorkspaceService
 from lichoscli.ui.interfaces import UserInterface
@@ -91,3 +98,14 @@ class GitLabServiceFactory:
     def create_fs_notify_service(self) -> FilesystemNotifyService:
         ui = self.container.obtain_ref(UserInterface)
         return FilesystemNotifyService(ui.output)
+
+    def create_commit_status_service(self) -> GitLabCommitStatusService:
+        return GitLabCommitStatusService()
+
+    def create_scheduler_service(self) -> GitLabSchedulerService:
+        return GitLabSchedulerService(
+            dependency_service=self.container.obtain_ref(DependencyService),
+            storage_service=self.container.obtain_ref(StorageService),
+            commit_status_service=self.container.obtain_ref(CommitStatusService),
+            notify_service=self.container.obtain_ref(NotifyService),
+        )

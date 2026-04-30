@@ -1,0 +1,144 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
+"""GitLab implementation of CommitStatusService using the GitLab commit statuses API."""
+
+import logging
+from typing import TYPE_CHECKING, Optional
+
+from gitlab import GitlabError
+
+from lichoscli.core.services.commit_status import (
+    CommitNodeStatus,
+    CommitStatusService,
+    WorkspaceStatus,
+)
+
+if TYPE_CHECKING:
+    from lichoscli.core.models.project import Project
+
+logger = logging.getLogger(__name__)
+
+_CONTEXT_NAME = "workspace-scheduling"
+
+_DESCRIPTIONS = {
+    CommitNodeStatus.CANCELLED: "will be rebuilt",
+    CommitNodeStatus.RUNNING: "schedule in progress",
+    CommitNodeStatus.SUCCESS: "built",
+    CommitNodeStatus.FAILED: "build failed",
+}
+
+_WORKSPACE_DESCRIPTIONS = {
+    WorkspaceStatus.BUILDING: "workspace build in progress",
+    WorkspaceStatus.FAILED: "workspace build failed",
+    WorkspaceStatus.SUCCESS: "workspace build succeeded",
+    WorkspaceStatus.STALE: "workspace needs rebuild",
+}
+
+
+class GitLabCommitStatusService(CommitStatusService):
+    """Posts DAG node build states as GitLab commit statuses."""
+
+    def __init__(self) -> None:
+        self._posted_statuses: set[tuple] = set()
+
+    def post_node_status(
+        self,
+        project: "Project",
+        commit_sha: str,
+        status: CommitNodeStatus,
+        pipeline_url: Optional[str] = None,
+    ) -> None:
+        """Post or update a commit status for a single DAG node on GitLab."""
+        description = _DESCRIPTIONS.get(status, "")
+
+        payload = {
+            "state": status.value,
+            "name": _CONTEXT_NAME,
+            "description": description,
+        }
+        if pipeline_url:
+            payload["target_url"] = pipeline_url
+
+        cache_key = (project.id, commit_sha, status.value)
+        if cache_key in self._posted_statuses:
+            logger.debug(
+                "Skipping duplicate commit status %s for project %s @ %s",
+                status.value,
+                project.id,
+                commit_sha,
+            )
+            return
+
+        logger.debug(
+            "Posting commit status %s for project %s @ %s (pipeline_url=%s)",
+            status.value,
+            project.id,
+            commit_sha,
+            pipeline_url,
+        )
+
+        try:
+            project._project.commits.get(commit_sha).statuses.create(payload)
+            self._posted_statuses.add(cache_key)
+        except GitlabError as exc:
+            logger.warning(
+                "Failed to post commit status %s for project %s @ %s: %s",
+                status.value,
+                project.id,
+                commit_sha,
+                exc,
+            )
+
+    def post_workspace_status(
+        self,
+        nodes: dict[str, "Project"],
+        commit_shas: dict[str, str],
+        status: WorkspaceStatus,
+    ) -> None:
+        """Post the same workspace-level status to all packages."""
+        description = _WORKSPACE_DESCRIPTIONS.get(status, "")
+
+        for package_name, project in nodes.items():
+            commit_sha = commit_shas.get(package_name)
+            if not commit_sha:
+                logger.warning(
+                    "Skipping workspace status for %s: missing commit_sha",
+                    package_name,
+                )
+                continue
+
+            cache_key = (project.id, commit_sha, status.value)
+            if cache_key in self._posted_statuses:
+                logger.debug(
+                    "Skipping duplicate workspace status %s for project %s @ %s",
+                    status.value,
+                    project.id,
+                    commit_sha,
+                )
+                continue
+
+            payload = {
+                "state": status.value,
+                "name": _CONTEXT_NAME,
+                "description": description,
+            }
+
+            logger.debug(
+                "Posting workspace status %s for project %s @ %s",
+                status.value,
+                project.id,
+                commit_sha,
+            )
+
+            try:
+                project._project.commits.get(commit_sha).statuses.create(payload)
+                self._posted_statuses.add(cache_key)
+            except GitlabError as exc:
+                logger.warning(
+                    "Failed to post workspace status %s for project %s @ %s: %s",
+                    status.value,
+                    project.id,
+                    commit_sha,
+                    exc,
+                )

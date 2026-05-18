@@ -7,6 +7,8 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
+from urllib.parse import urlparse
+
 from gitlab import GitlabError
 
 from lichoscli.core.models import Project, Projects
@@ -275,3 +277,17 @@ class GitLabPackageService(PackageService):
         if namespace.get("full_path") is not None and namespace.get("full_path") != self.group_rpath:
             return namespace.get("path", "") + "/" + package.name
         return package.name
+
+    def get_project_by_url(self, url: str) -> Optional[Project]:
+        """Resolve a project from a full web URL by extracting its path."""
+        parsed = urlparse(url)
+        path = parsed.path.lstrip("/")
+        if not path:
+            logger.error("Could not extract project path from URL: %s", url)
+            return None
+        try:
+            project = self.gitlab.projects.get(path)
+            return GitLabProject(project)
+        except GitlabError as e:
+            logger.error("Failed to resolve project from URL '%s': %s", url, str(e))
+            return None

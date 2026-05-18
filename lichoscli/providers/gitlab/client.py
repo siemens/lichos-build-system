@@ -67,9 +67,11 @@ class GitLabClientFactory:
         return None
 
     def _get_token_from_config(self) -> tuple[Optional[str], Optional[str]]:
-        """Return (token, host) stored in the user config file, or (None, None)."""
-        data = UserConfigStore.read()
-        return data.get("token"), data.get("host")
+        """Return (token, host) from the user config file for the current host, or (None, None)."""
+        if self.host is None:
+            return None, None
+        token = UserConfigStore.get_token(self.host)
+        return token, self.host
 
     def _init_from_env(self, token: str, host: str) -> gitlab.Gitlab:
         gitlab_url = self._ensure_url_scheme(host)

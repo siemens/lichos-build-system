@@ -18,6 +18,10 @@ class MockGitLabProject:
         self.jobs = Mock()
         self.web_url = kwargs.get("web_url", f"https://gitlab.example.com/test-group/pkg/{self.name}")
         self._saved = False
+        self.is_fork = kwargs.get("is_fork", False)
+        self.create_fork_relation = Mock()
+        self.delete_fork_relation = Mock()
+        self.set_force_push = Mock(return_value=True)
 
     def save(self):
         """Mock save method"""

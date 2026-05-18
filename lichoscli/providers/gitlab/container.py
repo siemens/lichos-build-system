@@ -27,6 +27,7 @@ from lichoscli.core.services import (
     WorkspaceService,
 )
 from lichoscli.core.services.scheduler_service import SchedulerService
+from lichoscli.core.handlers.lichos_anchor import LichosAnchorHandler
 from lichoscli.providers.gitlab.factory import GitLabServiceFactory
 from lichoscli.providers.vscode import VSCodeEditorStrategy
 from lichoscli.ui.interfaces import UserInterface
@@ -39,9 +40,10 @@ T = TypeVar("T")
 class GitLabServiceContainer(DIContainer):
     """GitLab-specific dependency injection container."""
 
-    def __init__(self, group_rpath: Optional[str], gitlab_factory: Callable[[], Any]):
+    def __init__(self, group_rpath: Optional[str], host: Optional[str], gitlab_factory: Callable[[], Any]):
         """Initialize the GitLab service container."""
         self.group_rpath = group_rpath
+        self.host = host
         self._gitlab_factory = gitlab_factory
         self._gitlab_client = None
         self._group_id = None
@@ -76,6 +78,7 @@ class GitLabServiceContainer(DIContainer):
         self._factories[PkgGroupDiscoveryService] = factory.create_pkg_group_discovery_service
         self._factories[CommitStatusService] = factory.create_commit_status_service
         self._factories[SchedulerService] = factory.create_scheduler_service
+        self._factories[LichosAnchorHandler] = factory.create_lichos_anchor_handler
 
         # EditorStrategy is wired after UserInterface is registered (deferred)
         self._editor_strategies = {}

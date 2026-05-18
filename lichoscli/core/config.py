@@ -13,6 +13,7 @@ from typing import Callable, Optional, Tuple, Type
 import yaml
 from xdg import xdg_config_home
 
+from lichoscli.core.handlers.lichos_anchor import LichosAnchorHandler
 from lichoscli.core.models.git.git_repo import GitRepo
 from lichoscli.ui import OutputBackend, PromptBackend
 
@@ -57,16 +58,26 @@ class UserConfigStore:
             return {}
 
     @classmethod
-    def write(cls, host: str, pkg_group: str, token: Optional[str] = None) -> None:
-        """Persist host, pkg_group, and optionally token to the XDG config file."""
+    def write(cls, host: str, token: Optional[str] = None) -> None:
+        """Persist a token for *host* to the XDG config file."""
         path = cls.config_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        data: dict = {"host": host, "pkg_group": pkg_group}
+        existing = cls.read()
+        hosts: dict = existing.get("hosts", {})
+        entry: dict = hosts.get(host, {})
         if token:
-            data["token"] = token
+            entry["token"] = token
+        hosts[host] = entry
+        data: dict = {"hosts": hosts}
         with open(path, "w", encoding="utf-8") as fh:
             yaml.safe_dump(data, fh, default_flow_style=False)
         logger.debug("Wrote user config to %s", path)
+
+    @classmethod
+    def get_token(cls, host: str) -> Optional[str]:
+        """Return the stored token for *host*, or ``None`` if not configured."""
+        data = cls.read()
+        return data.get("hosts", {}).get(host, {}).get("token")
 
 
 class ProviderType(Enum):
@@ -114,8 +125,8 @@ class ConfigBuilder:
     def __init__(self, args):
         """Initialize with parsed command line arguments."""
         self.args = args
-        self._ci_data: Optional[tuple] = None
-        self._ci_data_resolved = False
+        self._anchor_data: Optional[dict] = None
+        self._anchor_data_resolved = False
         self._local_data: Optional[tuple] = None
         self._local_data_resolved = False
         self._xdg_data: Optional[dict] = None
@@ -151,43 +162,31 @@ class ConfigBuilder:
         logger.debug("%s resolved to %s", field, enum_value.value)
         return enum_value
 
-    def _ci_root_info(self) -> Optional[tuple]:
-        """Lazily detect and cache CI root (00ci) repository info."""
-        if not self._ci_data_resolved:
-            self._ci_data_resolved = True
-            repo = GitRepo.auto_detect()
-            if repo:
-                logger.debug("Found CI root at %s", repo.path)
-                self._ci_data = repo.remote_info
-        return self._ci_data
+    def _anchor_info(self) -> Optional[dict]:
+        """Lazily find the nearest .lichos anchor file."""
+        if not self._anchor_data_resolved:
+            self._anchor_data_resolved = True
+            handler = LichosAnchorHandler()
+            self._anchor_data = handler.read()
+            if self._anchor_data:
+                logger.debug("Found .lichos anchor with host=%s, pkg_group=%s",
+                             self._anchor_data.get("host"),
+                             self._anchor_data.get("pkg_group"))
+        return self._anchor_data
 
-    def _ci_field(self, index: int) -> Optional[str]:
-        """Extract a field from cached CI root info by index."""
-        data = self._ci_root_info()
-        return data[index] if data else None
+    def _anchor_field(self, key: str) -> Optional[str]:
+        """Return a field from the cached .lichos anchor data."""
+        data = self._anchor_info()
+        return data.get(key) if data else None
 
     def _local_repo_info(self) -> Optional[tuple]:
-        """Lazily detect and cache local git repository info.
-
-        When the local repo lives in a subgroup (e.g. ``apps/my-pkg``),
-        the URL-parsed group would include the subgroup path.  If a CI
-        root (``00ci``) exists we adopt its group instead, because that
-        is the authoritative workspace-level group.
-        """
+        """Lazily detect and cache local git repository info."""
         if not self._local_data_resolved:
             self._local_data_resolved = True
             repo = GitRepo(".")
             if repo.is_valid:
                 logger.debug("Found local git repo at %s", repo.path)
-                data = repo.remote_info
-                if data:
-                    ci = self._ci_root_info()
-                    if ci:
-                        # Replace host and group with CI root values so
-                        # that subgroup packages resolve to the workspace
-                        # root group.
-                        data = (ci[0], ci[1], data[2], data[3])
-                    self._local_data = data
+                self._local_data = repo.remote_info
         return self._local_data
 
     def _local_field(self, index: int) -> Optional[str]:
@@ -212,34 +211,31 @@ class ConfigBuilder:
         """Build LichosConfig by resolving each field through its source chain.
 
         Resolution precedence per field:
-          host:      CLI arg  ->  CI root (00ci) repo  ->  local git repo  ->  XDG config file
-          pkg_group: CLI arg  ->  CI root (00ci) repo  ->  local git repo  ->  XDG config file
-          branch:    CLI arg  ->  LICHOS_BRANCH env var  ->  current git repo
+          host:      CLI arg  ->  .lichos anchor  ->  local git repo
+          pkg_group: CLI arg  ->  .lichos anchor  ->  local git repo
+          branch:    CLI arg  ->  LICHOS_BRANCH env var  ->  current git branch  ->  .lichos anchor
 
-        The CI root (00ci) is preferred over the local repo for host and
-        pkg_group because packages that live in subgroups (e.g.
-        ``apps/my-pkg``) would otherwise resolve ``pkg_group`` to the
-        subgroup path instead of the workspace root, causing only a
-        subset of packages to be visible.
+        The current git branch takes precedence over the anchor's stored branch so
+        that working on a feature branch is reflected automatically.  The anchor
+        branch acts as a fallback when running outside any git repository.
         """
         host = self._resolve("host", [
             ("cli",        lambda: self.args.host),
-            ("ci_root",    lambda: self._ci_field(0)),
+            ("anchor",     lambda: self._anchor_field("host")),
             ("local_repo", lambda: self._local_field(0)),
-            ("xdg_config", lambda: self._xdg_field("host")),
         ])
 
         pkg_group = self._resolve("pkg_group", [
             ("cli",        lambda: self.args.pkg_group),
-            ("ci_root",    lambda: self._ci_field(1)),
+            ("anchor",     lambda: self._anchor_field("pkg_group")),
             ("local_repo", lambda: self._local_field(1)),
-            ("xdg_config", lambda: self._xdg_field("pkg_group")),
         ])
 
         branch = self._resolve("branch", [
             ("cli",               lambda: self.args.branch),
             ("env:LICHOS_BRANCH", lambda: os.environ.get("LICHOS_BRANCH")),
             ("git:active_branch", lambda: GitRepo(".").active_branch),
+            ("anchor",            lambda: self._anchor_field("branch")),
         ])
 
         output_backend = self._resolve_enum(

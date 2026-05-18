@@ -42,16 +42,14 @@ class TestConfigBuilder:
         assert config.output_backend == OutputBackend.TERMINAL
         assert config.prompt_backend == PromptBackend.TERMINAL
     
+    @patch('lichoscli.core.config.LichosAnchorHandler')
     @patch('lichoscli.core.config.GitRepo')
-    def test_build_with_git_auto_detect(self, mock_git_repo):
-        """Test that host/pkg_group come from CI root and branch from current repo."""
-        # CI root (00ci) provides host and pkg_group
-        mock_ci_repo = Mock()
-        mock_ci_repo.path = "/some/path/00ci"
-        mock_ci_repo.remote_info = (
-            "gitlab.example.com", "platform/packages", "00ci", "main"
-        )
-        mock_git_repo.auto_detect.return_value = mock_ci_repo
+    def test_build_anchor_provides_host_and_group(self, mock_git_repo, mock_anchor_cls):
+        """Test that .lichos anchor provides host/pkg_group, branch from local repo."""
+        mock_anchor_cls.return_value.read.return_value = {
+            "host": "gitlab.example.com",
+            "pkg_group": "platform/packages",
+        }
 
         # Current repo provides active branch but no remote info
         mock_current_repo = Mock()
@@ -70,25 +68,21 @@ class TestConfigBuilder:
 
         assert config.host == "gitlab.example.com"
         assert config.pkg_group == "platform/packages"
-        assert config.branch == "feat/my-feature"  # from current repo, NOT CI root
+        assert config.branch == "feat/my-feature"
         assert config.branch_explicitly_provided is False
 
+    @patch('lichoscli.core.config.LichosAnchorHandler')
     @patch('lichoscli.core.config.GitRepo')
-    def test_build_local_repo_adopts_ci_root_group(self, mock_git_repo):
-        """Test that local repo adopts CI root's host & group when both exist.
+    def test_build_anchor_wins_over_local_repo(self, mock_git_repo, mock_anchor_cls):
+        """Test that .lichos anchor takes precedence over local git repo.
 
-        Even though the local repo has its own remote info, the CI root
-        provides the authoritative workspace-level group.  The local
-        repo's ``_local_repo_info`` should cross-reference with the CI
-        root so that both resolution paths yield the correct group.
+        Even though the local repo has its own remote info, the anchor
+        provides the authoritative workspace-level group.
         """
-        # CI root (00ci) provides host and pkg_group
-        mock_ci_repo = Mock()
-        mock_ci_repo.path = "/some/path/00ci"
-        mock_ci_repo.remote_info = (
-            "gitlab.ci.com", "platform/ci", "00ci", "main"
-        )
-        mock_git_repo.auto_detect.return_value = mock_ci_repo
+        mock_anchor_cls.return_value.read.return_value = {
+            "host": "anchor-host.example.com",
+            "pkg_group": "platform/root",
+        }
 
         # Current repo provides remote info and active branch
         mock_current_repo = Mock()
@@ -107,30 +101,24 @@ class TestConfigBuilder:
 
         config = ConfigBuilder(args).build()
 
-        # Both CI root and local repo now resolve to the CI root's
-        # host + group, so the result is the same regardless of order.
-        assert config.host == "gitlab.ci.com"
-        assert config.pkg_group == "platform/ci"
-        # Branch still comes from the local repo
+        assert config.host == "anchor-host.example.com"
+        assert config.pkg_group == "platform/root"
         assert config.branch == "feat/my-feature"
         assert config.branch_explicitly_provided is False
 
+    @patch('lichoscli.core.config.LichosAnchorHandler')
     @patch('lichoscli.core.config.GitRepo')
-    def test_build_subgroup_uses_ci_root_group(self, mock_git_repo):
-        """Test that subgroup packages resolve pkg_group from CI root, not local.
+    def test_build_anchor_resolves_subgroup(self, mock_git_repo, mock_anchor_cls):
+        """Test that .lichos anchor resolves correct group for subgroup packages.
 
         When CWD is inside a subgroup package (e.g. apps/my-pkg), the local
-        repo's URL yields a subgroup path as pkg_group.  The CI root (00ci)
-        should win and provide the workspace-level group so that all packages
-        are visible.
+        repo's URL yields a subgroup path as pkg_group.  The .lichos anchor
+        provides the workspace-level group so that all packages are visible.
         """
-        # CI root at workspace level
-        mock_ci_repo = Mock()
-        mock_ci_repo.path = "/workspace/pkg/00ci"
-        mock_ci_repo.remote_info = (
-            "gitlab.example.com", "your-group/platform-os/pkg", "00ci", "main"
-        )
-        mock_git_repo.auto_detect.return_value = mock_ci_repo
+        mock_anchor_cls.return_value.read.return_value = {
+            "host": "gitlab.example.com",
+            "pkg_group": "your-group/platform-os/pkg",
+        }
 
         # Local repo is in a subgroup (apps/)
         mock_current_repo = Mock()
@@ -150,15 +138,15 @@ class TestConfigBuilder:
 
         config = ConfigBuilder(args).build()
 
-        # Must use the workspace-level group, NOT the subgroup
         assert config.pkg_group == "your-group/platform-os/pkg"
         assert config.host == "gitlab.example.com"
         assert config.branch == "feat/my-feature"
 
+    @patch('lichoscli.core.config.LichosAnchorHandler')
     @patch('lichoscli.core.config.GitRepo')
-    def test_build_no_ci_root_falls_back_to_local(self, mock_git_repo):
-        """Test that local repo is used when no CI root (00ci) exists."""
-        mock_git_repo.auto_detect.return_value = None
+    def test_build_no_anchor_falls_back_to_local(self, mock_git_repo, mock_anchor_cls):
+        """Test that local repo is used when no .lichos anchor exists."""
+        mock_anchor_cls.return_value.read.return_value = None
 
         mock_current_repo = Mock()
         mock_current_repo.is_valid = True
@@ -179,13 +167,38 @@ class TestConfigBuilder:
         assert config.host == "gitlab.example.com"
         assert config.pkg_group == "my-org/my-group"
         assert config.branch == "main"
-    
+
+    @patch('lichoscli.core.config.LichosAnchorHandler')
+    @patch('lichoscli.core.config.GitRepo')
+    def test_build_anchor_wins_over_xdg(self, mock_git_repo, mock_anchor_cls):
+        """Test that .lichos anchor takes precedence over XDG config."""
+        mock_anchor_cls.return_value.read.return_value = {
+            "host": "lichos-host.example.com",
+            "pkg_group": "lichos/group",
+        }
+
+        mock_current_repo = Mock()
+        mock_current_repo.is_valid = False
+        mock_current_repo.active_branch = "main"
+        mock_git_repo.return_value = mock_current_repo
+
+        args = Namespace(
+            host=None, pkg_group=None, branch=None,
+            dry=False, debug=False, verbose=False, dump=False,
+            output_backend=None, prompt_backend=None,
+        )
+
+        config = ConfigBuilder(args).build()
+
+        assert config.host == "lichos-host.example.com"
+        assert config.pkg_group == "lichos/group"
+
+    @patch('lichoscli.core.config.LichosAnchorHandler')
     @patch('lichoscli.core.config.UserConfigStore')
     @patch('lichoscli.core.config.GitRepo')
-    def test_build_missing_required_fields(self, mock_git_repo, mock_config_store):
+    def test_build_missing_required_fields(self, mock_git_repo, mock_config_store, mock_anchor_cls):
         """Test that config is built with None values when fields are missing."""
-        # Mock GitRepo.auto_detect() to return None (no git repo found)
-        mock_git_repo.auto_detect.return_value = None
+        mock_anchor_cls.return_value.read.return_value = None
         mock_git_repo.return_value.is_valid = False
         mock_git_repo.return_value.active_branch = "main"
         mock_config_store.read.return_value = {}
@@ -211,10 +224,11 @@ class TestConfigBuilder:
         assert config.pkg_group is None
         assert config.branch is not None  # Should get from GitRepo.active_branch
     
+    @patch('lichoscli.core.config.LichosAnchorHandler')
     @patch('lichoscli.core.config.GitRepo')
-    def test_branch_precedence_cli_wins(self, mock_git_repo):
+    def test_branch_precedence_cli_wins(self, mock_git_repo, mock_anchor_cls):
         """CLI --branch beats env var and git active branch."""
-        mock_git_repo.auto_detect.return_value = None
+        mock_anchor_cls.return_value.read.return_value = None
         mock_git_repo.return_value.active_branch = "from-git"
 
         args = Namespace(
@@ -229,10 +243,11 @@ class TestConfigBuilder:
         assert config.branch == "from-cli"
         assert config.branch_explicitly_provided is True
 
+    @patch('lichoscli.core.config.LichosAnchorHandler')
     @patch('lichoscli.core.config.GitRepo')
-    def test_branch_precedence_env_wins(self, mock_git_repo):
+    def test_branch_precedence_env_wins(self, mock_git_repo, mock_anchor_cls):
         """LICHOS_BRANCH env var beats git when CLI branch is None."""
-        mock_git_repo.auto_detect.return_value = None
+        mock_anchor_cls.return_value.read.return_value = None
         mock_git_repo.return_value.active_branch = "from-git"
 
         args = Namespace(
@@ -247,10 +262,11 @@ class TestConfigBuilder:
         assert config.branch == "from-env"
         assert config.branch_explicitly_provided is False
 
+    @patch('lichoscli.core.config.LichosAnchorHandler')
     @patch('lichoscli.core.config.GitRepo')
-    def test_branch_precedence_git_fallback(self, mock_git_repo):
+    def test_branch_precedence_git_fallback(self, mock_git_repo, mock_anchor_cls):
         """Git active branch is used when CLI and env var are both absent."""
-        mock_git_repo.auto_detect.return_value = None
+        mock_anchor_cls.return_value.read.return_value = None
         mock_git_repo.return_value.active_branch = "from-git"
 
         args = Namespace(
@@ -266,10 +282,11 @@ class TestConfigBuilder:
 
         assert config.branch == "from-git"
 
+    @patch('lichoscli.core.config.LichosAnchorHandler')
     @patch('lichoscli.core.config.GitRepo')
-    def test_backend_precedence_env_wins(self, mock_git_repo):
+    def test_backend_precedence_env_wins(self, mock_git_repo, mock_anchor_cls):
         """UI backend selection can be controlled via environment when CLI is unset."""
-        mock_git_repo.auto_detect.return_value = None
+        mock_anchor_cls.return_value.read.return_value = None
         mock_git_repo.return_value.active_branch = "from-git"
 
         args = Namespace(

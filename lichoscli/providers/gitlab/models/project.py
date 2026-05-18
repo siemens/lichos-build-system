@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from gitlab import GitlabError
 from gitlab.v4.objects import Project as GitLabProjectObject
 
+from lichoscli.core.exceptions import ProjectFetchingError
 from lichoscli.core.models import Project
 from lichoscli.utils import CIConfigUtils
 from lichoscli.utils.cache_decorators import CacheMixin, cached_property
@@ -241,7 +242,36 @@ class GitLabProject(Project, CacheMixin):
 
     def create_fork_relation(self, parent_id: int):
         """Create a fork relationship with a parent project."""
-        return self._project.create_fork_relation(parent_id)
+        try:
+            return self._project.create_fork_relation(parent_id)
+        except GitlabError as e:
+            raise ProjectFetchingError(
+                "Failed to create fork relation: {}".format(e)
+            ) from e
+
+    def delete_fork_relation(self) -> None:
+        """Remove the fork relationship from this project."""
+        try:
+            self._project.delete_fork_relation()
+        except GitlabError as e:
+            raise ProjectFetchingError(
+                "Failed to delete fork relation: {}".format(e)
+            ) from e
+
+    def set_force_push(self, branch: str, enabled: bool) -> bool:
+        """Enable or disable force-push on a protected branch."""
+        try:
+            pb = self.protectedbranches.get(branch)
+            pb.allow_force_push = enabled
+            pb.save()
+            return True
+        except GitlabError as e:
+            logger.error(
+                "Failed to set force-push on branch '%s': %s",
+                branch,
+                str(e),
+            )
+            return False
 
     def fork_to(self, target_namespace: str, subgroup: Optional[str] = None) -> Optional["Project"]:
         """Fork this project to a target namespace with optional subgroup.
@@ -404,7 +434,7 @@ class GitLabProject(Project, CacheMixin):
                     continue
                 
                 for access in push_access_levels:
-                    access_level = getattr(access, 'access_level', None)
+                    access_level = access.get('access_level')
                     if access_level is None or access_level > 0:
                         branches_with_push.append(pb.name)
                         break

@@ -13,6 +13,7 @@ import pytest
 from lichoscli.core.di import DIContainer
 from lichoscli.ui.terminal import TerminalConsole
 from lichoscli.core.models.git.git_url import GitUrl
+from lichoscli.core.handlers.lichos_anchor import LichosAnchorHandler
 from lichoscli.core.services import (
     BuildInfoService,
     CacheService,
@@ -20,6 +21,7 @@ from lichoscli.core.services import (
     DependencyService,
     EnvironmentService,
     PackageService,
+    PkgGroupDiscoveryService,
     WorkspaceService,
 )
 from lichoscli.ui import UserInterface
@@ -37,7 +39,9 @@ def mock_di_container():
     cache_service = Mock(spec=CacheService)
     container_service = Mock(spec=ContainerService)
     environment_service = Mock(spec=EnvironmentService)
+    lichos_anchor_handler = Mock(spec=LichosAnchorHandler)
     url_parser = Mock(spec=GitUrl)
+    pkg_group_discovery_service = Mock(spec=PkgGroupDiscoveryService)
     user_interface = Mock()
     user_interface.output = Mock()
     user_interface.output.console = TerminalConsole(StringIO())
@@ -74,6 +78,10 @@ def mock_di_container():
             return container_service
         elif service_type == EnvironmentService:
             return environment_service
+        elif service_type == LichosAnchorHandler:
+            return lichos_anchor_handler
+        elif service_type == PkgGroupDiscoveryService:
+            return pkg_group_discovery_service
         elif service_type == GitUrl:
             return url_parser
         elif service_type == UserInterface:
@@ -90,6 +98,8 @@ def mock_di_container():
     container.cache_service = cache_service
     container.container_service = container_service
     container.environment_service = environment_service
+    container.lichos_anchor_handler = lichos_anchor_handler
+    container.pkg_group_discovery = pkg_group_discovery_service
     container.url_parser = url_parser
     container.git_url = url_parser
     container.user_interface = user_interface

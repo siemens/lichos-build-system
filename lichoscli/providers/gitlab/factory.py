@@ -16,6 +16,7 @@ from lichoscli.core.services.notify import NotifyService
 from lichoscli.core.services.scheduler_service import SchedulerService
 from lichoscli.core.services.storage import StorageService
 from lichoscli.providers.docker import DockerContainerService
+from lichoscli.core.handlers.lichos_anchor import LichosAnchorHandler
 from lichoscli.providers.filesystem import FilesystemNotifyService
 from lichoscli.providers.filesystem.cache_service import DiskCacheService
 from lichoscli.providers.gitlab.client import GitLabClientFactory
@@ -109,3 +110,6 @@ class GitLabServiceFactory:
             commit_status_service=self.container.obtain_ref(CommitStatusService),
             notify_service=self.container.obtain_ref(NotifyService),
         )
+
+    def create_lichos_anchor_handler(self) -> LichosAnchorHandler:
+        return LichosAnchorHandler()

@@ -6,8 +6,9 @@
 import logging
 from typing import Any, Callable, List, Optional
 
+from gitlab import GitlabError
+
 from lichoscli.core.services.pkg_group_discovery import PkgGroupDiscoveryService
-from lichoscli.providers.gitlab.client import GitLabClientFactory
 
 logger = logging.getLogger(__name__)
 
@@ -48,3 +49,32 @@ class GitLabPkgGroupDiscoveryService(PkgGroupDiscoveryService):
         results.sort()
         logger.debug("Found %d pkg group(s) matching '%s'", len(results), query)
         return results
+
+    def get_group_id(self, group_path: str) -> Optional[int]:
+        """Return the numeric ID of a GitLab group, or None if not found."""
+        try:
+            group = self._default_client.groups.get(group_path)
+            return group.id
+        except (GitlabError, AttributeError) as exc:
+            logger.debug("Group '%s' not found: %s", group_path, exc)
+            return None
+
+    def create_group(
+        self,
+        name: str,
+        path: str,
+        parent_id: Optional[int] = None,
+        description: str = "",
+        visibility: str = "internal",
+    ) -> int:
+        """Create a GitLab group and return its numeric ID."""
+        group_data = {
+            "name": name,
+            "path": path,
+            "description": description,
+            "visibility": visibility,
+        }
+        if parent_id is not None:
+            group_data["parent_id"] = parent_id
+        group = self._default_client.groups.create(group_data)
+        return group.id

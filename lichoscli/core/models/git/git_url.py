@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass
 from typing import Optional, NamedTuple
+from urllib.parse import urlparse
 
 
 _URL_PATTERNS = [
@@ -105,6 +106,14 @@ class GitUrl():
         if git_url.startswith("http"):
             return git_url.rstrip(".git")
         return git_url
+
+    @staticmethod
+    def parse_group_url(url: str) -> tuple:
+        """Parse a group/collection URL into (host, group_path). """
+        parsed = urlparse(url)
+        if parsed.scheme and parsed.netloc:
+            return parsed.netloc, parsed.path.strip("/")
+        return None, url.strip("/")
 
     # ------------------------------------------------------------------
     # Branch-name utilities

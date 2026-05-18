@@ -44,7 +44,7 @@ def main() -> int:
     parser.add_argument("--host", help="gitlab host name")
     parser.add_argument(
         "--pkg-group",
-        help="main group path that contains the 00ci project",
+        help="main group path for the distribution (resolved from .lichos anchor if omitted)",
     )
     parser.add_argument(
         "--branch",

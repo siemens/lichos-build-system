@@ -225,3 +225,11 @@ class Project(ABC):
     @abstractmethod
     def has_protected_branches_with_push_access(self) -> list[str]:
         """Get list of protected branches that allow direct push access."""
+
+    @abstractmethod
+    def delete_fork_relation(self) -> None:
+        """Remove the fork relationship from this project."""
+
+    @abstractmethod
+    def set_force_push(self, branch: str, enabled: bool) -> bool:
+        """Enable or disable force-push on a protected branch."""

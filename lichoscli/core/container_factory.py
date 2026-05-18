@@ -55,7 +55,7 @@ class DIContainerFactory:
             return GitLabClientFactory(config.host).create()
         
         logger.debug("Creating GitLab DI container for host: %s", config.host)
-        return GitLabServiceContainer(config.pkg_group, client_factory)
+        return GitLabServiceContainer(config.pkg_group, config.host, client_factory)
     
     @staticmethod
     def _create_github_container(config: LichosConfig) -> DIContainer:

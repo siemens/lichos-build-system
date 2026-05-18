@@ -129,7 +129,7 @@ class GitLabPipelines(Pipelines):
     def verify_builds_success(self) -> bool:
         """Verify builds and tests for this project."""
         latest_pipeline = self.get_latest()
-        return latest_pipeline.status.is_successful if latest_pipeline else False
+        return latest_pipeline.is_successful() if latest_pipeline else False
 
     def get_some_latest_pipeline(self, branch: str | None = None) -> Pipeline | None:
         """Get the most up-to-date successful pipeline.
@@ -156,13 +156,13 @@ class GitLabPipelines(Pipelines):
             )
 
             for pipeline in pipelines:
-                if pipeline.status.is_successful:
+                if pipeline.is_successful():
                     return pipeline
             # No successful pipeline found on target branch, try default branch
             if target_branch != self._project.default_branch and pipelines is not None:
                 pipelines = self.list(self._project.default_branch, per_page=100, get_all=False)
                 for pipeline in pipelines:
-                    if pipeline.status.is_successful:
+                    if pipeline.is_successful():
                         logger.debug(
                             "Falling back to successful pipeline %s on branch %s for project %s",
                             pipeline.id,

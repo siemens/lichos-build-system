@@ -172,7 +172,10 @@ class GitLabDependencyService(DependencyService):
                 if not latest_pipeline:
                     latest_pipeline = cached_pipeline
                 if latest_pipeline:
-                    node_status = DAGNodeStatus.from_pipeline_status(latest_pipeline.status)
+                    if latest_pipeline.is_publish_complete():
+                        node_status = DAGNodeStatus.SUCCESS
+                    else:
+                        node_status = DAGNodeStatus.from_pipeline_status(latest_pipeline.status)
                     commit_sha = latest_pipeline.sha
                     pipeline_url = latest_pipeline.web_url
             except GitlabError as e:

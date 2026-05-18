@@ -72,3 +72,7 @@ class PackageService(ABC):
         Returns:
             Display name with subgroup prefix when the package is in a subgroup
         """
+
+    @abstractmethod
+    def get_project_by_url(self, url: str) -> Optional[Project]:
+        """Resolve a project from a full web URL."""

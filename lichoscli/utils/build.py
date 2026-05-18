@@ -26,6 +26,11 @@ class BuildUtils:
         return package_name_arg
 
     @staticmethod
+    def is_web_url(value: str) -> bool:
+        """Return True if *value* looks like an http/https URL."""
+        return value.startswith("http://") or value.startswith("https://")
+
+    @staticmethod
     def get_branch_name(branch_name_arg: str) -> str:
         """
         Get branch name from argument or current git branch.

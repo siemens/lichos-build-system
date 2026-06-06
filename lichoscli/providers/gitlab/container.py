@@ -114,6 +114,9 @@ class GitLabServiceContainer(DIContainer):
             ui = self._services.get(UserInterface)
             if editor_name == "code":
                 self._editor_strategies["code"] = VSCodeEditorStrategy(ui.output)
+            elif editor_name == "zed":
+                from lichoscli.providers.zed import ZedEditorStrategy
+                self._editor_strategies["zed"] = ZedEditorStrategy(ui.output)
             else:
                 raise ReferenceNotFoundError(f"Editor strategy '{editor_name}' is not registered")
 

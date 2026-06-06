@@ -1,9 +1,14 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Siemens AG
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from lichoscli.core.services.environment import BuildEnvironment
 
 
 @dataclass
@@ -14,6 +19,8 @@ class EditorConfig:
     ssh_port: Optional[int] = None
     ssh_config_path: Optional[str] = None
     container_name: Optional[str] = None
+    network: Optional[str] = None
+    build_environment: Optional[BuildEnvironment] = field(default=None, repr=False)
 
 
 @dataclass
@@ -67,6 +74,15 @@ class EditorStrategy(ABC):
 
         Returns:
             True if connection is ready, False if timeout or error
+        """
+
+    @abstractmethod
+    def find_free_port(self) -> int:
+        """
+        Find a free TCP port on the host.
+
+        Returns:
+            An available port number
         """
 
     @abstractmethod

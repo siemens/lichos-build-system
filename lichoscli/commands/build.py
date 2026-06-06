@@ -19,9 +19,9 @@ from lichoscli.core.services import (
 )
 from lichoscli.core.services.editor import EditorStrategy
 from lichoscli.utils import BuildUtils, ContainerUtils, ProgressUtils
+from lichoscli.utils.constants import LICHOS_MARKER
 
 logger = logging.getLogger(__name__)
-
 
 class BuildCommand(Command):
     """Build a package locally"""
@@ -66,8 +66,8 @@ class BuildCommand(Command):
         sp.add_argument(
             "--editor",
             nargs="?",
-            choices=["code"],
-            help="launch editor with remote development support (currently only 'code' supported)",
+            choices=["code", "zed"],
+            help="launch editor with remote development support ('code' uses SSH, 'zed' uses dev container)",
         )
         sp.add_argument(
             "--no-cache",
@@ -181,14 +181,24 @@ class BuildCommand(Command):
                 return False
         return True
 
-    def _execute_with_editor(self, container_config: ContainerConfig, build_environment) -> int:
+    def _execute_with_editor(
+        self, container_config: ContainerConfig, build_environment
+    ) -> int:
         """Execute container with editor integration."""
         try:
-            editor_strategy: EditorStrategy = self.di_container.get_editor_strategy(self.buildparam.editor_mode)
+            editor_strategy: EditorStrategy = self.di_container.get_editor_strategy(
+                self.buildparam.editor_mode
+            )
 
+            editor_name = editor_strategy.get_editor_name()
+            container_config.detached = True
+
+            if editor_name == "zed":
+                return self._execute_with_zed(container_config, build_environment, editor_strategy)
+
+            # VS Code (SSH-based) path
             ssh_port = editor_strategy.find_free_port()
             container_config.ports = {ssh_port: 22}
-            container_config.detached = True
 
             container_config.command = ContainerUtils.build_ssh_enabled_command()
 
@@ -238,12 +248,52 @@ class BuildCommand(Command):
             logger.error("Failed to execute with editor: %s", e)
             return 1
 
+    def _execute_with_zed(
+        self, container_config: ContainerConfig, build_environment, editor_strategy: EditorStrategy
+    ) -> int:
+        """Generate devcontainer config and launch Zed (no SSH, no manual docker run).
+
+        Zed builds and manages the container itself based on the
+        ``.devcontainer/devcontainer.json`` we generate from the build
+        environment downloaded from the CI pipeline.
+        """
+        editor_config = EditorConfig(
+            project_path=self.buildparam.project_dir,
+            container_name=container_config.name,
+            network=container_config.network,
+        )
+        # Carry the build environment so the strategy can write
+        # the devcontainer.json with the correct image, env vars
+        # and onCreateCommand.
+        editor_config.build_environment = build_environment
+
+        if not editor_strategy.setup_remote_connection(editor_config):
+            logger.error("Failed to generate devcontainer for Zed")
+            return 1
+
+        launch_result = editor_strategy.launch_editor(editor_config)
+
+        if launch_result.success:
+            self.output.info(
+                "Zed should detect the .devcontainer and offer to reopen in container\n"
+                "Build script available inside container: {}\n\n"
+                "To remove the generated .devcontainer: rm -rf .devcontainer".format(
+                    build_environment.full_script,
+                )
+            )
+        else:
+            self.output.error(
+                "Editor launch failed: {}".format(launch_result.error_message),
+            )
+
+        return 0 if launch_result.success else 1
+
     def _build_container_config(self, build_environment, env_file) -> ContainerConfig:
         """Build container configuration from environment and BuildConfig."""
-        sanitized_package = BuildUtils.sanitize_container_name(self.buildparam.package_name)
-        sanitized_workspace = BuildUtils.sanitize_container_name(self.buildparam.branch)
-        sanitized_arch = BuildUtils.sanitize_container_name(self.buildparam.architecture)
-        container_name = f"{sanitized_package}-{sanitized_workspace}_{sanitized_arch}"
+        sanitized_package = BuildUtils.sanitize_container_name(
+            self.buildparam.package_name
+        )
+        container_name = LICHOS_MARKER + sanitized_package
 
         volumes = [f"{os.getcwd()}:{self.buildparam.project_dir}"]
         if self.buildparam.mount:

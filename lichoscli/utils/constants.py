@@ -6,6 +6,7 @@ CI_PKG = "00ci"
 BUILD_IMAGE_PKG = "build-image"
 SNAPSHOT_PKG = "00snapshot"
 CORE_PACKAGES: list[str] = [CI_PKG, BUILD_IMAGE_PKG, SNAPSHOT_PKG]
+LICHOS_MARKER = "lmdc-" # lichos-managed-dev-container, to identify our own
 
 # CI constants
 CI_DEFAULT_PIPELINE_NAME = "gbp"

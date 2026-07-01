@@ -4,8 +4,7 @@ Upstream-Contact: <ludwig.nussel@siemens.com>
 Source: <https://github.com/samastek/lichoscli>
 
 Files: *
-Copyright: 2016,2022 Siemens AG
-           2025 Siemens AG
+Copyright: 2025, 2026 Siemens AG
 License: MIT
  Permission is hereby granted, free of charge, to any person obtaining a copy
  of this software and associated documentation files (the "Software"), to deal

@@ -24,7 +24,7 @@ NC='\033[0m'
 
 TEST_PACKAGE="lichoscli"
 TEST_HOST="gitlab.example.com"
-TEST_PKG_GROUP="your-group/platform-os/pkg"
+TEST_PKG_GROUP="your-group/pkg"
 TEST_BRANCH="flocken"
 
 export LICHOS_BRANCH=$TEST_BRANCH

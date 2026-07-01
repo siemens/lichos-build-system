@@ -57,7 +57,7 @@ This lets command modules stay focused on orchestration while presentation backe
 **Get started with a project:**
 ```bash
 # Clone the 00ci package to set up project detection
-lichoscli --host gitlab.example.com --pkg-group your-group/platform-os/pkg --branch main clone 00ci
+lichoscli --host gitlab.example.com --pkg-group your-group/pkg --branch main clone 00ci
 ```
 
 **List packages:**
@@ -66,7 +66,7 @@ lichoscli --host gitlab.example.com --pkg-group your-group/platform-os/pkg --bra
 lichoscli list
 
 # Different project
-lichoscli --pkg-group your-group/platform-os/pkg --host gitlab.example.com list
+lichoscli --pkg-group your-group/pkg --host gitlab.example.com list
 ```
 
 ## Common Workflows

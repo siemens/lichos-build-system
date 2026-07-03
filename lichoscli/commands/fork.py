@@ -102,7 +102,7 @@ class ForkCommand(Command):
             return 1
 
         # Configure CI settings to use destination namespace's 00ci
-        ci_config_path = self._configure_forked_package_ci(forked_package, destination_projects)
+        ci_config_path = self._configure_forked_package_ci(forked_package)
 
         self.output.success(
             f"Successfully forked package '{self.args.package}' to '{self.destination_namespace}'",
@@ -110,7 +110,7 @@ class ForkCommand(Command):
         self.output.print(f"Forked package CI/CD configured to use: {ci_config_path}")
         return 0
 
-    def _configure_forked_package_ci(self, forked_package: "Project", destination_projects) -> str:
+    def _configure_forked_package_ci(self, forked_package: "Project") -> str:
         """Configure CI/CD settings for the forked package to use destination namespace's 00ci.
 
         Returns:
@@ -123,10 +123,8 @@ class ForkCommand(Command):
 
         logger.info("Configuring CI/CD to use: %s", ci_config_path)
 
-        updated_package = destination_projects.update(forked_package.name, ci_config_path=ci_config_path)
-
-        if not updated_package:
-            logger.warning("Failed to update CI configuration for forked package")
+        forked_package.ci_config_path = ci_config_path
+        forked_package.save()
 
         return ci_config_path
 

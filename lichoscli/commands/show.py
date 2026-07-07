@@ -67,7 +67,7 @@ class ShowCommand(Command):
             ("id", str(pkg.id)),
             ("path", pkg.path),
             ("builds_access_level", pkg.builds_access_level),
-            ("ci_config_path", self.package_service.pretty_format_ci_path(pkg)),
+            ("ci_config_path", pkg.ci_config_path),
             ("default_branch", pkg.default_branch),
         ]
 

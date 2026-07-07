@@ -42,17 +42,6 @@ class BuildUtils:
         return branch_name_arg
 
     @staticmethod
-    def pull_docker_image(image: str) -> int:
-        """Pull Docker image and return success status"""
-        logger.info("Updating %s", image)
-        try:
-            response = subprocess.run(("docker", "pull", image), check=False)
-            return response.returncode
-        except subprocess.SubprocessError as e:
-            logger.error("Failed to pull Docker image %s: %s", image, e)
-            return 1
-
-    @staticmethod
     def create_tmp_env_file(env):
         env_file = tempfile.NamedTemporaryFile(prefix=".gitlab_env.", dir=".", mode="w", delete=False)
         for key in env:

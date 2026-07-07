@@ -379,25 +379,6 @@ class TestCIConfigUtils:
         expected = "image.yml@your-group/platform-os/00ci:develop"
         assert result == expected
 
-    @patch("subprocess.run")
-    def test_pull_docker_image_success_unittest(self, mock_run):
-        """Test successful Docker image pull"""
-        mock_run.return_value.returncode = 0
-
-        result = BuildUtils.pull_docker_image("debian:11")
-
-        assert result == 0
-        mock_run.assert_called_once_with(("docker", "pull", "debian:11"), check=False)
-
-    @patch("subprocess.run")
-    def test_pull_docker_image_failure_unittest(self, mock_run):
-        """Test failed Docker image pull"""
-        mock_run.return_value.returncode = 1
-
-        result = BuildUtils.pull_docker_image("invalid:image")
-
-        assert result == 1
-
 if __name__ == "__main__":
     # Run pytest for the pytest-style tests
     pytest.main([__file__, "-v"])

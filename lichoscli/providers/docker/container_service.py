@@ -3,6 +3,7 @@
 
 import logging
 import subprocess
+from shutil import which
 
 from lichoscli.core.services import ContainerConfig, ContainerResult, ContainerService
 
@@ -12,11 +13,18 @@ logger = logging.getLogger(__name__)
 class DockerContainerService(ContainerService):
     """Docker implementation of ContainerService."""
 
+    def __init__(self):
+        self.docker = 'docker'
+        for n in self.docker, 'podman':
+            if which(n):
+                self.docker = n
+                break
+
     def pull_image(self, image: str) -> int:
         """Pull a Docker image."""
         try:
             logger.info("Pulling Docker image: %s", image)
-            result = subprocess.run(["docker", "pull", image], check=False)
+            result = subprocess.run([self.docker, "pull", image], check=False)
 
             if result.returncode != 0:
                 logger.error("Failed to pull image %s", image)
@@ -51,7 +59,7 @@ class DockerContainerService(ContainerService):
     def stop_container(self, container_name: str) -> bool:
         """Stop a running Docker container."""
         try:
-            result = subprocess.run(["docker", "stop", container_name], capture_output=True, check=False)
+            result = subprocess.run([self.docker, "stop", container_name], capture_output=True, check=False)
 
             if result.returncode == 0:
                 logger.info("Successfully stopped container: %s", container_name)
@@ -67,7 +75,7 @@ class DockerContainerService(ContainerService):
     def remove_container(self, container_name: str) -> bool:
         """Remove a Docker container."""
         try:
-            result = subprocess.run(["docker", "rm", container_name], capture_output=True, check=False)
+            result = subprocess.run([self.docker, "rm", container_name], capture_output=True, check=False)
 
             if result.returncode == 0:
                 logger.info("Successfully removed container: %s", container_name)
@@ -84,7 +92,7 @@ class DockerContainerService(ContainerService):
         """Check if a Docker container exists."""
         try:
             result = subprocess.run(
-                ["docker", "ps", "-aq", "-f", f"name={container_name}"], capture_output=True, text=True, check=False
+                [self.docker, "ps", "-aq", "-f", f"name={container_name}"], capture_output=True, text=True, check=False
             )
 
             return bool(result.stdout.strip())
@@ -97,7 +105,7 @@ class DockerContainerService(ContainerService):
         """Get logs from a Docker container."""
         try:
             result = subprocess.run(
-                ["docker", "logs", "--tail", str(tail_lines), container_name],
+                [self.docker, "logs", "--tail", str(tail_lines), container_name],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -117,7 +125,7 @@ class DockerContainerService(ContainerService):
         """Check if a Docker container is currently running."""
         try:
             result = subprocess.run(
-                ["docker", "ps", "-q", "-f", f"name={container_name}"], capture_output=True, text=True, check=False
+                [self.docker, "ps", "-q", "-f", f"name={container_name}"], capture_output=True, text=True, check=False
             )
 
             return bool(result.stdout.strip())
@@ -128,7 +136,16 @@ class DockerContainerService(ContainerService):
 
     def _build_docker_command(self, config: ContainerConfig) -> list[str]:
         """Build the Docker command from configuration."""
-        cmd = ["docker", "run", "--name", config.name]
+        cmd = [self.docker, "run", "--name", config.name]
+
+        if 'podman' in self.docker:
+            # map the calling user's uid to uid 1000 in the
+            # container (builder user). This way the builder user
+            # appears to own the source directory
+            cmd.extend(["--user", "root", "--uidmap", "0:1:1",
+                        "--uidmap", "1000:0:1",
+                        "--uidmap", "1:2:999",
+                        "--uidmap", "1001:1001:64535"])
 
         if config.env_file:
             cmd.extend(["--env-file", config.env_file])

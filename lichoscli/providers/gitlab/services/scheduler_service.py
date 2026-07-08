@@ -472,8 +472,15 @@ class GitLabSchedulerService(SchedulerService):
         packages: list["Project"],
         branch: str,
         poll_interval: int,
+        listener: SchedulerListener,
     ) -> None:
-        """Wait for any running pipelines in the workspace to complete."""
+        """Wait for any running pipelines in the workspace to complete.
+
+        Emits ``on_waiting_for_pipelines`` synchronously before polling so
+        the user is told which pipelines are still running, even if the
+        wait lasts minutes. The same ``listener`` passed to
+        ``execute_schedule`` can be reused here.
+        """
         running: dict[str, "Project"] = {}
 
         for pkg in packages:
@@ -486,11 +493,7 @@ class GitLabSchedulerService(SchedulerService):
         if not running:
             return
 
-        logger.info(
-            "Waiting for %d running pipeline(s) to complete: %s",
-            len(running),
-            ", ".join(sorted(running.keys())),
-        )
+        listener.on_waiting_for_pipelines(sorted(running.keys()))
 
         while running:
             time.sleep(poll_interval)

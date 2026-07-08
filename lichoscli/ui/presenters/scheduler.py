@@ -38,6 +38,19 @@ class SchedulerOutputListener:
             packages_text = ", ".join(packages[:3]) + "... ({0} total)".format(len(packages))
         self._output.accent("\nMonitoring builds: {0}".format(packages_text))
 
+    def on_waiting_for_pipelines(self, packages: list) -> None:
+        if not packages:
+            return
+        if len(packages) <= 3:
+            packages_text = ", ".join(packages)
+        else:
+            packages_text = ", ".join(packages[:3]) + "... ({0} total)".format(len(packages))
+        self._output.accent(
+            "\nWaiting for {0} running pipeline(s) to complete: {1}".format(
+                len(packages), packages_text,
+            )
+        )
+
     def on_polling_update(self, still_building: list) -> None:
         if len(still_building) <= 3:
             names_text = ", ".join(still_building)

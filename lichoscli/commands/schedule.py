@@ -65,8 +65,9 @@ class ScheduleCommand(Command):
         )
         missing_dependencies = [entry.name for entry in report.missing]
 
+        listener = SchedulerOutputListener(self.output)
         self.scheduler_service.await_running_pipelines(
-            packages, self.args.branch, self.args.poll_interval,
+            packages, self.args.branch, self.args.poll_interval, listener=listener,
         )
 
         cancelled = self.scheduler_service.cancel_orphan_pipelines(
@@ -149,7 +150,6 @@ class ScheduleCommand(Command):
 
         try:
             self.scheduler_service.post_dag_statuses(dag, workspace)
-            listener = SchedulerOutputListener(self.output)
             result = self.scheduler_service.execute_schedule(
                 dag=dag,
                 workspace=workspace,

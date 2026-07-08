@@ -133,6 +133,7 @@ class SchedulerService(ABC):
         packages: list["Project"],
         branch: str,
         poll_interval: int,
+        listener: SchedulerListener,
     ) -> None:
         """Wait for any running pipelines in the workspace to complete.
 
@@ -140,6 +141,11 @@ class SchedulerService(ABC):
         completed or the pipeline has reached a terminal state.
         The workspace-scheduling commit status is excluded from
         this evaluation.
+
+        Implementations must invoke ``listener.on_waiting_for_pipelines``
+        synchronously — before entering the polling loop — so users
+        see which pipelines are still running even when the wait
+        takes minutes.
         """
         raise NotImplementedError
 

@@ -576,8 +576,12 @@ class TestAwaitRunningPipelines:
         proj_a.pipelines.get_latest.return_value = self._finished_pipeline()
 
         svc = _make_service()
-        svc.await_running_pipelines([proj_a], "main", poll_interval=0)
+        listener = Mock(spec=SchedulerListener)
+        svc.await_running_pipelines(
+            [proj_a], "main", poll_interval=0, listener=listener,
+        )
 
+        listener.on_waiting_for_pipelines.assert_not_called()
         # Only the initial check call, no polling
         proj_a.pipelines.get_latest.assert_called_once_with("main", use_cache=False)
 
@@ -586,8 +590,12 @@ class TestAwaitRunningPipelines:
         proj_a.pipelines.get_latest.return_value = None
 
         svc = _make_service()
-        svc.await_running_pipelines([proj_a], "main", poll_interval=0)
+        listener = Mock(spec=SchedulerListener)
+        svc.await_running_pipelines(
+            [proj_a], "main", poll_interval=0, listener=listener,
+        )
 
+        listener.on_waiting_for_pipelines.assert_not_called()
         proj_a.pipelines.get_latest.assert_called_once()
 
     def test_waits_for_running_pipeline_to_finish(self):
@@ -597,9 +605,13 @@ class TestAwaitRunningPipelines:
         proj_a.pipelines.get_latest.side_effect = [running, finished]
 
         svc = _make_service()
+        listener = Mock(spec=SchedulerListener)
         with patch("lichoscli.providers.gitlab.services.scheduler_service.time.sleep"):
-            svc.await_running_pipelines([proj_a], "main", poll_interval=0)
+            svc.await_running_pipelines(
+                [proj_a], "main", poll_interval=0, listener=listener,
+            )
 
+        listener.on_waiting_for_pipelines.assert_called_once_with(["A"])
         assert proj_a.pipelines.get_latest.call_count == 2
 
     def test_waits_for_failed_pipeline_detection(self):
@@ -615,9 +627,13 @@ class TestAwaitRunningPipelines:
         proj_a.pipelines.get_latest.side_effect = [running, failed]
 
         svc = _make_service()
+        listener = Mock(spec=SchedulerListener)
         with patch("lichoscli.providers.gitlab.services.scheduler_service.time.sleep"):
-            svc.await_running_pipelines([proj_a], "main", poll_interval=0)
+            svc.await_running_pipelines(
+                [proj_a], "main", poll_interval=0, listener=listener,
+            )
 
+        listener.on_waiting_for_pipelines.assert_called_once_with(["A"])
         assert proj_a.pipelines.get_latest.call_count == 2
 
     def test_handles_pipeline_disappearing_during_poll(self):
@@ -626,9 +642,13 @@ class TestAwaitRunningPipelines:
         proj_a.pipelines.get_latest.side_effect = [running, None]
 
         svc = _make_service()
+        listener = Mock(spec=SchedulerListener)
         with patch("lichoscli.providers.gitlab.services.scheduler_service.time.sleep"):
-            svc.await_running_pipelines([proj_a], "main", poll_interval=0)
+            svc.await_running_pipelines(
+                [proj_a], "main", poll_interval=0, listener=listener,
+            )
 
+        listener.on_waiting_for_pipelines.assert_called_once_with(["A"])
         assert proj_a.pipelines.get_latest.call_count == 2
 
     def test_multiple_packages_waits_for_all(self):
@@ -642,13 +662,72 @@ class TestAwaitRunningPipelines:
         proj_b.pipelines.get_latest.return_value = finished
 
         svc = _make_service()
+        listener = Mock(spec=SchedulerListener)
         with patch("lichoscli.providers.gitlab.services.scheduler_service.time.sleep"):
-            svc.await_running_pipelines([proj_a, proj_b], "main", poll_interval=0)
+            svc.await_running_pipelines(
+                [proj_a, proj_b], "main", poll_interval=0, listener=listener,
+            )
 
+        # Only A is still running at detection time
+        listener.on_waiting_for_pipelines.assert_called_once_with(["A"])
         # proj_b: 1 initial call (already finished, not polled)
         proj_b.pipelines.get_latest.assert_called_once()
         # proj_a: 1 initial + 1 poll call
         assert proj_a.pipelines.get_latest.call_count == 2
+
+    def test_listener_called_with_all_running_packages_sorted(self):
+        proj_a = self._make_project("zeta")
+        proj_b = self._make_project("alpha")
+        proj_c = self._make_project("mu")
+
+        running = self._running_pipeline()
+        finished = self._finished_pipeline()
+        proj_a.pipelines.get_latest.side_effect = [running, finished]
+        proj_b.pipelines.get_latest.side_effect = [running, finished]
+        proj_c.pipelines.get_latest.side_effect = [running, finished]
+
+        svc = _make_service()
+        listener = Mock(spec=SchedulerListener)
+        with patch("lichoscli.providers.gitlab.services.scheduler_service.time.sleep"):
+            svc.await_running_pipelines(
+                [proj_a, proj_b, proj_c], "main", poll_interval=0, listener=listener,
+            )
+
+        listener.on_waiting_for_pipelines.assert_called_once_with(
+            ["alpha", "mu", "zeta"]
+        )
+
+    def test_listener_notified_before_polling_starts(self):
+        """Regression: the 'Waiting' message must reach the user
+        immediately, not after the wait completes.
+
+        Verifies that listener.on_waiting_for_pipelines fires before the
+        first time.sleep() poll tick. If the message fired after the
+        wait, events would record "sleep" first.
+        """
+        proj_a = self._make_project("A")
+        running = self._running_pipeline()
+        finished = self._finished_pipeline()
+        proj_a.pipelines.get_latest.side_effect = [running, finished]
+
+        svc = _make_service()
+        listener = Mock(spec=SchedulerListener)
+        events: list[str] = []
+        listener.on_waiting_for_pipelines.side_effect = (
+            lambda pkgs: events.append("listener")
+        )
+        with patch(
+            "lichoscli.providers.gitlab.services.scheduler_service.time.sleep",
+            side_effect=lambda _secs: events.append("sleep") or None,
+        ):
+            svc.await_running_pipelines(
+                [proj_a], "main", poll_interval=0, listener=listener,
+            )
+
+        listener.on_waiting_for_pipelines.assert_called_once_with(["A"])
+        assert events, "expected sleep to run"
+        assert events[0] == "listener"
+        assert events.count("listener") == 1
 
 
 class TestAnalyzeReverseDependencies:

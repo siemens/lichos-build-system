@@ -13,6 +13,10 @@ from .pipeline_status import PipelineStatus
 from .pipelines import Pipelines
 from .project import Project
 from .projects import Projects
+from .reverse_dependency_report import (
+    ReverseDependencyEntry,
+    ReverseDependencyReport,
+)
 from .tag import Tag
 from .tags import Tags
 from .user import User
@@ -45,4 +49,6 @@ __all__ = [
     "Artifacts",
     "Workspace",
     "User",
+    "ReverseDependencyEntry",
+    "ReverseDependencyReport",
 ]

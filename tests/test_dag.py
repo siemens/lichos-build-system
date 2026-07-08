@@ -187,6 +187,24 @@ def test_get_depth():
     assert dag.get_depth("D") == 2
 
 
+def test_get_depth_with_shared_memo_populates_across_calls():
+    dag = _diamond_dag()
+    memo: dict[str, int] = {}
+    assert dag.get_depth("A", memo) == 0
+    assert dag.get_depth("B", memo) == 1
+    assert dag.get_depth("C", memo) == 1
+    assert dag.get_depth("D", memo) == 2
+    assert memo == {"A": 0, "B": 1, "C": 1, "D": 2}
+
+
+def test_get_depth_omitted_memo_uses_fresh_dict():
+    dag = _diamond_dag()
+    dag.get_depth("A")
+    dag.get_depth("B")
+    assert dag.get_depth("A") == 0
+    assert dag.get_depth("B") == 1
+
+
 def test_get_transitive_dependents():
     dag = _diamond_dag()
     deps = dag.get_transitive_dependents("A")

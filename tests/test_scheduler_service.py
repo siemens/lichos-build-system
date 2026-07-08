@@ -649,3 +649,101 @@ class TestAwaitRunningPipelines:
         proj_b.pipelines.get_latest.assert_called_once()
         # proj_a: 1 initial + 1 poll call
         assert proj_a.pipelines.get_latest.call_count == 2
+
+
+class TestAnalyzeReverseDependencies:
+    @staticmethod
+    def _pkg(name):
+        pkg = Mock()
+        pkg.name = name
+        return pkg
+
+    @staticmethod
+    def _chain_dag():
+        """Build A → B → C (C depends on B, B depends on A)."""
+        nodes = {name: _node(name) for name in ("A", "B", "C")}
+        nodes["B"].add_dependency(nodes["A"])
+        nodes["A"].add_dependent(nodes["B"])
+        nodes["C"].add_dependency(nodes["B"])
+        nodes["B"].add_dependent(nodes["C"])
+        return DependencyGraph(nodes=nodes)
+
+    def test_classifies_in_workspace_and_missing(self):
+        dependency_service = Mock(spec=DependencyService)
+        dependency_service.build_dependency_dag.return_value = self._chain_dag()
+        svc = _make_service(dependency_service=dependency_service)
+
+        pkg_a = self._pkg("A")
+        pkg_b = self._pkg("B")
+        report = svc.analyze_reverse_dependencies(
+            [pkg_a, pkg_b], [pkg_a, pkg_b, self._pkg("C")], "main"
+        )
+
+        by_name = {entry.name: entry for entry in report.entries}
+        assert set(by_name) == {"B", "C"}
+        assert by_name["B"].in_workspace is True
+        assert by_name["C"].in_workspace is False
+        assert by_name["B"].depth == 1
+        assert by_name["C"].depth == 2
+        assert [entry.name for entry in report.missing] == ["C"]
+        assert [entry.name for entry in report.in_workspace] == ["B"]
+
+    def test_dedupes_dependents_across_workspace_packages(self):
+        dependency_service = Mock(spec=DependencyService)
+        dependency_service.build_dependency_dag.return_value = self._chain_dag()
+        svc = _make_service(dependency_service=dependency_service)
+
+        pkg_a = self._pkg("A")
+        pkg_b = self._pkg("B")
+        # A and B both have C as a transitive dependent; it must appear once.
+        report = svc.analyze_reverse_dependencies(
+            [pkg_a, pkg_b], [pkg_a, pkg_b], "main"
+        )
+
+        assert [entry.name for entry in report.entries].count("C") == 1
+
+    def test_empty_dag_returns_empty_report(self):
+        dependency_service = Mock(spec=DependencyService)
+        dependency_service.build_dependency_dag.return_value = DependencyGraph(nodes={})
+        svc = _make_service(dependency_service=dependency_service)
+
+        report = svc.analyze_reverse_dependencies(
+            [self._pkg("A")], [self._pkg("A")], "main"
+        )
+
+        assert report.entries == []
+
+
+class TestPostDagStatusesMissingDependencies:
+    def test_missing_dependencies_forwarded_as_extra_description(self):
+        proj_a = Mock()
+        node_a = _node("A", status=DAGNodeStatus.SUCCESS, project=proj_a, commit_sha="sha-a")
+        dag = DependencyGraph(nodes={"A": node_a})
+
+        commit_svc = Mock(spec=CommitStatusService)
+        svc = _make_service(commit_status_service=commit_svc)
+
+        svc.post_dag_statuses(
+            dag, _workspace(), scheduling_complete=True,
+            missing_dependencies=["ext-b", "ext-a"],
+        )
+
+        args = commit_svc.post_workspace_status.call_args[0]
+        assert args[0] == {"A": proj_a}
+        assert args[1] == {"A": "sha-a"}
+        assert args[2] == WorkspaceStatus.SUCCESS
+        assert args[3] == "build deps not in workspace: ext-a, ext-b"
+
+    def test_no_missing_dependencies_posts_without_extra_description(self):
+        proj_a = Mock()
+        node_a = _node("A", status=DAGNodeStatus.SUCCESS, project=proj_a, commit_sha="sha-a")
+        dag = DependencyGraph(nodes={"A": node_a})
+
+        commit_svc = Mock(spec=CommitStatusService)
+        svc = _make_service(commit_status_service=commit_svc)
+
+        svc.post_dag_statuses(dag, _workspace(), scheduling_complete=True)
+
+        commit_svc.post_workspace_status.assert_called_once_with(
+            {"A": proj_a}, {"A": "sha-a"}, WorkspaceStatus.SUCCESS
+        )

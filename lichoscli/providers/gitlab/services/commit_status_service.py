@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 _CONTEXT_NAME = "workspace-scheduling"
 
+_MAX_DESCRIPTION_LENGTH = 255
+
 _DESCRIPTIONS = {
     CommitNodeStatus.CANCELLED: "will be rebuilt",
     CommitNodeStatus.RUNNING: "schedule in progress",
@@ -63,8 +65,7 @@ class GitLabCommitStatusService(CommitStatusService):
         cache_key = (project.id, commit_sha, status.value)
         if cache_key in self._posted_statuses:
             logger.debug(
-                "Skipping duplicate commit status %s for project %s @ %s",
-                status.value,
+                "Skipping duplicate commit status for project %s @ %s",
                 project.id,
                 commit_sha,
             )
@@ -95,9 +96,18 @@ class GitLabCommitStatusService(CommitStatusService):
         nodes: dict[str, "Project"],
         commit_shas: dict[str, str],
         status: WorkspaceStatus,
+        extra_description: Optional[str] = None,
     ) -> None:
-        """Post the same workspace-level status to all packages."""
+        """Post the same workspace-level status to all packages.
+
+        ``extra_description`` is appended to the status description for
+        informational purposes without affecting the reported state.
+        """
         description = _WORKSPACE_DESCRIPTIONS.get(status, "")
+        if extra_description:
+            description = "{0} | {1}".format(description, extra_description)
+        if len(description) > _MAX_DESCRIPTION_LENGTH:
+            description = description[: _MAX_DESCRIPTION_LENGTH - 1] + "\u2026"
 
         for package_name, project in nodes.items():
             commit_sha = commit_shas.get(package_name)

@@ -45,6 +45,11 @@ class CommitStatusService(ABC):
         nodes: dict[str, "Project"],
         commit_shas: dict[str, str],
         status: "WorkspaceStatus",
+        extra_description: Optional[str] = None,
     ) -> None:
-        """Post the same workspace-level status to all packages in the workspace."""
+        """Post the same workspace-level status to all packages in the workspace.
+
+        ``extra_description`` is appended to the status description for
+        informational purposes only and does not affect the reported state.
+        """
         raise NotImplementedError

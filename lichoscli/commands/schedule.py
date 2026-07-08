@@ -11,6 +11,7 @@ from lichoscli.core.services import (
     StorageService,
     WorkspaceService,
 )
+from lichoscli.core.services.package import PackageService
 from lichoscli.core.services.scheduler_service import SchedulerService
 from lichoscli.ui.presenters.dag import dag_to_tree, version_check_summary
 from lichoscli.ui.presenters.scheduler import SchedulerOutputListener
@@ -26,6 +27,7 @@ class ScheduleCommand(Command):
         super().__init__(di_container, args)
         self.workspace_service = di_container.obtain_ref(WorkspaceService)
         self.scheduler_service = di_container.obtain_ref(SchedulerService)
+        self.package_service = di_container.obtain_ref(PackageService)
         self.previous_dag = di_container.obtain_ref(StorageService).load_workspace_state(
             self.args.branch
         )
@@ -56,6 +58,12 @@ class ScheduleCommand(Command):
         ))
 
         packages = [p for p in workspace.packages if p.name != CI_PKG]
+
+        all_packages = self.package_service.get_all_packages()
+        report = self.scheduler_service.analyze_reverse_dependencies(
+            packages, all_packages, self.args.branch,
+        )
+        missing_dependencies = [entry.name for entry in report.missing]
 
         self.scheduler_service.await_running_pipelines(
             packages, self.args.branch, self.args.poll_interval,
@@ -121,6 +129,7 @@ class ScheduleCommand(Command):
             self.output.success("All packages are up to date! No builds needed.")
             self.scheduler_service.post_dag_statuses(
                 dag, workspace, scheduling_complete=True,
+                missing_dependencies=missing_dependencies,
             )
             self.scheduler_service.send_build_notification(
                 dag, workspace, self.previous_dag
@@ -154,6 +163,7 @@ class ScheduleCommand(Command):
 
         self.scheduler_service.post_dag_statuses(
             dag, workspace, scheduling_complete=True,
+            missing_dependencies=missing_dependencies,
         )
 
         self.output.accent("\nBuild scheduling completed:")
@@ -164,6 +174,12 @@ class ScheduleCommand(Command):
             self.output.warning(
                 "  Skipped (dependency failed): {0}".format(
                     ", ".join(result.blocked_packages)
+                )
+            )
+        if missing_dependencies:
+            self.output.warning(
+                "Build dependencies not in workspace: {0}".format(
+                    ", ".join(sorted(missing_dependencies))
                 )
             )
 

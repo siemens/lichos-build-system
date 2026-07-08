@@ -9,6 +9,10 @@ from typing import TYPE_CHECKING, Optional
 
 from lichoscli.core.models.build_schedule_result import BuildScheduleResult
 from lichoscli.core.models.dag import DAGNodeStatus, DependencyGraph
+from lichoscli.core.models.reverse_dependency_report import (
+    ReverseDependencyEntry,
+    ReverseDependencyReport,
+)
 from lichoscli.core.models.schedule_analysis import ScheduleAnalysis
 from lichoscli.core.services.commit_status import CommitNodeStatus, WorkspaceStatus
 from lichoscli.core.services.dependency import DependencyService
@@ -120,6 +124,40 @@ class GitLabSchedulerService(SchedulerService):
             packages_needing_rebuild=packages_needing_rebuild,
             version_check_results=version_check_results,
         )
+
+
+    def analyze_reverse_dependencies(
+        self,
+        workspace_packages: list["Project"],
+        all_packages: list["Project"],
+        branch: str,
+    ) -> ReverseDependencyReport:
+        workspace_names = {pkg.name for pkg in workspace_packages}
+
+        dag = self._dependency_service.build_dependency_dag(
+            all_packages, branch, wait_for_completion=False
+        )
+        if not dag or not dag.nodes:
+            return ReverseDependencyReport()
+
+        dependents: dict[str, "DAGNode"] = {}
+        for pkg in workspace_packages:
+            for node in dag.get_transitive_dependents(pkg.name):
+                dependents[node.package] = node
+
+        depth_memo: dict[str, int] = {}
+        entries = [
+            ReverseDependencyEntry(
+                name=node.package,
+                version=node.version,
+                depth=dag.get_depth(node.package, depth_memo),
+                in_workspace=node.package in workspace_names,
+            )
+            for node in dependents.values()
+        ]
+        entries.sort(key=lambda entry: (entry.in_workspace, entry.depth, entry.name))
+
+        return ReverseDependencyReport(entries=entries)
 
 
     def execute_schedule(
@@ -260,6 +298,7 @@ class GitLabSchedulerService(SchedulerService):
         dag: DependencyGraph,
         workspace: "Workspace",
         scheduling_complete: bool = False,
+        missing_dependencies: Optional[list[str]] = None,
     ) -> None:
         if workspace.is_protected:
             logger.info(
@@ -267,6 +306,12 @@ class GitLabSchedulerService(SchedulerService):
                 workspace.name,
             )
             return
+
+        extra_description = None
+        if missing_dependencies:
+            extra_description = "build deps not in workspace: {0}".format(
+                ", ".join(sorted(missing_dependencies))
+            )
 
         has_failures = any(
             node.status == DAGNodeStatus.FAILED for node in dag.nodes.values()
@@ -297,7 +342,12 @@ class GitLabSchedulerService(SchedulerService):
 
         for ws, (projs, shas) in groups.items():
             if projs:
-                self._commit_status_service.post_workspace_status(projs, shas, ws)
+                if extra_description:
+                    self._commit_status_service.post_workspace_status(
+                        projs, shas, ws, extra_description
+                    )
+                else:
+                    self._commit_status_service.post_workspace_status(projs, shas, ws)
 
     @staticmethod
     def _resolve_node_workspace_status(

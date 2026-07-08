@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Optional
 
 from lichoscli.core.models.build_schedule_result import BuildScheduleResult
 from lichoscli.core.models.dag import DependencyGraph
+from lichoscli.core.models.reverse_dependency_report import ReverseDependencyReport
 from lichoscli.core.models.schedule_analysis import ScheduleAnalysis
 from lichoscli.core.services.scheduler_listener import SchedulerListener
 
@@ -35,6 +36,23 @@ class SchedulerService(ABC):
         transitive dependents.
 
         Returns a ScheduleAnalysis with the prepared DAG and metadata.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def analyze_reverse_dependencies(
+        self,
+        workspace_packages: list["Project"],
+        all_packages: list["Project"],
+        branch: str,
+    ) -> ReverseDependencyReport:
+        """Determine the reverse build dependencies of the workspace packages.
+
+        Builds a dependency DAG across ``all_packages`` and collects the
+        union of transitive dependents of every workspace package. Each
+        returned entry is flagged with whether it is part of the workspace,
+        so callers can surface reverse dependencies that are missing from
+        the workspace and may therefore be built with stale dependencies.
         """
         raise NotImplementedError
 
@@ -68,6 +86,7 @@ class SchedulerService(ABC):
         dag: DependencyGraph,
         workspace: "Workspace",
         scheduling_complete: bool = False,
+        missing_dependencies: Optional[list[str]] = None,
     ) -> None:
         """Batch-post commit statuses for all nodes in the DAG.
 
@@ -81,6 +100,11 @@ class SchedulerService(ABC):
         * **After scheduling** (``scheduling_complete=True``):
           If any node FAILED → failed nodes get FAILED, all others
           get STALE.  If all nodes succeeded → every node gets SUCCESS.
+
+        ``missing_dependencies`` is an optional list of reverse build
+        dependencies that are not part of the workspace; when provided it
+        is appended to the status description for information only and does
+        not affect the reported state.
 
         When ``workspace.is_protected`` is True this method is a no-op:
         protected branches must not receive workspace-scheduling external

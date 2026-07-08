@@ -148,12 +148,19 @@ class DependencyGraph:
         """Return all nodes with the given status."""
         return [node for node in self.nodes.values() if node.status == status]
 
-    def get_depth(self, package_name: str) -> int:
+    def get_depth(
+        self,
+        package_name: str,
+        memo: Optional[dict[str, int]] = None,
+    ) -> int:
         """
         Dependency depth of a package: 0 for packages with no in-graph
         dependencies, N for the longest chain of N edges to a root.
+
+        For batch lookups, pass the same ``memo`` dict across calls to avoid
+        re-walking the subgraph for each node.
         """
-        return self._calculate_depth(package_name, {})
+        return self._calculate_depth(package_name, memo if memo is not None else {})
 
     def group_by_depth(
         self, nodes_to_include: Optional[list["DAGNode"]] = None

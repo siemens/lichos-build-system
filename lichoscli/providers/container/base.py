@@ -1,30 +1,41 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Siemens AG
 
+"""Shared OCI container runtime base class.
+
+Both ``DockerContainerService`` and ``PodmanContainerService`` derive from this.
+Subclasses only describe how the runtime-specific ``run`` command is built; every
+other operation (``pull``, ``stop``, ``remove``, ``exists``, ``logs``,
+``is_running``) follows the same docker-compatible CLI surface.
+"""
+
+from __future__ import annotations
+
 import logging
 import subprocess
-from shutil import which
+from abc import abstractmethod
 
 from lichoscli.core.services import ContainerConfig, ContainerResult, ContainerService
 
 logger = logging.getLogger(__name__)
 
 
-class DockerContainerService(ContainerService):
-    """Docker implementation of ContainerService."""
+class OciContainerService(ContainerService):
+    """Common implementation for docker-compatible container CLIs."""
 
-    def __init__(self):
-        self.docker = 'docker'
-        for n in self.docker, 'podman':
-            if which(n):
-                self.docker = n
-                break
+    def __init__(self, command: str):
+        self._command = command
+
+    @property
+    def command(self) -> str:
+        """The executable name used to invoke the runtime."""
+        return self._command
 
     def pull_image(self, image: str) -> int:
-        """Pull a Docker image."""
+        """Pull a container image."""
         try:
-            logger.info("Pulling Docker image: %s", image)
-            result = subprocess.run([self.docker, "pull", image], check=False)
+            logger.info("Pulling image %s with %s", image, self._command)
+            result = subprocess.run([self._command, "pull", image], check=False)
 
             if result.returncode != 0:
                 logger.error("Failed to pull image %s", image)
@@ -34,65 +45,84 @@ class DockerContainerService(ContainerService):
             return result.returncode
 
         except subprocess.SubprocessError as e:
-            logger.error("Error pulling Docker image %s: %s", image, e)
+            logger.error("Error pulling image %s: %s", image, e)
             return 1
 
     def run_container(self, config: ContainerConfig) -> ContainerResult:
-        """Run a Docker container with the given configuration."""
+        """Run a container with the given configuration."""
         try:
             if self.container_exists(config.name):
                 logger.info("Removing existing container: %s", config.name)
                 self.stop_container(config.name)
                 self.remove_container(config.name)
 
-            cmd = self._build_docker_command(config)
+            cmd = self.build_run_command(config)
 
-            logger.info("Running Docker container with command: %s", " ".join(cmd))
+            logger.info("Running container with command: %s", " ".join(cmd))
             result = subprocess.run(cmd, check=False)
 
             return ContainerResult(return_code=result.returncode, container_name=config.name)
 
         except subprocess.SubprocessError as e:
-            logger.error("Error running Docker container %s: %s", config.name, e)
+            logger.error("Error running container %s: %s", config.name, e)
             return ContainerResult(return_code=1)
 
     def stop_container(self, container_name: str) -> bool:
-        """Stop a running Docker container."""
+        """Stop a running container."""
         try:
-            result = subprocess.run([self.docker, "stop", container_name], capture_output=True, check=False)
+            result = subprocess.run(
+                [self._command, "stop", container_name],
+                capture_output=True,
+                check=False,
+            )
 
             if result.returncode == 0:
                 logger.info("Successfully stopped container: %s", container_name)
                 return True
-            else:
-                logger.warning("Failed to stop container %s: %s", container_name, result.stderr.decode())
-                return False
+
+            logger.warning(
+                "Failed to stop container %s: %s",
+                container_name,
+                result.stderr.decode(errors="replace") if result.stderr else "",
+            )
+            return False
 
         except subprocess.SubprocessError as e:
             logger.error("Error stopping container %s: %s", container_name, e)
             return False
 
     def remove_container(self, container_name: str) -> bool:
-        """Remove a Docker container."""
+        """Remove a container."""
         try:
-            result = subprocess.run([self.docker, "rm", container_name], capture_output=True, check=False)
+            result = subprocess.run(
+                [self._command, "rm", container_name],
+                capture_output=True,
+                check=False,
+            )
 
             if result.returncode == 0:
                 logger.info("Successfully removed container: %s", container_name)
                 return True
-            else:
-                logger.warning("Failed to remove container %s: %s", container_name, result.stderr.decode())
-                return False
+
+            logger.warning(
+                "Failed to remove container %s: %s",
+                container_name,
+                result.stderr.decode(errors="replace") if result.stderr else "",
+            )
+            return False
 
         except subprocess.SubprocessError as e:
             logger.error("Error removing container %s: %s", container_name, e)
             return False
 
     def container_exists(self, container_name: str) -> bool:
-        """Check if a Docker container exists."""
+        """Check if a container exists."""
         try:
             result = subprocess.run(
-                [self.docker, "ps", "-aq", "-f", f"name={container_name}"], capture_output=True, text=True, check=False
+                [self._command, "ps", "-aq", "-f", f"name={container_name}"],
+                capture_output=True,
+                text=True,
+                check=False,
             )
 
             return bool(result.stdout.strip())
@@ -102,10 +132,10 @@ class DockerContainerService(ContainerService):
             return False
 
     def get_container_logs(self, container_name: str, tail_lines: int = 50) -> str:
-        """Get logs from a Docker container."""
+        """Get logs from a container."""
         try:
             result = subprocess.run(
-                [self.docker, "logs", "--tail", str(tail_lines), container_name],
+                [self._command, "logs", "--tail", str(tail_lines), container_name],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -113,19 +143,22 @@ class DockerContainerService(ContainerService):
 
             if result.returncode == 0:
                 return result.stdout + result.stderr
-            else:
-                logger.warning("Failed to get logs from container %s", container_name)
-                return ""
+
+            logger.warning("Failed to get logs from container %s", container_name)
+            return ""
 
         except subprocess.SubprocessError as e:
             logger.error("Error getting logs from container %s: %s", container_name, e)
             return ""
 
     def is_container_running(self, container_name: str) -> bool:
-        """Check if a Docker container is currently running."""
+        """Check if a container is currently running."""
         try:
             result = subprocess.run(
-                [self.docker, "ps", "-q", "-f", f"name={container_name}"], capture_output=True, text=True, check=False
+                [self._command, "ps", "-q", "-f", f"name={container_name}"],
+                capture_output=True,
+                text=True,
+                check=False,
             )
 
             return bool(result.stdout.strip())
@@ -134,18 +167,24 @@ class DockerContainerService(ContainerService):
             logger.error("Error checking if container is running %s: %s", container_name, e)
             return False
 
-    def _build_docker_command(self, config: ContainerConfig) -> list[str]:
-        """Build the Docker command from configuration."""
-        cmd = [self.docker, "run", "--name", config.name]
+    @abstractmethod
+    def build_run_command(self, config: ContainerConfig) -> list[str]:
+        """Build the runtime-specific ``run`` command from configuration.
 
-        if 'podman' in self.docker:
-            # map the calling user's uid to uid 1000 in the
-            # container (builder user). This way the builder user
-            # appears to own the source directory
-            cmd.extend(["--user", "root", "--uidmap", "0:1:1",
-                        "--uidmap", "1000:0:1",
-                        "--uidmap", "1:2:999",
-                        "--uidmap", "1001:1001:64535"])
+        Implementations should typically start from ``self.compose_run_command``
+        and prepend any runtime-specific options (uid mapping, etc.).
+        """
+
+    def compose_run_command(self, config: ContainerConfig, runtime_options: list[str] | None = None) -> list[str]:
+        """Compose the final runtime ``run`` command from shared and runtime-specific options.
+
+        Subclasses call this with their runtime-specific flags (e.g. podman's
+        ``--uidmap``). The returned list is a full command suitable for
+        ``subprocess.run``.
+        """
+        runtime_options = runtime_options or []
+        cmd = [self._command, "run", "--name", config.name]
+        cmd.extend(runtime_options)
 
         if config.env_file:
             cmd.extend(["--env-file", config.env_file])

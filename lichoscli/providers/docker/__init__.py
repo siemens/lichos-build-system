@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Siemens AG
 
-from .container_service import DockerContainerService
+from .docker_container_service import DockerContainerService
 
 __all__ = [
     "DockerContainerService",

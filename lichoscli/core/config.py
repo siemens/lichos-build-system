@@ -79,6 +79,22 @@ class UserConfigStore:
         data = cls.read()
         return data.get("hosts", {}).get(host, {}).get("token")
 
+    @classmethod
+    def get_container_runtime(cls) -> Optional[str]:
+        """Return the persisted container runtime name (e.g. ``docker``, ``podman``)."""
+        return cls.read().get("container_runtime")
+
+    @classmethod
+    def set_container_runtime(cls, runtime: str) -> None:
+        """Persist the container runtime selection in the XDG config file."""
+        path = cls.config_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = cls.read()
+        data["container_runtime"] = runtime
+        with open(path, "w", encoding="utf-8") as fh:
+            yaml.safe_dump(data, fh, default_flow_style=False)
+        logger.debug("Stored container runtime %s in %s", runtime, path)
+
 
 class ProviderType(Enum):
     """Supported provider types."""
@@ -86,10 +102,16 @@ class ProviderType(Enum):
     GITHUB = "github"
 
 
+class ContainerRuntime(Enum):
+    """OCI container runtime used to drive local builds."""
+    DOCKER = "docker"
+    PODMAN = "podman"
+
+
 @dataclass
 class LichosConfig:
     """Configuration object for Lichos CLI."""
-    
+
     host: Optional[str]
     pkg_group: Optional[str]
     branch: Optional[str]
@@ -101,7 +123,8 @@ class LichosConfig:
     dump: bool = False
     output_backend: OutputBackend = OutputBackend.TERMINAL
     prompt_backend: PromptBackend = PromptBackend.TERMINAL
-    
+    container_runtime: ContainerRuntime = ContainerRuntime.DOCKER
+
     @classmethod
     def detect_provider(cls, host: Optional[str]) -> ProviderType:
         """Detect provider type from host."""
@@ -258,6 +281,19 @@ class ConfigBuilder:
             PromptBackend.TERMINAL,
         )
 
+        container_runtime_raw = self._xdg_field("container_runtime")
+        try:
+            container_runtime = (
+                ContainerRuntime(container_runtime_raw) if container_runtime_raw else ContainerRuntime.DOCKER
+            )
+        except ValueError:
+            logger.warning(
+                "Ignoring invalid container_runtime %r in user config, falling back to %s",
+                container_runtime_raw,
+                ContainerRuntime.DOCKER.value,
+            )
+            container_runtime = ContainerRuntime.DOCKER
+
         provider = LichosConfig.detect_provider(host)
 
         return LichosConfig(
@@ -272,4 +308,5 @@ class ConfigBuilder:
             dump=self.args.dump,
             output_backend=output_backend,
             prompt_backend=prompt_backend,
+            container_runtime=container_runtime,
         )

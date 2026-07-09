@@ -7,7 +7,7 @@ import pytest
 from unittest.mock import Mock, patch
 from argparse import Namespace
 
-from lichoscli.core.config import ConfigBuilder, LichosConfig, ProviderType
+from lichoscli.core.config import ConfigBuilder, LichosConfig, ContainerRuntime, ProviderType
 from lichoscli.core.container_factory import DIContainerFactory
 from lichoscli.providers.gitlab.container import GitLabServiceContainer
 from lichoscli.ui import OutputBackend, PromptBackend, UserInterface
@@ -317,6 +317,51 @@ class TestConfigBuilder:
         provider = LichosConfig.detect_provider("github.com")
         assert provider == ProviderType.GITHUB
 
+    @patch("lichoscli.core.config.LichosAnchorHandler")
+    @patch("lichoscli.core.config.GitRepo")
+    def test_container_runtime_defaults_to_docker(self, mock_git_repo, mock_anchor_cls):
+        """No stored runtime -> default docker."""
+        mock_anchor_cls.return_value.read.return_value = None
+        mock_git_repo.return_value.active_branch = "main"
+        args = Namespace(
+            host="h", pkg_group="g", branch=None,
+            dry=False, debug=False, verbose=False, dump=False,
+            output_backend=None, prompt_backend=None,
+        )
+        with patch("lichoscli.core.config.UserConfigStore.read", return_value={}):
+            cfg = ConfigBuilder(args).build()
+        assert cfg.container_runtime == ContainerRuntime.DOCKER
+
+    @patch("lichoscli.core.config.LichosAnchorHandler")
+    @patch("lichoscli.core.config.GitRepo")
+    def test_container_runtime_resolves_podman_from_user_config(self, mock_git_repo, mock_anchor_cls):
+        """Stored runtime 'podman' -> ContainerRuntime.PODMAN."""
+        mock_anchor_cls.return_value.read.return_value = None
+        mock_git_repo.return_value.active_branch = "main"
+        args = Namespace(
+            host="h", pkg_group="g", branch=None,
+            dry=False, debug=False, verbose=False, dump=False,
+            output_backend=None, prompt_backend=None,
+        )
+        with patch("lichoscli.core.config.UserConfigStore.read", return_value={"container_runtime": "podman"}):
+            cfg = ConfigBuilder(args).build()
+        assert cfg.container_runtime == ContainerRuntime.PODMAN
+
+    @patch("lichoscli.core.config.LichosAnchorHandler")
+    @patch("lichoscli.core.config.GitRepo")
+    def test_container_runtime_invalid_value_falls_back_to_docker(self, mock_git_repo, mock_anchor_cls):
+        """Garbage value in user config should fall back to docker, not crash."""
+        mock_anchor_cls.return_value.read.return_value = None
+        mock_git_repo.return_value.active_branch = "main"
+        args = Namespace(
+            host="h", pkg_group="g", branch=None,
+            dry=False, debug=False, verbose=False, dump=False,
+            output_backend=None, prompt_backend=None,
+        )
+        with patch("lichoscli.core.config.UserConfigStore.read", return_value={"container_runtime": "rkt"}):
+            cfg = ConfigBuilder(args).build()
+        assert cfg.container_runtime == ContainerRuntime.DOCKER
+
 
 class TestDIContainerFactory:
     """Test DIContainerFactory functionality."""
@@ -330,13 +375,13 @@ class TestDIContainerFactory:
             branch="main",
             provider=ProviderType.GITLAB,
         )
-        
+
         container = DIContainerFactory.create(config)
-        
+
         assert isinstance(container, GitLabServiceContainer)
         assert container.group_rpath == "platform/packages"
         assert isinstance(container.obtain_ref(UserInterface), UserInterface)
-    
+
     def test_create_github_container_not_implemented(self):
         """Test that GitHub container raises NotImplementedError."""
         config = LichosConfig(

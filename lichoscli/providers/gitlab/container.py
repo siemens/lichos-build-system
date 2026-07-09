@@ -7,6 +7,7 @@ import logging
 import os
 from typing import Any, TypeVar, Callable, Optional
 
+from lichoscli.core.config import ContainerRuntime
 from lichoscli.core.di import DIContainer, ReferenceNotFoundError
 from lichoscli.core.models.git.git_url import GitUrl
 from lichoscli.core.services import (
@@ -40,10 +41,17 @@ T = TypeVar("T")
 class GitLabServiceContainer(DIContainer):
     """GitLab-specific dependency injection container."""
 
-    def __init__(self, group_rpath: Optional[str], host: Optional[str], gitlab_factory: Callable[[], Any]):
+    def __init__(
+        self,
+        group_rpath: Optional[str],
+        host: Optional[str],
+        gitlab_factory: Callable[[], Any],
+        container_runtime: ContainerRuntime = ContainerRuntime.DOCKER,
+    ):
         """Initialize the GitLab service container."""
         self.group_rpath = group_rpath
         self.host = host
+        self.container_runtime = container_runtime
         self._gitlab_factory = gitlab_factory
         self._gitlab_client = None
         self._group_id = None

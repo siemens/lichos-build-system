@@ -58,20 +58,25 @@ class UserConfigStore:
             return {}
 
     @classmethod
-    def write(cls, host: str, token: Optional[str] = None) -> None:
-        """Persist a token for *host* to the XDG config file."""
+    def _write(cls, data: dict) -> None:
+        """Persist *data* as the full contents of the XDG config file."""
         path = cls.config_path()
         path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            yaml.safe_dump(data, fh, default_flow_style=False)
+        logger.debug("Wrote user config to %s", path)
+
+    @classmethod
+    def write(cls, host: str, token: Optional[str] = None) -> None:
+        """Persist a token for *host* to the XDG config file."""
         existing = cls.read()
         hosts: dict = existing.get("hosts", {})
         entry: dict = hosts.get(host, {})
         if token:
             entry["token"] = token
         hosts[host] = entry
-        data: dict = {"hosts": hosts}
-        with open(path, "w", encoding="utf-8") as fh:
-            yaml.safe_dump(data, fh, default_flow_style=False)
-        logger.debug("Wrote user config to %s", path)
+        existing["hosts"] = hosts
+        cls._write(existing)
 
     @classmethod
     def get_token(cls, host: str) -> Optional[str]:
@@ -87,13 +92,9 @@ class UserConfigStore:
     @classmethod
     def set_container_runtime(cls, runtime: str) -> None:
         """Persist the container runtime selection in the XDG config file."""
-        path = cls.config_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
         data = cls.read()
         data["container_runtime"] = runtime
-        with open(path, "w", encoding="utf-8") as fh:
-            yaml.safe_dump(data, fh, default_flow_style=False)
-        logger.debug("Stored container runtime %s in %s", runtime, path)
+        cls._write(data)
 
 
 class ProviderType(Enum):

@@ -10,6 +10,8 @@ from argparse import Namespace
 from lichoscli.core.config import ConfigBuilder, LichosConfig, ContainerRuntime, ProviderType
 from lichoscli.core.container_factory import DIContainerFactory
 from lichoscli.providers.gitlab.container import GitLabServiceContainer
+from lichoscli.providers.docker import DockerContainerService
+from lichoscli.providers.podman import PodmanContainerService
 from lichoscli.ui import OutputBackend, PromptBackend, UserInterface
 
 
@@ -382,6 +384,37 @@ class TestDIContainerFactory:
         assert container.group_rpath == "platform/packages"
         assert isinstance(container.obtain_ref(UserInterface), UserInterface)
 
+    @patch('lichoscli.core.container_factory.GitLabClientFactory')
+    def test_create_gitlab_container_default_runtime_is_docker(self, mock_client_factory):
+        """By default the factory wires DockerContainerService."""
+        from lichoscli.core.services import ContainerService
+        config = LichosConfig(
+            host="gitlab.example.com",
+            pkg_group="platform/packages",
+            branch="main",
+            provider=ProviderType.GITLAB,
+        )
+        container = DIContainerFactory.create(config)
+        svc = container.obtain_ref(ContainerService)
+        assert isinstance(svc, DockerContainerService)
+        assert not isinstance(svc, PodmanContainerService)
+
+    @patch('lichoscli.core.container_factory.GitLabClientFactory')
+    def test_create_gitlab_container_podman_runtime(self, mock_client_factory):
+        """container_runtime=podman -> PodmanContainerService."""
+        from lichoscli.core.services import ContainerService
+        config = LichosConfig(
+            host="gitlab.example.com",
+            pkg_group="platform/packages",
+            branch="main",
+            provider=ProviderType.GITLAB,
+            container_runtime=ContainerRuntime.PODMAN,
+        )
+        container = DIContainerFactory.create(config)
+        assert container.container_runtime == ContainerRuntime.PODMAN
+        svc = container.obtain_ref(ContainerService)
+        assert isinstance(svc, PodmanContainerService)
+    
     def test_create_github_container_not_implemented(self):
         """Test that GitHub container raises NotImplementedError."""
         config = LichosConfig(

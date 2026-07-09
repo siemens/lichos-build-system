@@ -2,9 +2,11 @@
 import logging
 from typing import TYPE_CHECKING, Optional
 
+from lichoscli.core.config import ContainerRuntime
 from lichoscli.core.services import (
     BuildInfoService,
     CacheService,
+    ContainerService,
     PackageService,
     PkgGroupDiscoveryService,
     RepoParserService,
@@ -15,7 +17,6 @@ from lichoscli.core.services.dependency import DependencyService
 from lichoscli.core.services.notify import NotifyService
 from lichoscli.core.services.scheduler_service import SchedulerService
 from lichoscli.core.services.storage import StorageService
-from lichoscli.providers.docker import DockerContainerService
 from lichoscli.core.handlers.lichos_anchor import LichosAnchorHandler
 from lichoscli.providers.filesystem import FilesystemNotifyService
 from lichoscli.providers.filesystem.cache_service import DiskCacheService
@@ -67,7 +68,17 @@ class GitLabServiceFactory:
     def create_workspace_service(self) -> GitLabWorkspaceService:
         return GitLabWorkspaceService(self.container.obtain_ref(PackageService))
 
-    def create_container_service(self) -> DockerContainerService:
+    def create_container_service(self) -> ContainerService:
+        # Local imports break a circular dependency: lichoscli.core -> this
+        # factory -> lichoscli.providers.docker -> lichoscli.core.services.
+        from lichoscli.providers.docker import DockerContainerService
+        from lichoscli.providers.podman import PodmanContainerService
+
+        runtime = self.container.container_runtime
+        if runtime == ContainerRuntime.PODMAN:
+            logger.debug("Instantiating PodmanContainerService")
+            return PodmanContainerService()
+        logger.debug("Instantiating DockerContainerService")
         return DockerContainerService()
 
     def create_environment_service(self) -> GitLabEnvironmentService:

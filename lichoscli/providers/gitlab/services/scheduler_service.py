@@ -462,6 +462,8 @@ class GitLabSchedulerService(SchedulerService):
                 )
                 if pkg.name not in cancelled:
                     cancelled.append(pkg.name)
+            if pkg.name in cancelled:
+                pkg.pipelines.invalidate(branch)
         return cancelled
 
     def persist_state(self, workspace: "Workspace", dag: DependencyGraph) -> None:

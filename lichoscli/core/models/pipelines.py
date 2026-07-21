@@ -16,6 +16,10 @@ class Pipelines(ABC):
         """Get the latest pipeline for a branch."""
 
     @abstractmethod
+    def invalidate(self, branch: str = None) -> None:
+        """Drop cached pipelines so the next lookup re-reads from the backend."""
+
+    @abstractmethod
     def list(self, branch: str = None, **kwargs) -> list["Pipeline"]:
         """List pipelines for a branch with optional filters."""
 

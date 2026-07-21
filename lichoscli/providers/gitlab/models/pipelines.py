@@ -40,7 +40,8 @@ class GitLabPipelines(Pipelines):
                 target_branch, per_page=1, get_all=False
             )
             result = pipelines[0] if pipelines else None
-            self._cache[target_branch] = result
+            if use_cache:
+                self._cache[target_branch] = result
             return result
         except (GitlabError, requests.exceptions.RequestException) as e:
             logger.warning(
@@ -50,6 +51,13 @@ class GitLabPipelines(Pipelines):
                 str(e),
             )
             return None
+
+    def invalidate(self, branch: str | None = None) -> None:
+        """Drop cached pipelines so the next lookup re-reads from GitLab."""
+        if branch is None:
+            self._cache.clear()
+        else:
+            self._cache.pop(branch, None)
 
     def list(self, branch: str | None = None, **kwargs) -> list[Pipeline]:
         """List pipelines for a branch with optional filters."""

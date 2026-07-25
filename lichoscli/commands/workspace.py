@@ -633,11 +633,19 @@ class WorkspaceCommand(Command):
     def action_changes(self):
         """Print links to changes for each package in the workspace.
 
-        For each package:
-        - If there is an open merge request on the workspace branch, print its URL.
-        - Otherwise if the branch has commits beyond the default branch,
-          print a compare URL showing what the branch adds over the default branch.
-        - Otherwise skip the package and mention it at the end as unchanged.
+        For each package without an open merge request, two comparisons are
+        made to classify the divergence between the workspace branch and its
+        default branch:
+
+          ahead  = get_commits(default, branch)   — own changes
+          behind = get_commits(branch, default)    — branch is stale
+
+        States:
+          opened MR  → ahead (the MR itself is the change)
+          ahead only → ahead (has changes to contribute)
+          behind only→ stale (branch is behind the default)
+          both       → diverged
+          neither    → synced (truly unchanged – listed as summary)
         """
         branch = self.args.branch
         if not branch:
@@ -657,8 +665,8 @@ class WorkspaceCommand(Command):
             self.output.warning(f"No packages in workspace '{branch}'")
             return 0
 
-        changed = []
-        unchanged = []
+        rows = []
+        synced = []
         for package in workspace.packages:
             merge_requests = package.merge_requests.list(
                 state="opened",
@@ -667,28 +675,32 @@ class WorkspaceCommand(Command):
             )
             if merge_requests:
                 for mr in merge_requests:
-                    changed.append((package.name, mr.web_url))
+                    rows.append((package.name, "ahead", mr.web_url))
                 continue
 
-            # Check whether the workspace branch actually has commits
-            # on top of the default branch.
-            commits = package.get_commits(package.default_branch, branch)
-            if commits:
-                changed.append((package.name, package.compare_url(package.default_branch, branch)))
+            commits_ahead = package.get_commits(package.default_branch, branch)
+            commits_behind = package.get_commits(branch, package.default_branch)
+
+            if commits_ahead and not commits_behind:
+                rows.append((package.name, "ahead", package.compare_url(package.default_branch, branch)))
+            elif commits_behind and not commits_ahead:
+                rows.append((package.name, "stale", package.compare_url(branch, package.default_branch)))
+            elif commits_ahead and commits_behind:
+                rows.append((package.name, "diverged", package.compare_url(package.default_branch, branch)))
             else:
-                unchanged.append(package.name)
+                synced.append(package.name)
 
         self.output.accent(f"Changes for workspace '{branch}'")
-        for package_name, url in changed:
-            self.output.print(f"  {package_name}")
+        for package_name, state, url in rows:
+            self.output.print(f"  {package_name} ({state})")
             self.output.print(f"    {url}")
 
-        if unchanged:
+        if synced:
             self.output.muted(
-                f"  unchanged: {', '.join(sorted(unchanged))}"
+                f"  synced: {', '.join(sorted(synced))}"
             )
 
-        if not changed:
+        if not rows:
             self.output.warning("No packages with changes.")
 
         return 0

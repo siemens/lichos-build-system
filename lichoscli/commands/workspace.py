@@ -635,7 +635,9 @@ class WorkspaceCommand(Command):
 
         For each package:
         - If there is an open merge request on the workspace branch, print its URL.
-        - Otherwise print a compare URL showing what the branch adds over the default branch.
+        - Otherwise if the branch has commits beyond the default branch,
+          print a compare URL showing what the branch adds over the default branch.
+        - Otherwise skip the package and mention it at the end as unchanged.
         """
         branch = self.args.branch
         if not branch:
@@ -655,7 +657,8 @@ class WorkspaceCommand(Command):
             self.output.warning(f"No packages in workspace '{branch}'")
             return 0
 
-        rows = []
+        changed = []
+        unchanged = []
         for package in workspace.packages:
             merge_requests = package.merge_requests.list(
                 state="opened",
@@ -664,14 +667,30 @@ class WorkspaceCommand(Command):
             )
             if merge_requests:
                 for mr in merge_requests:
-                    rows.append((package.name, mr.web_url))
+                    changed.append((package.name, mr.web_url))
+                continue
+
+            # Check whether the workspace branch actually has commits
+            # on top of the default branch.
+            commits = package.get_commits(package.default_branch, branch)
+            if commits:
+                changed.append((package.name, package.compare_url(package.default_branch, branch)))
             else:
-                rows.append((package.name, package.compare_url(package.default_branch, branch)))
+                unchanged.append(package.name)
 
         self.output.accent(f"Changes for workspace '{branch}'")
-        for package_name, url in rows:
+        for package_name, url in changed:
             self.output.print(f"  {package_name}")
             self.output.print(f"    {url}")
+
+        if unchanged:
+            self.output.muted(
+                f"  unchanged: {', '.join(sorted(unchanged))}"
+            )
+
+        if not changed:
+            self.output.warning("No packages with changes.")
+
         return 0
 
     def action_graph(self):

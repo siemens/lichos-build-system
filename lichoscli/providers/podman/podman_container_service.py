@@ -23,12 +23,15 @@ class PodmanContainerService(OciContainerService):
     making the build directory appear owned by ``builder``.
     """
 
-    _PODMAN_UIDMAP_OPTIONS = [
+    _PODMAN_OPTIONS = [
         "--user", "root",
         "--uidmap", "0:1:1",
         "--uidmap", "1000:0:1",
         "--uidmap", "1:2:999",
         "--uidmap", "1001:1001:64535",
+        # podman logs all output to journal by default. Not
+        # desirable for interactive shells
+        "--log-driver", "none",
     ]
 
     def __init__(self):
@@ -36,4 +39,4 @@ class PodmanContainerService(OciContainerService):
 
     def build_run_command(self, config: ContainerConfig) -> list[str]:
         """Build the ``podman run`` command, including uid mapping."""
-        return self.compose_run_command(config, runtime_options=list(self._PODMAN_UIDMAP_OPTIONS))
+        return self.compose_run_command(config, runtime_options=self._PODMAN_OPTIONS)

@@ -19,25 +19,6 @@ hosts:
 
 ## Quick Start
 
-**Choose presentation backends when needed:**
-```bash
-# Stdlib-only raw output instead of styled Rich tables
-lichoscli --output-backend raw list
-
-# Raw prompts and raw output together
-lichoscli --output-backend raw --prompt-backend raw workspace enter
-
-# Use questionary prompts if the optional extra is installed
-pip install 'lichoscli[questionary]'
-lichoscli --prompt-backend questionary workspace enter
-```
-
-The CLI now separates rendering from command logic:
-- `--output-backend rich|raw` controls output rendering.
-- `--prompt-backend prompt-toolkit|questionary|raw` controls interactive selection and confirmation prompts.
-
-This lets command modules stay focused on orchestration while presentation backends can be swapped independently.
-
 **Get started with a project:**
 ```bash
 # Clone the 00ci package to set up project detection

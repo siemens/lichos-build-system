@@ -2,22 +2,6 @@
 
 A command-line tool for managing LiChOS package builds and GitLab CI/CD pipelines. When run from within a git checkout, lichoscli automatically detects the package you're working on. You can also operate at the project level when you have the `00ci` package checked out.
 
-## Installation
-
-Install system-wide into an isolated virtual environment using [pipx](https://pipx.pypa.io/):
-
-```bash
-pipx install .
-```
-
-To reinstall after updating the source:
-
-```bash
-pipx install . --force
-```
-
-The `lichoscli` and `lbs` commands will be available in `~/.local/bin`.
-
 ## Setup
 
 lichoscli uses the same config as [GitLab CLI](https://docs.gitlab.com/editor_extensions/gitlab_cli/) for authentication. By default it looks for `~/.config/glab-cli/config.yml` (or `~/snap/glab/current/.config/glab-cli/config.yml` for snap installs).

@@ -52,7 +52,7 @@ class StatusCommand(Command):
         all_successful = True
         failed_packages = []
 
-        table = Table(title="Package Status")
+        table = Table(title="Status of workspace {}".format(self.args.branch))
         table.add_column("Name", no_wrap=True)
         table.add_column("Type")
         table.add_column("Enabled")

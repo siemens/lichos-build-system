@@ -26,6 +26,14 @@ class BuildUtils:
         return package_name_arg
 
     @staticmethod
+    def check_local_package_exists(package_name: str) -> bool:
+        """Check if a local package directory or file exists."""
+        if os.path.exists(package_name):
+            logger.error("Please remove the local file or directory '%s' first", package_name)
+            return True
+        return False
+
+    @staticmethod
     def is_web_url(value: str) -> bool:
         """Return True if *value* looks like an http/https URL."""
         return value.startswith("http://") or value.startswith("https://")

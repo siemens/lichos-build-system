@@ -31,126 +31,6 @@ def test_command_initialization_sets_correct_attributes(create_command, mock_di_
     assert create_command.di_container == mock_di_container
 
 
-@patch("os.path.exists")
-def test_check_local_package_exists_true(mock_os_exists):
-    mock_os_exists.return_value = True
-    result = CreateCommand.check_local_package_exists("test-package")
-    assert result is True
-    mock_os_exists.assert_called_once_with("test-package")
-
-
-@patch("os.path.exists")
-def test_check_local_package_exists_false(mock_os_exists):
-    mock_os_exists.return_value = False
-    result = CreateCommand.check_local_package_exists("test-package")
-    assert result is False
-    mock_os_exists.assert_called_once_with("test-package")
-
-
-def test_check_remote_package_exists_true(mock_di_container, mock_gitlab_project):
-    mock_di_container.package_service.get_package.return_value = mock_gitlab_project
-
-    result = CreateCommand.check_remote_package_exists(
-        mock_di_container.package_service, "existing-package", "test-group/pkg"
-    )
-    assert result is True
-    mock_di_container.package_service.get_package.assert_called_once_with("existing-package")
-
-
-def test_check_remote_package_exists_false(mock_di_container):
-    mock_di_container.package_service.get_package.return_value = None
-
-    result = CreateCommand.check_remote_package_exists(
-        mock_di_container.package_service, "new-package", "test-group/pkg"
-    )
-    assert result is False
-    mock_di_container.package_service.get_package.assert_called_once_with("new-package")
-
-
-def test_create_package_success(mock_di_container, mock_gitlab_project):
-    mock_di_container.package_service.create_package.return_value = mock_gitlab_project
-
-    result = CreateCommand.create_package(
-        mock_di_container.package_service,
-        "test-package",
-        "main",
-        "gbp",
-        subgroup="",
-        group_rpath="test-group/pkg",
-    )
-    assert result == mock_gitlab_project
-    mock_di_container.package_service.create_package.assert_called_once_with(
-        name="test-package",
-        branch="main",
-        package_type="gbp",
-        access_level="enabled",
-        subgroup="",
-    )
-
-
-def test_create_subpackage_success(mock_di_container, mock_gitlab_project):
-    # Configure the mock project for subpackage
-    mock_gitlab_project.namespace = {
-        "full_path": "test-group/pkg/subgroup",
-        "path": "subgroup",
-    }
-    mock_di_container.package_service.create_package.return_value = mock_gitlab_project
-
-    result = CreateCommand.create_package(
-        mock_di_container.package_service,
-        "test-package",
-        "main",
-        "gbp",
-        "subgroup",
-        "test-group/pkg",
-    )
-    assert result == mock_gitlab_project
-    mock_di_container.package_service.create_package.assert_called_once_with(
-        name="test-package",
-        branch="main",
-        package_type="gbp",
-        access_level="enabled",
-        subgroup="subgroup",
-    )
-
-
-def test_create_package_failure(mock_di_container):
-    mock_di_container.package_service.create_package.return_value = None
-
-    result = CreateCommand.create_package(
-        mock_di_container.package_service,
-        "test-package",
-        "main",
-        "gbp",
-        "",
-        "test-group/pkg",
-    )
-    assert result is None
-
-
-@patch("lichoscli.commands.create.GitUrl.sanitize_branch_name")
-def test_protect_branch_success(mock_delete_main):
-    mock_package = Mock()
-    mock_package.protectedbranches.create.return_value = True
-    mock_delete_main.return_value = "formatted-branch"
-
-    result = CreateCommand.protect_branch(mock_package, "main")
-    assert result is True
-    mock_package.protectedbranches.create.assert_called_once_with({"name": "formatted-branch"})
-
-
-@patch("lichoscli.commands.create.GitUrl.sanitize_branch_name")
-def test_protect_branch_failure(mock_delete_main):
-    from lichoscli.core.exceptions import ProjectFetchingError
-
-    mock_package = Mock()
-    mock_package.protectedbranches.create.side_effect = ProjectFetchingError("Failed")
-    mock_delete_main.return_value = "formatted-branch"
-
-    result = CreateCommand.protect_branch(mock_package, "main")
-    assert result is False
-
-
 @patch("lichoscli.commands.create.Repo.clone_from")
 def test_initialize_package_repository(mock_git):
     mock_package = Mock()
@@ -208,7 +88,7 @@ def test_add_default_debian_rules(mock_open):
     assert "dh $@" in written_content
 
 
-@patch.object(CreateCommand, "check_local_package_exists")
+@patch("lichoscli.commands.create.BuildUtils.check_local_package_exists")
 def test_execute_local_package_exists(mock_check_local, create_command):
     mock_check_local.return_value = True
 
@@ -217,99 +97,70 @@ def test_execute_local_package_exists(mock_check_local, create_command):
     mock_check_local.assert_called_once_with("test-package")
 
 
-@patch.object(CreateCommand, "check_local_package_exists")
-@patch.object(CreateCommand, "check_remote_package_exists")
-def test_execute_remote_package_exists(mock_check_remote, mock_check_local, create_command):
+@patch("lichoscli.commands.create.BuildUtils.check_local_package_exists")
+def test_execute_remote_package_exists(mock_check_local, create_command, mock_di_container, mock_gitlab_project):
     mock_check_local.return_value = False
-    mock_check_remote.return_value = True
+    mock_di_container.package_service.get_package.return_value = mock_gitlab_project()
 
     result = create_command.execute()
     assert result == 1
-    mock_check_remote.assert_called_once_with(create_command.package_service, "test-package", "test-group/pkg")
+    mock_di_container.package_service.get_package.assert_called_once_with("test-package")
 
 
-@patch.object(CreateCommand, "check_local_package_exists")
-@patch.object(CreateCommand, "check_remote_package_exists")
-@patch.object(CreateCommand, "create_package")
-@patch.object(CreateCommand, "protect_branch")
-@patch.object(CreateCommand, "initialize_package_repository")
-@patch.object(CreateCommand, "create_debian_package_template")
+@patch("lichoscli.commands.create.BuildUtils.check_local_package_exists")
 def test_execute_success(
-    mock_create_debian,
-    mock_init_repo,
-    mock_protect,
-    mock_create_pkg,
-    mock_check_remote,
     mock_check_local,
     create_command,
     mock_di_container,
-    mock_gitlab_project,
     mock_author,
 ):
     mock_check_local.return_value = False
-    mock_check_remote.return_value = False
+    mock_di_container.package_service.get_package.return_value = None
 
-    test_gitlab_project = mock_gitlab_project()
-    mock_create_pkg.return_value = test_gitlab_project
-    mock_protect.return_value = True
+    test_package = Mock()
+    test_package.web_url = "https://gitlab.example.com/test-group/pkg/test-package"
+    test_package.protect_branch.return_value = True
+    mock_di_container.package_service.create_package.return_value = test_package
 
     test_author = mock_author()
     test_repo = Mock()
-    mock_init_repo.return_value = (test_author, test_repo)
 
-    result = create_command.execute()
+    with patch.object(
+        CreateCommand, "initialize_package_repository", return_value=(test_author, test_repo)
+    ) as mock_init_repo, patch.object(CreateCommand, "create_debian_package_template") as mock_create_debian:
+        result = create_command.execute()
+
     assert result == 0
-
-    mock_check_local.assert_called_once_with("test-package")
-    mock_check_remote.assert_called_once_with(create_command.package_service, "test-package", "test-group/pkg")
-    mock_create_pkg.assert_called_once_with(
-        create_command.package_service,
-        "test-package",
-        "main",
-        "gbp",
-        "",
-        "test-group/pkg",
+    mock_di_container.package_service.create_package.assert_called_once_with(
+        name="test-package",
+        branch="main",
+        package_type="gbp",
+        access_level="enabled",
+        subgroup="",
     )
-    mock_protect.assert_called_once_with(test_gitlab_project, "main")
-    mock_init_repo.assert_called_once_with(test_gitlab_project, "test-package")
+    test_package.protect_branch.assert_called_once_with("main")
+    mock_init_repo.assert_called_once_with(test_package, "test-package")
     mock_create_debian.assert_called_once_with("test-package", test_author)
 
 
-@patch.object(CreateCommand, "check_local_package_exists")
-@patch.object(CreateCommand, "check_remote_package_exists")
-@patch.object(CreateCommand, "create_package")
-def test_execute_create_package_fails(
-    mock_create_pkg,
-    mock_check_remote,
-    mock_check_local,
-    create_command,
-    mock_di_container,
-):
+@patch("lichoscli.commands.create.BuildUtils.check_local_package_exists")
+def test_execute_create_package_fails(mock_check_local, create_command, mock_di_container):
     mock_check_local.return_value = False
-    mock_check_remote.return_value = False
-    mock_create_pkg.return_value = None
+    mock_di_container.package_service.get_package.return_value = None
+    mock_di_container.package_service.create_package.return_value = None
 
     result = create_command.execute()
     assert result == 1
 
 
-@patch.object(CreateCommand, "check_local_package_exists")
-@patch.object(CreateCommand, "check_remote_package_exists")
-@patch.object(CreateCommand, "create_package")
-@patch.object(CreateCommand, "protect_branch")
-def test_execute_protect_branch_fails(
-    mock_protect,
-    mock_create_pkg,
-    mock_check_remote,
-    mock_check_local,
-    create_command,
-    mock_di_container,
-    mock_gitlab_project,
-):
+@patch("lichoscli.commands.create.BuildUtils.check_local_package_exists")
+def test_execute_protect_branch_fails(mock_check_local, create_command, mock_di_container):
     mock_check_local.return_value = False
-    mock_check_remote.return_value = False
-    mock_create_pkg.return_value = mock_gitlab_project
-    mock_protect.return_value = False
+    mock_di_container.package_service.get_package.return_value = None
+
+    test_package = Mock()
+    test_package.protect_branch.return_value = False
+    mock_di_container.package_service.create_package.return_value = test_package
 
     result = create_command.execute()
     assert result == 2

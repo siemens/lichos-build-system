@@ -12,6 +12,7 @@ from gitlab.v4.objects import Project as GitLabProjectObject
 
 from lichoscli.core.exceptions import ProjectFetchingError
 from lichoscli.core.models import Project
+from lichoscli.core.models.git import GitUrl
 from lichoscli.utils import CIConfigUtils
 from lichoscli.utils.cache_decorators import CacheMixin, cached_property
 from lichoscli.utils.constants import CI_DEFAULT_PIPELINE_NAME
@@ -271,6 +272,16 @@ class GitLabProject(Project, CacheMixin):
                 branch,
                 str(e),
             )
+            return False
+
+    def protect_branch(self, branch: str) -> bool:
+        """Protect the given branch on this project."""
+        formatted_branch_name = GitUrl.sanitize_branch_name(branch)
+        try:
+            self.protectedbranches.create({"name": formatted_branch_name})
+            return True
+        except GitlabError as e:
+            logger.error("Failed to protect branch: %s", e)
             return False
 
     def fork_to(self, target_namespace: str, subgroup: Optional[str] = None) -> Optional["Project"]:

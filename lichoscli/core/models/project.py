@@ -233,3 +233,11 @@ class Project(ABC):
     @abstractmethod
     def set_force_push(self, branch: str, enabled: bool) -> bool:
         """Enable or disable force-push on a protected branch."""
+
+    @abstractmethod
+    def protect_branch(self, branch: str) -> bool:
+        """Protect the given branch on this project.
+
+        Returns:
+            True if the branch was protected successfully, False otherwise.
+        """

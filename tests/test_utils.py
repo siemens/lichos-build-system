@@ -379,6 +379,24 @@ class TestCIConfigUtils:
         expected = "image.yml@your-group/platform-os/00ci:develop"
         assert result == expected
 
+class TestBuildUtilsPackageExists:
+    """Tests for BuildUtils.check_local_package_exists"""
+
+    @patch("os.path.exists")
+    def test_check_local_package_exists_true(self, mock_os_exists):
+        mock_os_exists.return_value = True
+        result = BuildUtils.check_local_package_exists("test-package")
+        assert result is True
+        mock_os_exists.assert_called_once_with("test-package")
+
+    @patch("os.path.exists")
+    def test_check_local_package_exists_false(self, mock_os_exists):
+        mock_os_exists.return_value = False
+        result = BuildUtils.check_local_package_exists("test-package")
+        assert result is False
+        mock_os_exists.assert_called_once_with("test-package")
+
+
 if __name__ == "__main__":
     # Run pytest for the pytest-style tests
     pytest.main([__file__, "-v"])

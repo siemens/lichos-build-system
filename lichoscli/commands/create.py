@@ -9,8 +9,6 @@ from git.repo import Repo
 
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
-from lichoscli.core.exceptions import ProjectFetchingError
-from lichoscli.core.models.git import GitRepo, GitUrl
 from lichoscli.core.services import PackageService
 from lichoscli.utils import CI_DEFAULT_PIPELINE_NAME, BuildUtils
 
@@ -41,24 +39,24 @@ class CreateCommand(Command):
         sp.add_argument("subgroup", nargs="?", help="subgroup name")
 
     def execute(self):
-        if self.check_local_package_exists(self.package_name):
+        if BuildUtils.check_local_package_exists(self.package_name):
             return 1
 
-        if self.check_remote_package_exists(self.package_service, self.package_name, self.group_rpath):
+        if self.package_service.get_package(self.package_name) is not None:
+            logger.error("%s/%s already exists", self.group_rpath, self.package_name)
             return 1
 
-        package = self.create_package(
-            self.package_service,
-            self.package_name,
-            self.branch,
-            self.package_type,
-            self.subgroup,
-            self.group_rpath,
+        package = self.package_service.create_package(
+            name=self.package_name,
+            branch=self.branch,
+            package_type=self.package_type,
+            access_level="enabled",
+            subgroup=self.subgroup,
         )
         if package is None:
             return 1
 
-        if not self.protect_branch(package, self.branch):
+        if not package.protect_branch(self.branch):
             return 2
 
         author, repo = self.initialize_package_repository(package, self.package_name)
@@ -78,52 +76,6 @@ class CreateCommand(Command):
 
         repo.remotes.origin.push()
         return 0
-
-    @staticmethod
-    def check_local_package_exists(package_name):
-        """Check if a local package directory or file exists."""
-        if os.path.exists(package_name):
-            logger.error("Please remove the local file or directory '%s' first", package_name)
-            return True
-        return False
-
-    @staticmethod
-    def check_remote_package_exists(package_service, package_name, group_rpath):
-        """Check if a remote package already exists."""
-        if package_service.get_package(package_name) is not None:
-            logger.error("%s/%s already exists", group_rpath, package_name)
-            return True
-        return False
-
-    @staticmethod
-    def create_package(package_service, package_name, branch, package_type, subgroup, group_rpath=None):
-        """Create a new package with the given parameters."""
-        package = package_service.create_package(
-            name=package_name,
-            branch=branch,
-            package_type=package_type,
-            access_level="enabled",
-            subgroup=subgroup,
-        )
-        if package is None:
-            logger.error(
-                "Failed to create package %s/%s/%s",
-                group_rpath or "unknown",
-                subgroup,
-                package_name,
-            )
-        return package
-
-    @staticmethod
-    def protect_branch(package, branch):
-        """Protect the specified branch for the given package."""
-        formatted_branch_name = GitUrl.sanitize_branch_name(branch)
-        try:
-            package.protectedbranches.create({"name": formatted_branch_name})
-            return True
-        except ProjectFetchingError as e:
-            logger.error("Failed to protect branch: %s", e)
-            return False
 
     @staticmethod
     def initialize_package_repository(package, package_name):

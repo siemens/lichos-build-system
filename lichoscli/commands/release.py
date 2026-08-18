@@ -175,17 +175,17 @@ class ReleaseCommand(Command):
         return self._tag_project(package, tag, branch, dry_run)
 
     def _tag_image_projects(self, tag: str, branch: str, dry_run: bool) -> bool:
-        """Tag all image projects available on the release branch."""
+        """Tag all image and oci projects available on the release branch."""
         image_projects = [
             project for project in self.package_service.get_packages_by_branch(branch)
-            if project.is_image
+            if project.is_image or project.is_oci
         ]
 
         if not image_projects:
-            logger.info("No image projects found on branch '%s'", branch)
+            logger.info("No image or oci projects found on branch '%s'", branch)
             return True
 
-        logger.info("Tagging %d image projects with tag '%s'", len(image_projects), tag)
+        logger.info("Tagging %d image and oci projects with tag '%s'", len(image_projects), tag)
 
         for project in sorted(image_projects, key=lambda item: item.name):
             if not self._tag_project(project, tag, branch, dry_run):

@@ -91,6 +91,11 @@ class Project(ABC):
 
     @property
     @abstractmethod
+    def is_oci(self) -> bool:
+        """Check if the project is an OCI container (has oci build type)."""
+
+    @property
+    @abstractmethod
     def attributes(self) -> dict[str, Any]:
         """Project attributes including forked_from_project."""
 

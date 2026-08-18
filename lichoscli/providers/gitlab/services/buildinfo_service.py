@@ -484,13 +484,15 @@ class GitLabBuildInfoService(BuildInfoService):
     def _find_buildinfo_in_artifacts(self, temp_dir_path: str, architecture: str) -> Optional[str]:
         """Find and read architecture-specific buildinfo file from extracted artifacts.
 
-        Supports two artifact layouts:
+        Supports three artifact layouts:
         - gbp packages: gbp/*_{architecture}.buildinfo
         - images: image/{architecture}/*.buildinfo
+        - oci containers: oci/{architecture}/*.buildinfo
         """
         search_patterns = [
             os.path.join(temp_dir_path, "gbp", f"*_{architecture}.buildinfo"),
             os.path.join(temp_dir_path, "image", architecture, "*.buildinfo"),
+            os.path.join(temp_dir_path, "oci", architecture, "*.buildinfo"),
         ]
 
         for pattern in search_patterns:

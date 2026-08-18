@@ -40,7 +40,7 @@ class ImportCommand(Command):
     def add_arguments(cls, sp):
         sp.add_argument("package", help="destination package path, e.g. new/package/name")
         sp.add_argument("repository", help="URL of the git repository to import")
-        sp.add_argument("--type", help="build type")
+        sp.add_argument("--type", help="build type: gbp, image or oci (default: gbp)")
 
     def execute(self):
         if BuildUtils.check_local_package_exists(self.package_name):

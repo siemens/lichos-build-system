@@ -10,6 +10,8 @@ LICHOS_MARKER = "lmdc-" # lichos-managed-dev-container, to identify our own
 
 # CI constants
 CI_DEFAULT_PIPELINE_NAME = "gbp"
+CI_IMAGE_PIPELINE_NAME = "image"
+CI_OCI_PIPELINE_NAME = "oci"
 CI_TEMPLATE = "{name}.yml@{group}/{pkg}"
 CI_PUBLISH_JOB_NAME = "publish"
 CI_WORKSPACE_JOB_NAME = "workspace-scheduling"

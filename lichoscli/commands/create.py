@@ -10,7 +10,11 @@ from git.repo import Repo
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
 from lichoscli.core.services import PackageService
-from lichoscli.utils import CI_DEFAULT_PIPELINE_NAME, BuildUtils
+from lichoscli.utils import (
+    CI_OCI_PIPELINE_NAME,
+    CI_DEFAULT_PIPELINE_NAME,
+    BuildUtils,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +39,7 @@ class CreateCommand(Command):
     @classmethod
     def add_arguments(cls, sp):
         sp.add_argument("package", help="package name")
-        sp.add_argument("type", nargs="?", help="build type")
+        sp.add_argument("type", nargs="?", help="build type: gbp, image or oci (default: gbp)")
         sp.add_argument("subgroup", nargs="?", help="subgroup name")
 
     def execute(self):
@@ -71,8 +75,10 @@ class CreateCommand(Command):
         self.output.success("Package created successfully!")
         self.output.print(f"Remote URL: {package.web_url}")
 
-        if self.package_type == "gbp":
+        if self.package_type == CI_DEFAULT_PIPELINE_NAME:
             self.create_debian_package_template(self.package_name, author)
+        elif self.package_type == CI_OCI_PIPELINE_NAME:
+            self.create_oci_template(self.package_name)
 
         repo.remotes.origin.push()
         return 0
@@ -84,6 +90,41 @@ class CreateCommand(Command):
         repo = Repo.clone_from(repo_url, package_name)
         author = repo.index.commit("Initialize package").author
         return author, repo
+
+    @staticmethod
+    def create_oci_template(package_name):
+        """Add the Dockerfile an oci project is built from."""
+        dockerfile_path = os.path.join(package_name, "Dockerfile")
+
+        with open(dockerfile_path, "w", encoding="utf-8") as dockerfile:
+            dockerfile.write(
+                textwrap.dedent(
+                    """\
+                ARG BASE_CONTAINER=nothing:really
+                FROM $BASE_CONTAINER
+
+                ARG LICHOS_REPOS
+                ENV LICHOS_REPOS=$LICHOS_REPOS
+
+                ARG LICHOS_DEV_SUFFIX
+                ENV LICHOS_DEV_SUFFIX=$LICHOS_DEV_SUFFIX
+
+                # declares what this container ships. The publish job reads this to
+                # build the dependency information the scheduler orders builds by.
+                ARG LICHOS_BUILD_DEPS="<the packages this container ships>"
+
+                RUN lichos-repo-setup && \\
+                    apt-get update && \\
+                    apt-get install -y --no-install-recommends \\
+                        $LICHOS_BUILD_DEPS \\
+                      && \\
+                    apt-get clean && \\
+                    rm -r /var/lib/apt/lists/*
+                """
+                )
+            )
+
+        logger.info("Created Dockerfile template, please declare the packages this oci container ships")
 
     @staticmethod
     def create_debian_package_template(package_name, author):

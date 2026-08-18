@@ -15,7 +15,11 @@ from lichoscli.core.models import Project
 from lichoscli.core.models.git import GitUrl
 from lichoscli.utils import CIConfigUtils
 from lichoscli.utils.cache_decorators import CacheMixin, cached_property
-from lichoscli.utils.constants import CI_DEFAULT_PIPELINE_NAME
+from lichoscli.utils.constants import (
+    CI_DEFAULT_PIPELINE_NAME,
+    CI_IMAGE_PIPELINE_NAME,
+    CI_OCI_PIPELINE_NAME,
+)
 
 from .merge_requests import GitLabMergeRequests
 from .pipelines import GitLabPipelines
@@ -131,7 +135,16 @@ class GitLabProject(Project, CacheMixin):
             return False
 
         parsed = CIConfigUtils.parse_ci_config_path(self.ci_config_path)
-        return parsed is not None and parsed.name == "image"
+        return parsed is not None and parsed.name == CI_IMAGE_PIPELINE_NAME
+
+    @property
+    def is_oci(self) -> bool:
+        """Check if the project is an OCI container."""
+        if not self.ci_config_path:
+            return False
+
+        parsed = CIConfigUtils.parse_ci_config_path(self.ci_config_path)
+        return parsed is not None and parsed.name == CI_OCI_PIPELINE_NAME
 
     @property
     def attributes(self) -> dict[str, Any]:

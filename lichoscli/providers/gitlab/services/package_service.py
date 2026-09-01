@@ -89,7 +89,7 @@ class GitLabPackageService(PackageService):
 
         try:
             logger.debug("Fetching package details for: %s", package_name)
-            projects = self._group.projects.list(search=package_name, include_subgroups=True)
+            projects = self._group.projects.list(search=package_name, order_by='similarity', include_subgroups=True, iterator=True)
 
             for project in projects:
                 if project.name == package_name or project.path == package_name:

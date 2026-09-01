@@ -66,9 +66,12 @@ class ShowCommand(Command):
         settings = [
             ("id", str(pkg.id)),
             ("path", pkg.path),
+            ("path_with_namespace", pkg.path_with_namespace),
+            ("name", pkg.name),
             ("builds_access_level", pkg.builds_access_level),
             ("ci_config_path", pkg.ci_config_path),
             ("default_branch", pkg.default_branch),
+            ("web_url", pkg.web_url),
         ]
 
         if "forked_from_project" in pkg.attributes:
@@ -103,7 +106,7 @@ class ShowCommand(Command):
         except ProviderAPIError as e:
             self.output.warning(f"Warning: Could not fetch variables: {e}")
 
-        info_table = Table(title="Package Information: {0}".format(pkg.name))
+        info_table = Table(title="Package Information: {0}".format(pkg.path))
         info_table.add_column("Setting", no_wrap=True)
         info_table.add_column("Value")
         for setting, value in settings:
@@ -154,7 +157,7 @@ class ShowCommand(Command):
                 ]
             )
 
-        branches_table = Table(title="Branches for {0}".format(pkg.name))
+        branches_table = Table(title="Branches for {0}".format(pkg.path))
         branches_table.add_column("SHA", no_wrap=True)
         branches_table.add_column("Age (days)", justify="right", no_wrap=True)
         branches_table.add_column("Protected", no_wrap=True)

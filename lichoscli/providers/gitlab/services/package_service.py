@@ -92,7 +92,7 @@ class GitLabPackageService(PackageService):
             projects = self._group.projects.list(search=package_name, include_subgroups=True)
 
             for project in projects:
-                if project.name == package_name:
+                if project.name == package_name or project.path == package_name:
                     full_project = self.gitlab.projects.get(project.id)
                     if hasattr(full_project, "archived") and full_project.archived:
                         logger.debug(
@@ -275,8 +275,8 @@ class GitLabPackageService(PackageService):
         """
         namespace = package.namespace
         if namespace.get("full_path") is not None and namespace.get("full_path") != self.group_rpath:
-            return namespace.get("path", "") + "/" + package.name
-        return package.name
+            return namespace.get("path", "") + "/" + package.path
+        return package.path
 
     def get_project_by_url(self, url: str) -> Optional[Project]:
         """Resolve a project from a full web URL by extracting its path."""

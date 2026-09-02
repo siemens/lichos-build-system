@@ -8,6 +8,7 @@ from tests.mocks import MockGitLabProject, create_mock_args
 def test_command_initialization_sets_correct_attributes(mock_di_container):
     """Test that command initialization sets correct attributes."""
     args = create_mock_args()
+    args.include_archived = False
     command = ListCommand(mock_di_container, args)
 
     assert command.di_container == mock_di_container
@@ -27,6 +28,7 @@ def test_list_command_mock_package():
 def test_execute_gets_packages_and_returns_success(mock_di_container):
     """Test successful execution calls get_all_packages and returns 0."""
     args = create_mock_args()
+    args.include_archived = False
 
     mock_package1 = MockGitLabProject(name="package1", id=1, ci_config_path="gbp.yml@test-group/pkg/00ci")
     mock_package2 = MockGitLabProject(
@@ -49,12 +51,26 @@ def test_execute_gets_packages_and_returns_success(mock_di_container):
     result = command.execute()
 
     assert result == 0
-    package_service.get_all_packages.assert_called_once()
+    package_service.get_all_packages.assert_called_once_with(include_archived=False)
+
+
+def test_execute_includes_archived_packages_when_requested(mock_di_container):
+    args = create_mock_args()
+    args.include_archived = True
+
+    package_service = mock_di_container.package_service
+    package_service.get_all_packages.return_value = []
+
+    command = ListCommand(mock_di_container, args)
+
+    assert command.execute() == 0
+    package_service.get_all_packages.assert_called_once_with(include_archived=True)
 
 
 def test_execute_with_empty_package_list(mock_di_container):
     """Test execution with empty package list returns 0."""
     args = create_mock_args()
+    args.include_archived = False
 
     package_service = mock_di_container.package_service
     package_service.get_all_packages.return_value = []
@@ -66,12 +82,13 @@ def test_execute_with_empty_package_list(mock_di_container):
     result = command.execute()
 
     assert result == 0
-    package_service.get_all_packages.assert_called_once()
+    package_service.get_all_packages.assert_called_once_with(include_archived=False)
 
 
 def test_execute_handles_package_with_subgroup_namespace(mock_di_container):
     """Test execution handles packages in subgroups correctly."""
     args = create_mock_args()
+    args.include_archived = False
 
     mock_package = MockGitLabProject(
         name="package4",
@@ -92,4 +109,4 @@ def test_execute_handles_package_with_subgroup_namespace(mock_di_container):
     result = command.execute()
 
     assert result == 0
-    package_service.get_all_packages.assert_called_once()
+    package_service.get_all_packages.assert_called_once_with(include_archived=False)

@@ -21,8 +21,8 @@ class PackageService(ABC):
         """Get a package by name, optionally including archived projects."""
 
     @abstractmethod
-    def get_all_packages(self) -> list[Project]:
-        """Get all packages in the group."""
+    def get_all_packages(self, include_archived: bool = False) -> list[Project]:
+        """Get all packages, optionally including archived projects."""
 
     @abstractmethod
     def get_packages_by_branch(self, branch: str) -> list[Project]:

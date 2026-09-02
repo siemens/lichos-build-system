@@ -25,3 +25,26 @@ def test_get_package_can_include_archived_projects(mock_gitlab):
 
     assert package is not None
     assert package.archived is True
+
+
+def test_get_all_packages_can_include_archived_projects(mock_gitlab):
+    gitlab = mock_gitlab()
+    archived_project = gitlab.projects.get(1)
+    archived_project.archived = True
+
+    service = GitLabPackageService("test-group/pkg", gitlab)
+
+    active_packages = service.get_all_packages()
+    all_packages = service.get_all_packages(include_archived=True)
+
+    assert {package.name for package in active_packages} == {
+        "package2",
+        "package3",
+        "package4",
+    }
+    assert {package.name for package in all_packages} == {
+        "package1",
+        "package2",
+        "package3",
+        "package4",
+    }

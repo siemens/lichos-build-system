@@ -9,12 +9,22 @@ from lichoscli.ui import Cell, Table
 class ListCommand(Command):
     """List all packages"""
 
+    @classmethod
+    def add_arguments(cls, sp):
+        sp.add_argument(
+            "--include-archived",
+            action="store_true",
+            help="include archived projects",
+        )
+
     def __init__(self, di_container, args):
         super().__init__(di_container, args)
         self.package_service = di_container.obtain_ref(PackageService)
 
     def execute(self):
-        packages = self.package_service.get_all_packages()
+        packages = self.package_service.get_all_packages(
+            include_archived=self.args.include_archived
+        )
 
         rows = []
         for package in packages:
@@ -27,14 +37,18 @@ class ListCommand(Command):
             else:
                 enabled_cell = enabled_status
 
+            display_name = self.package_service.get_display_name(package)
+            if package.archived:
+                display_name = Cell(display_name, style="muted")
+
             rows.append((
-                self.package_service.get_display_name(package),
+                display_name,
                 self.package_service.pretty_format_ci_path(package),
                 enabled_cell,
                 package.default_branch or "-",
             ))
 
-        rows.sort(key=lambda r: r[0])
+        rows.sort(key=lambda r: r[0].text if isinstance(r[0], Cell) else r[0])
         table = Table(title="Packages")
         table.add_column("Name", no_wrap=True)
         table.add_column("Type")

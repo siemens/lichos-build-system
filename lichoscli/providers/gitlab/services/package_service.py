@@ -35,11 +35,12 @@ class GitLabPackageService(PackageService):
         """Get the projects collection for this service's group."""
         return GitLabProjects(self.group_rpath, self.gitlab)
 
-    def _fetch_all_projects(self) -> list[GitLabProject]:
-        """Fetch all projects from GitLab API, excluding archived projects."""
+    def _fetch_all_projects(self, include_archived: bool = False) -> list[GitLabProject]:
+        """Fetch all projects from GitLab API."""
         logger.debug(
-            "Fetching ALL active projects for group %s (including subgroups)",
+            "Fetching all projects for group %s (including subgroups)%s",
             self.group_rpath,
+            " including archived projects" if include_archived else "",
         )
         projects = self._group.projects.list(include_subgroups=True, all=True, per_page=100)
         full_projects = []
@@ -47,17 +48,24 @@ class GitLabPackageService(PackageService):
         # Filter out archived projects before making individual API calls
         active_projects = [
             p for p in projects
-            if not (hasattr(p, "archived") and p.archived)
+            if include_archived or not (hasattr(p, "archived") and p.archived)
         ]
         skipped = len(projects) - len(active_projects)
         if skipped:
             logger.debug("Skipped %d archived projects from group listing", skipped)
 
+        if not active_projects:
+            return []
+
         def fetch_project_details(project):
             """Fetch full details for a single project."""
             try:
                 full_project = self.gitlab.projects.get(project.id)
-                if hasattr(full_project, "archived") and full_project.archived:
+                if (
+                    not include_archived
+                    and hasattr(full_project, "archived")
+                    and full_project.archived
+                ):
                     logger.debug("Skipping archived project: %s", full_project.name)
                     return None
                 return full_project
@@ -78,7 +86,9 @@ class GitLabPackageService(PackageService):
                     project = future_to_project[future]
                     logger.error("Unexpected error fetching project %s: %s", project.name, str(e))
                     # Only add non-archived projects even in error cases
-                    if not (hasattr(project, "archived") and project.archived):
+                    if include_archived or not (
+                        hasattr(project, "archived") and project.archived
+                    ):
                         full_projects.append(project)
         return full_projects
 
@@ -117,14 +127,19 @@ class GitLabPackageService(PackageService):
             logger.error("Error fetching package %s: %s", package_name, str(e))
             return None
 
-    def get_all_packages(self, with_cache=True) -> list[Project]:
+    def get_all_packages(
+        self, with_cache: bool = True, include_archived: bool = False
+    ) -> list[Project]:
         """Get all packages, using cache when possible."""
-        if with_cache and self._all_packages_cached:
+        if with_cache and not include_archived and self._all_packages_cached:
             logger.info("Returning %d packages from complete cache", len(self._packages_cache))
             return list(self._packages_cache.values())
 
         logger.debug("Populating complete package cache")
-        projects = self._fetch_all_projects()
+        projects = self._fetch_all_projects(include_archived=include_archived)
+
+        if include_archived:
+            return [GitLabProject(project) for project in projects]
 
         self._packages_cache.clear()
         for project in projects:

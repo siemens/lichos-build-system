@@ -87,10 +87,15 @@ class CloneCommand(Command):
         """Clone using API to get repository information from package name."""
         # Only obtain PackageService when we need it (lazy initialization)
         package_service = self.di_container.obtain_ref(PackageService)
-        repository = package_service.get_package(self.local_dir_name)
+        repository = package_service.get_package(
+            self.local_dir_name, include_archived=True
+        )
         if not repository:
             logger.error("Package '%s' not found", self.local_dir_name)
             return 1
+
+        if repository.archived:
+            logger.warning("Cloning archived project '%s'", self.local_dir_name)
 
         repo_url = repository.ssh_url_to_repo
         logger.info("Cloning %s to %s", repo_url, self.local_dir_name)

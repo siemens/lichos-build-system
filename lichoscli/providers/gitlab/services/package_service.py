@@ -82,7 +82,9 @@ class GitLabPackageService(PackageService):
                         full_projects.append(project)
         return full_projects
 
-    def get_package(self, package_name: str) -> Optional[Project]:
+    def get_package(
+        self, package_name: str, include_archived: bool = False
+    ) -> Optional[Project]:
         if package_name in self._packages_cache:
             logger.debug("Cache hit for package: %s", package_name)
             return self._packages_cache[package_name]
@@ -94,7 +96,11 @@ class GitLabPackageService(PackageService):
             for project in projects:
                 if project.name == package_name or project.path == package_name:
                     full_project = self.gitlab.projects.get(project.id)
-                    if hasattr(full_project, "archived") and full_project.archived:
+                    if (
+                        not include_archived
+                        and hasattr(full_project, "archived")
+                        and full_project.archived
+                    ):
                         logger.debug(
                             "Found package %s but it is archived, skipping",
                             package_name,

@@ -9,6 +9,7 @@ class MockGitLabProject:
     def __init__(self, **kwargs):
         self.id = kwargs.get("id", 123)
         self.name = kwargs.get("name", "test-package")
+        self.path = kwargs.get("path", self.name)
         self.ci_config_path = kwargs.get("ci_config_path", ".gitlab-ci.yml")
         self.builds_access_level = kwargs.get("builds_access_level", "enabled")
         self.default_branch = kwargs.get("default_branch", "main")

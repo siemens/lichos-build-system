@@ -59,8 +59,56 @@ def test_execute_without_branch(mock_clone_from, mock_os_exists, mock_di_contain
     command = CloneCommand(mock_di_container, mock_args)
     result = command.execute()
 
-    mock_di_container.package_service.get_package.assert_called_once_with("test-package")
+    mock_di_container.package_service.get_package.assert_called_once_with(
+        "test-package", include_archived=True
+    )
     mock_clone_from.assert_called_once_with(mock_package.ssh_url_to_repo, "test-package", branch="main")
+    assert result == 0
+
+
+@patch("lichoscli.commands.clone.logger.warning")
+@patch("os.path.exists")
+@patch("lichoscli.commands.clone.Repo.clone_from")
+def test_execute_warns_when_cloning_archived_project(
+    mock_clone_from,
+    mock_os_exists,
+    mock_warning,
+    mock_di_container,
+    mock_package,
+    mock_args,
+    mock_git_repo,
+):
+    mock_package.archived = True
+    mock_clone_from.return_value = mock_git_repo()
+    mock_os_exists.return_value = False
+    mock_di_container.package_service.get_package.return_value = mock_package
+
+    result = CloneCommand(mock_di_container, mock_args).execute()
+
+    mock_warning.assert_called_once_with("Cloning archived project '%s'", "test-package")
+    assert result == 0
+
+
+@patch("lichoscli.commands.clone.logger.warning")
+@patch("os.path.exists")
+@patch("lichoscli.commands.clone.Repo.clone_from")
+def test_execute_does_not_warn_for_active_project(
+    mock_clone_from,
+    mock_os_exists,
+    mock_warning,
+    mock_di_container,
+    mock_package,
+    mock_args,
+    mock_git_repo,
+):
+    mock_package.archived = False
+    mock_clone_from.return_value = mock_git_repo()
+    mock_os_exists.return_value = False
+    mock_di_container.package_service.get_package.return_value = mock_package
+
+    result = CloneCommand(mock_di_container, mock_args).execute()
+
+    mock_warning.assert_not_called()
     assert result == 0
 
 
@@ -77,7 +125,9 @@ def test_execute_with_branch_success(mock_clone_from, mock_os_exists, mock_di_co
     command = CloneCommand(mock_di_container, mock_args)
     result = command.execute()
 
-    mock_di_container.package_service.get_package.assert_called_once_with("test-package")
+    mock_di_container.package_service.get_package.assert_called_once_with(
+        "test-package", include_archived=True
+    )
     mock_clone_from.assert_called_once_with(mock_package.ssh_url_to_repo, "test-package", branch="feature-branch")
     assert result == 0
 
@@ -99,7 +149,9 @@ def test_execute_with_branch_failure(mock_clone_from, mock_os_exists, mock_di_co
     command = CloneCommand(mock_di_container, mock_args)
     result = command.execute()
 
-    mock_di_container.package_service.get_package.assert_called_once_with("test-package")
+    mock_di_container.package_service.get_package.assert_called_once_with(
+        "test-package", include_archived=True
+    )
 
     expected_calls = [
         call(
@@ -425,4 +477,3 @@ def test_execute_with_git_url_clone_failure(mock_clone_from, mock_os_exists, moc
     assert result == 1
     # Should NOT call package service API
     mock_di_container.package_service.get_package.assert_not_called()
-

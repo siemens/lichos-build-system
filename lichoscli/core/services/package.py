@@ -15,8 +15,10 @@ class PackageService(ABC):
         """Get the projects collection for this service's group."""
 
     @abstractmethod
-    def get_package(self, package_name: str) -> Optional[Project]:
-        """Get a package by name."""
+    def get_package(
+        self, package_name: str, include_archived: bool = False
+    ) -> Optional[Project]:
+        """Get a package by name, optionally including archived projects."""
 
     @abstractmethod
     def get_all_packages(self) -> list[Project]:

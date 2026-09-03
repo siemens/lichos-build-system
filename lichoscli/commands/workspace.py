@@ -8,6 +8,7 @@ from typing import Optional
 
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
+from lichoscli.core.exceptions import MergeRequestError
 from lichoscli.core.models.dag import DAGNodeStatus
 from lichoscli.core.services import DependencyService, PackageService, WorkspaceService
 from lichoscli.ui import Cell, Choice, Table
@@ -75,7 +76,10 @@ class WorkspaceCommand(Command):
             help="Don't wait for pipeline completion; use latest available pipeline results",
         )
 
-        subparsers.add_parser("merge", help="merge all opened merge requests in the workspace")
+        subparsers.add_parser(
+            "merge",
+            help="merge all approved merge requests in dependency order",
+        )
 
         subparsers.add_parser("changes", help="show links to changes for each package in the workspace")
 
@@ -576,8 +580,22 @@ class WorkspaceCommand(Command):
                 unique_packages[node.package] = (node, depth)
         return sorted(unique_packages.values(), key=lambda x: x[0].package)
 
+    @staticmethod
+    def _classify_branch_changes(package, branch: str) -> tuple[str, Optional[str]]:
+        """Classify a workspace branch relative to its default branch."""
+        commits_ahead = package.get_commits(package.default_branch, branch)
+        commits_behind = package.get_commits(branch, package.default_branch)
+
+        if commits_ahead and commits_behind:
+            return "diverged", package.compare_url(package.default_branch, branch)
+        if commits_ahead:
+            return "ahead", package.compare_url(package.default_branch, branch)
+        if commits_behind:
+            return "stale", package.compare_url(branch, package.default_branch)
+        return "synced", None
+
     def action_merge(self):
-        """Merge all opened merge requests for each project in the workspace."""
+        """Merge approved merge requests in dependency order."""
 
         workspace = self.workspace_service.get_workspace(self.args.branch)
         if not workspace:
@@ -592,32 +610,119 @@ class WorkspaceCommand(Command):
             f"Merging opened merge requests for workspace '{self.args.branch}'",
         )
 
-        total_merged = 0
-        total_found = 0
-        failed_merges = []
+        merge_requests_by_package = {}
+        unreviewed_changes = []
 
         for package in workspace.packages:
-            merge_requests = package.merge_requests.list(
-                state="opened",
-                branch_name=self.args.branch,
-                get_all=True
-            )
+            try:
+                merge_requests = package.merge_requests.list(
+                    state="opened",
+                    branch_name=self.args.branch,
+                    get_all=True,
+                    raise_on_error=True,
+                )
+            except MergeRequestError as e:
+                self.output.error(
+                    f"Workspace merge aborted while checking '{package.name}': {e}",
+                )
+                return 1
 
             if not merge_requests:
                 self.output.muted(f"Package '{package.name}': no open merge requests")
+                state, comparison_url = self._classify_branch_changes(
+                    package,
+                    self.args.branch,
+                )
+                if state in ("ahead", "diverged"):
+                    unreviewed_changes.append(
+                        (package.name, state, comparison_url),
+                    )
                 continue
 
-            total_found += len(merge_requests)
+            merge_requests_by_package[package.name] = merge_requests
 
-            for mr in merge_requests:
-                self.output.print(f"Package '{package.name}': merging MR !{mr.iid} - {mr.title}")
+        if unreviewed_changes:
+            self.output.error(
+                "Workspace merge aborted: the workspace has not been fully reviewed",
+            )
+            self.output.error(
+                "The following changed branches have no open merge request:",
+            )
+            for package_name, state, comparison_url in unreviewed_changes:
+                self.output.error(f"  - {package_name} ({state}): {comparison_url}")
+            self.output.print(
+                "Review all changes with: "
+                f"lichoscli --branch {self.args.branch} workspace changes",
+            )
+            return 1
+
+        total_found = sum(len(mrs) for mrs in merge_requests_by_package.values())
+        if not total_found:
+            self.output.accent("Summary")
+            self.output.print("Total merge requests found: 0")
+            return 0
+
+        unapproved = [
+            (package_name, mr)
+            for package_name, merge_requests in merge_requests_by_package.items()
+            for mr in merge_requests
+            if not mr.is_approved()
+        ]
+        if unapproved:
+            self.output.error(
+                "Workspace merge aborted: all open merge requests must be approved",
+            )
+            for package_name, mr in unapproved:
+                self.output.error(
+                    f"  - {package_name}: !{mr.iid} - {mr.title}",
+                )
+            return 1
+
+        dag = self.dependency_service.build_dependency_dag(
+            workspace.packages,
+            self.args.branch,
+            wait_for_completion=False,
+        )
+        workspace_package_names = {package.name for package in workspace.packages}
+        missing_packages = workspace_package_names - set(dag.nodes)
+        if missing_packages:
+            self.output.error(
+                "Workspace merge aborted: could not determine dependency order for "
+                + ", ".join(sorted(missing_packages)),
+            )
+            return 1
+
+        try:
+            ordered_packages = [
+                node.package
+                for node in dag.topological_order()
+                if node.package in merge_requests_by_package
+            ]
+        except ValueError as e:
+            self.output.error(f"Workspace merge aborted: {e}")
+            return 1
+
+        self.output.print("Merge order: " + " -> ".join(ordered_packages))
+
+        total_merged = 0
+        failed_merges = []
+        stop_merging = False
+        for package_name in ordered_packages:
+            for mr in merge_requests_by_package[package_name]:
+                self.output.print(
+                    f"Package '{package_name}': merging MR !{mr.iid} - {mr.title}",
+                )
 
                 if mr.merge():
                     total_merged += 1
                     self.output.success(f"Successfully merged MR !{mr.iid}")
                 else:
-                    failed_merges.append((package.name, mr.iid, mr.title))
+                    failed_merges.append((package_name, mr.iid, mr.title))
                     self.output.error(f"Failed to merge MR !{mr.iid}")
+                    stop_merging = True
+                    break
+            if stop_merging:
+                break
 
         self.output.accent("Summary")
         self.output.print(f"Total merge requests found: {total_found}")
@@ -678,15 +783,9 @@ class WorkspaceCommand(Command):
                     rows.append((package.name, "ahead", mr.web_url))
                 continue
 
-            commits_ahead = package.get_commits(package.default_branch, branch)
-            commits_behind = package.get_commits(branch, package.default_branch)
-
-            if commits_ahead and not commits_behind:
-                rows.append((package.name, "ahead", package.compare_url(package.default_branch, branch)))
-            elif commits_behind and not commits_ahead:
-                rows.append((package.name, "stale", package.compare_url(branch, package.default_branch)))
-            elif commits_ahead and commits_behind:
-                rows.append((package.name, "diverged", package.compare_url(package.default_branch, branch)))
+            state, comparison_url = self._classify_branch_changes(package, branch)
+            if state != "synced":
+                rows.append((package.name, state, comparison_url))
             else:
                 synced.append(package.name)
 

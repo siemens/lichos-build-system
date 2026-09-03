@@ -133,6 +133,32 @@ class DependencyGraph:
             if not node.direct_dependencies
         ]
 
+    def topological_order(self) -> list["DAGNode"]:
+        """Return nodes with every dependency before its dependents."""
+        incoming_edges = {
+            name: sum(dep_name in self.nodes for dep_name in node.direct_dependencies)
+            for name, node in self.nodes.items()
+        }
+        dependents: dict[str, list[str]] = {name: [] for name in self.nodes}
+        for name, node in self.nodes.items():
+            for dependency_name in node.direct_dependencies:
+                if dependency_name in dependents:
+                    dependents[dependency_name].append(name)
+
+        ready = [name for name in self.nodes if incoming_edges[name] == 0]
+        ordered: list[DAGNode] = []
+        while ready:
+            name = ready.pop(0)
+            ordered.append(self.nodes[name])
+            for dependent_name in dependents[name]:
+                incoming_edges[dependent_name] -= 1
+                if incoming_edges[dependent_name] == 0:
+                    ready.append(dependent_name)
+
+        if len(ordered) != len(self.nodes):
+            raise ValueError("Dependency graph contains a cycle")
+        return ordered
+
     def get_transitive_dependents(self, package_name: str) -> list["DAGNode"]:
         """Get all packages that transitively depend on the given package."""
         return self._traverse_dependents(package_name)

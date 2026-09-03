@@ -49,6 +49,10 @@ class MergeRequest(ABC):
         """MR state (opened, closed, merged)."""
 
     @abstractmethod
+    def is_approved(self) -> bool:
+        """Whether all approval requirements for this merge request are met."""
+
+    @abstractmethod
     def create_pipeline(self) -> int:
         """Create/trigger a pipeline for this merge request.
 

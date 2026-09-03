@@ -56,6 +56,22 @@ class GitLabMergeRequest(MergeRequest):
     def state(self) -> str:
         return self._mr.state
 
+    def is_approved(self) -> bool:
+        """Return whether all required GitLab approvals have been given."""
+        try:
+            approval = self._mr.approvals.get()
+            approvals_left = getattr(approval, "approvals_left", None)
+            if approvals_left is not None:
+                return int(approvals_left) == 0
+            return bool(getattr(approval, "approved", False))
+        except (GitlabError, TypeError, ValueError) as e:
+            logger.error(
+                "Failed to check approval status for MR !%s: %s",
+                self.iid,
+                str(e),
+            )
+            return False
+
     def create_pipeline(self) -> int:
         """Create/trigger a pipeline for this merge request.
 

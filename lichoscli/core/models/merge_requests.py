@@ -18,6 +18,7 @@ class MergeRequests(ABC):
         state: str = "opened",
         branch_name: Optional[str] = None,
         get_all: bool = False,
+        raise_on_error: bool = False,
     ) -> list["MergeRequest"]:
         """Get merge requests in this collection."""
 

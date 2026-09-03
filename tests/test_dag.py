@@ -153,6 +153,17 @@ def test_get_roots():
     assert [n.package for n in roots] == ["A"]
 
 
+def test_topological_order_puts_dependencies_before_dependents():
+    dag = _diamond_dag()
+
+    ordered_names = [node.package for node in dag.topological_order()]
+
+    assert ordered_names[0] == "A"
+    assert ordered_names[-1] == "D"
+    assert ordered_names.index("B") < ordered_names.index("D")
+    assert ordered_names.index("C") < ordered_names.index("D")
+
+
 def test_dag_node_status_is_terminal():
     assert DAGNodeStatus.PENDING.is_terminal is False
     assert DAGNodeStatus.BUILDING.is_terminal is False

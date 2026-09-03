@@ -8,6 +8,7 @@ from typing import Optional
 
 from gitlab import GitlabError
 
+from lichoscli.core.exceptions import MergeRequestError
 from lichoscli.core.models import Job, MergeRequest, MergeRequests
 
 from .job import GitLabJob
@@ -27,6 +28,7 @@ class GitLabMergeRequests(MergeRequests):
         state: str = "opened",
         branch_name: Optional[str] = None,
         get_all: bool = False,
+        raise_on_error: bool = False,
     ) -> list[MergeRequest]:
         """Get merge requests in this collection."""
         try:
@@ -48,6 +50,10 @@ class GitLabMergeRequests(MergeRequests):
                 "Failed to fetch merge requests: %s",
                 str(e),
             )
+            if raise_on_error:
+                raise MergeRequestError(
+                    f"Failed to fetch merge requests: {e}",
+                ) from e
             return []
 
     def get(self, mr_iid: str) -> Optional[MergeRequest]:

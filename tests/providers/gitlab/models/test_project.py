@@ -34,6 +34,70 @@ def test_protect_branch_failure(mock_sanitize):
     assert result is False
 
 
+def test_delete_success():
+    project = _make_project()
+
+    result = project.delete()
+
+    assert result is True
+    project._project.delete.assert_called_once_with()
+
+
+def test_delete_failure():
+    from gitlab.exceptions import GitlabDeleteError
+
+    project = _make_project()
+    project._project.delete.side_effect = GitlabDeleteError("Failed")
+
+    result = project.delete()
+
+    assert result is False
+
+
+def test_delete_permanently_success():
+    """delete_permanently() re-fetches the project (GitLab renames it the
+    moment it's marked for deletion, so any path captured before that first
+    delete() is stale) and deletes using its current full_path."""
+    project = _make_project()
+    project._project.id = 42
+
+    refetched = Mock()
+    refetched.path_with_namespace = "test-group/pkg-deleted-42"
+    project._project.manager.gitlab.projects.get.return_value = refetched
+
+    result = project.delete_permanently()
+
+    assert result is True
+    project._project.manager.gitlab.projects.get.assert_called_once_with(42)
+    refetched.delete.assert_called_once_with(permanently_remove=True, full_path="test-group/pkg-deleted-42")
+
+
+def test_delete_permanently_failure():
+    from gitlab.exceptions import GitlabDeleteError
+
+    project = _make_project()
+    project._project.manager.gitlab.projects.get.side_effect = GitlabDeleteError("Failed")
+
+    result = project.delete_permanently()
+
+    assert result is False
+
+
+def test_is_marked_for_deletion_true():
+    project = _make_project()
+    project._project.marked_for_deletion_at = "2024-01-01T00:00:00Z"
+
+    assert project.is_marked_for_deletion is True
+
+
+def test_is_marked_for_deletion_false():
+    project = _make_project()
+    project._project.marked_for_deletion_at = None
+    project._project.marked_for_deletion_on = None
+
+    assert project.is_marked_for_deletion is False
+
+
 def _project_with_ci_config(path):
     project = GitLabProject(Mock())
     project._project.ci_config_path = path

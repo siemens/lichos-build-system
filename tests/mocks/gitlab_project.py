@@ -16,6 +16,9 @@ class MockGitLabProject:
         self.default_branch = kwargs.get("default_branch", "main")
         self.namespace = kwargs.get("namespace", {"id": 456, "full_path": "test-group/pkg", "path": "pkg"})
         self.web_url = kwargs.get("web_url", f"https://gitlab.example.com/test-group/pkg/{self.name}")
+        self.path_with_namespace = kwargs.get(
+            "path_with_namespace", f"{self.namespace.get('full_path', 'test-group/pkg')}/{self.name}"
+        )
         self.pipelines = Mock()
         self.jobs = Mock()
         self.web_url = kwargs.get("web_url", f"https://gitlab.example.com/test-group/pkg/{self.name}")
@@ -24,6 +27,9 @@ class MockGitLabProject:
         self.create_fork_relation = Mock()
         self.delete_fork_relation = Mock()
         self.set_force_push = Mock(return_value=True)
+        self.delete = Mock(return_value=True)
+        self.delete_permanently = Mock(return_value=True)
+        self.is_marked_for_deletion = kwargs.get("is_marked_for_deletion", False)
 
     def save(self):
         """Mock save method"""

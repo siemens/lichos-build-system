@@ -84,6 +84,13 @@ class GitLabProject(Project, CacheMixin):
         return getattr(self._project, "archived", False)
 
     @property
+    def is_marked_for_deletion(self) -> bool:
+        return bool(
+            getattr(self._project, "marked_for_deletion_at", None)
+            or getattr(self._project, "marked_for_deletion_on", None)
+        )
+
+    @property
     def builds_access_level(self) -> Optional[str]:
         return getattr(self._project, "builds_access_level", None)
 
@@ -295,6 +302,35 @@ class GitLabProject(Project, CacheMixin):
             return True
         except GitlabError as e:
             logger.error("Failed to protect branch: %s", e)
+            return False
+
+    def delete(self) -> bool:
+        """Delete this project (marks for deletion if delayed deletion is enabled)."""
+        try:
+            self._project.delete()
+            return True
+        except GitlabError as e:
+            logger.error("Failed to delete project '%s': %s", self.path_with_namespace, e)
+            return False
+
+    def delete_permanently(self) -> bool:
+        """Immediately and permanently remove this project, bypassing any retention period.
+
+        Must be called after ``delete()`` has already marked the project for
+        deletion. A bare second DELETE is rejected ("already marked for
+        deletion") -- permanent removal requires ``permanently_remove=True``
+        plus a ``full_path`` that matches exactly. GitLab renames the project
+        (appends a deletion suffix) the moment it's marked, so any path
+        captured before that first call is stale; we re-fetch the project
+        here to get its current path before deleting it.
+        """
+        try:
+            gitlab = self._project.manager.gitlab
+            current = gitlab.projects.get(self.id)
+            current.delete(permanently_remove=True, full_path=current.path_with_namespace)
+            return True
+        except GitlabError as e:
+            logger.error("Failed to permanently delete project '%s': %s", self.path_with_namespace, e)
             return False
 
     def fork_to(self, target_namespace: str, subgroup: Optional[str] = None) -> Optional["Project"]:

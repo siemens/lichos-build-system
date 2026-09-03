@@ -56,6 +56,11 @@ class Project(ABC):
 
     @property
     @abstractmethod
+    def is_marked_for_deletion(self) -> bool:
+        """Whether the project has already been scheduled for deletion """
+
+    @property
+    @abstractmethod
     def builds_access_level(self) -> Optional[str]:
         """Build access level."""
 
@@ -245,4 +250,14 @@ class Project(ABC):
 
         Returns:
             True if the branch was protected successfully, False otherwise.
+        """
+
+    @abstractmethod
+    def delete(self) -> bool:
+        """Delete this project."""
+
+    @abstractmethod
+    def delete_permanently(self) -> bool:
+        """Immediately and permanently remove this project, bypassing any
+        retention/grace period. Cannot be undone. Returns True on success.
         """

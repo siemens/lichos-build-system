@@ -18,18 +18,15 @@ class GitLabWorkspace(Workspace):
         self,
         name: str,
         packages: list["Project"],
-        protected: bool = False,
     ):
         """Initialize GitLab workspace.
 
         Args:
             name: Workspace/branch name
             packages: List of package objects that have branches with this name
-            protected: Whether the workspace branch is a protected branch
         """
         self._name = name
         self._packages = packages
-        self._protected = protected
 
     @property
     def name(self) -> str:
@@ -43,8 +40,8 @@ class GitLabWorkspace(Workspace):
 
     @property
     def is_protected(self) -> bool:
-        """Whether this workspace's branch is a protected branch."""
-        return self._protected
+        """Whether this workspace's branch is protected in any of its packages."""
+        return any(pkg.is_branch_protected(self._name) for pkg in self._packages)
 
     def __repr__(self) -> str:
         return "GitLabWorkspace(name='{0}', packages={1})".format(self.name, len(self.packages))

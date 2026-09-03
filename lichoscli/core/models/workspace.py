@@ -28,9 +28,4 @@ class Workspace(ABC):
     @property
     @abstractmethod
     def is_protected(self) -> bool:
-        """Whether this workspace's branch is a protected branch.
-
-        When True, no workspace-scheduling commit status should be posted.
-        Protected branches (e.g. main, release/*) represent stable refs that
-        must not receive scheduler-driven external status checks.
-        """
+        """Whether the workspace branch is protected in any of its packages."""

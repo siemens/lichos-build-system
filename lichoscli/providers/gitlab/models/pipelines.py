@@ -88,7 +88,8 @@ class GitLabPipelines(Pipelines):
             ref = branch_name if branch_name else self._project.default_branch
 
             # Check if there's an open merge request for this branch
-            if self._core_project_ref:
+            # MR pipelines don't support variables, so fall back to a branch pipeline when variables are given
+            if self._core_project_ref and not variables:
                 mrs = self._core_project_ref.merge_requests.list(state="opened", branch_name=ref)
 
                 if mrs:
@@ -101,11 +102,6 @@ class GitLabPipelines(Pipelines):
                         ref,
                         mr.iid,
                     )
-                    if variables:
-                        logger.warning(
-                            "Variables are not supported for MR pipelines, ignoring: %s",
-                            ", ".join(f"{k}={v}" for k, v in variables.items())
-                        )
                     gitlab_pipeline = self._project.pipelines.get(pipeline_id)
                     pipeline = GitLabPipeline(gitlab_pipeline, self._core_project_ref)
                     return pipeline

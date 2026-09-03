@@ -1,6 +1,6 @@
 # lichoscli - LiChOS Build System CLI
 
-A command-line tool for managing LiChOS package builds and GitLab CI/CD pipelines. When run from within a git checkout, lichoscli automatically detects the package you're working on. You can also operate at the project level when you have the `00ci` package checked out.
+A command-line tool for managing LiChOS package builds and GitLab CI/CD pipelines. When run from within a git checkout, lichoscli automatically detects the package you're working on
 
 ## Setup
 
@@ -19,24 +19,66 @@ hosts:
 
 ## Quick Start
 
-**Get started with a project:**
-```bash
-# Clone the 00ci package to set up project detection
-lichoscli --host gitlab.example.com --pkg-group your-group/pkg --branch main clone 00ci
-```
-
 **List packages:**
 ```bash
-# Current project
-lichoscli list
+$ lichoscli --host salsa.debian.org --pkg-group systemd-team list
+Packages
+  Name               Type                 Enabled  Branch
+  -----------------  -------------------  -------  -------------
+  casync             debian/salsa-ci.yml  enabled  master
+  mkosi              debian/salsa-ci.yml  enabled  debian/sid
+  python-systemd     local                enabled  master
+  systemd            debian/salsa-ci.yml  enabled  debian/master
+  systemd-bootchart  debian/salsa-ci.yml  enabled  master
+  systemd-cron       debian/salsa-ci.yml  enabled  master
+  systemd-netlogd    debian/salsa-ci.yml  enabled  debian/latest
+  systemd-udeb       debian/salsa-ci.yml  enabled  debian/sid
+$ lichoscli log . reprotest
+Running with gitlab-runner 14.10.1 (HEAD)
+  on salsa-runner.debian.net f0fdd533
+```
 
-# Different project
-lichoscli --pkg-group your-group/pkg --host gitlab.example.com list
+**Get started with a package:**
+```bash
+$ lichoscli --host salsa.debian.org --pkg-group systemd-team --branch master clone mkosi
+$ cd mkosi
+$ lichoscli status
+Pipeline Details - mkosi
+  Setting  Value
+  -------  --------------------------------------------------------------
+  sha      3ff85dba93552d06848caeb61b98747a874cf31c
+  ref      master
+  status   failed
+  source   push
+  web_url  https://salsa.debian.org/systemd-team/mkosi/-/pipelines/393059
+Pipeline Jobs
+  Id       Name                   Stage         Status   Started
+  -------  ---------------------  ------------  -------  --------------------------
+  2922893  piuparts               test          success  2022-06-27 13:05:36 - 160s
+  2922892  blhc                   test          success  2022-06-27 13:05:35 - 73s
+  2922891  autopkgtest            test          success  2022-06-27 13:05:34 - 183s
+  2922890  lintian                test          success  2022-06-27 13:05:33 - 110s
+  2922889  reprotest              test          failed   2022-06-27 13:05:32 - 129s
+  2922888  test-crossbuild-arm64  test          success  2022-06-27 13:05:35 - 76s
+  2922887  test-build-all         test          success  2022-06-27 13:05:36 - 127s
+  2922886  test-build-any         test          success  2022-06-27 13:05:36 - 73s
+  2922885  build source           build         success  2022-06-27 13:03:28 - 121s
+  2922884  build i386             build         success  2022-06-27 13:03:28 - 127s
+  2922883  build                  build         success  2022-06-27 13:03:26 - 122s
+  2922882  extract-source         provisioning  success  2022-06-27 13:02:05 - 78s
 ```
 
 ## Common Workflows
 
 ### Working with Packages
+
+```bash
+cat > .lichos <<EOF
+branch: flocken
+host: gitlab.example.com
+pkg_group: your-group
+EOF
+```
 
 **Clone a package:**
 ```bash

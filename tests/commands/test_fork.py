@@ -77,14 +77,17 @@ def test_execute_successful_fork(
     mock_forked_package.name = "test-package"
 
     mock_di_container.package_service.hierarchy_exists.return_value = True
-    mock_di_container.package_service.get_package.return_value = None  # No 00ci in current
 
-    mock_source_hierarchy = Mock()
-    mock_source_hierarchy.group_rpath = "source-group/pkg"
     mock_base_package = mock_gitlab_project()
     mock_base_package.name = "test-package"
     mock_base_package.path_with_namespace = "source-group/pkg/test-package"
-    mock_source_hierarchy.get_package.return_value = mock_base_package
+
+    def lookup(name, include_archived=False, namespace=None):
+        if namespace is None:
+            return None  # no 00ci in the current group
+        return {"00ci": mock_destination_ci, "test-package": mock_base_package}.get(name)
+
+    mock_di_container.package_service.get_package.side_effect = lookup
 
     mock_hierarchy_utils.extract_package_subpath.return_value = ""
 

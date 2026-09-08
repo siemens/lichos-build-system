@@ -8,9 +8,7 @@ from typing import Optional
 
 from gitlab import GitlabError
 
-from lichoscli.core.models import Project, Projects
-
-from .project import GitLabProject
+from lichoscli.core.models import Projects
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +20,6 @@ class GitLabProjects(Projects):
         self._group_path = group_path
         self._gitlab = gitlab_client
         self._group = None
-        self._cache = {}
 
     @property
     def path(self) -> str:
@@ -35,37 +32,6 @@ class GitLabProjects(Projects):
         if self._group is None:
             self._group = self._gitlab.groups.get(self._group_path)
         return self._group
-
-    def get(self, name: str) -> Optional[Project]:
-        """Get a specific project by name."""
-
-        if name in self._cache:
-            logger.debug("Cache hit for project: %s", name)
-            return self._cache[name]
-
-        try:
-            logger.debug("Fetching project details for: %s", name)
-            projects = self.group.projects.list(search=name, include_subgroups=True)
-
-            for project in projects:
-                if project.name == name:
-                    full_project = self._gitlab.projects.get(project.id)
-                    if hasattr(full_project, "archived") and full_project.archived:
-                        logger.debug(
-                            "Found project %s but it is archived, skipping",
-                            name,
-                        )
-                        continue
-                    wrapper = GitLabProject(full_project)
-                    self._cache[name] = wrapper
-                    logger.debug("Cached project: %s", name)
-                    return wrapper
-
-            logger.debug("Project %s not found or is archived", name)
-            return None
-        except GitlabError as e:
-            logger.error("Error fetching project %s: %s", name, str(e))
-            return None
 
     def get_projects_for_namespace(self, namespace_path: str) -> Optional["Projects"]:
         """Get projects collection for a group by namespace path."""

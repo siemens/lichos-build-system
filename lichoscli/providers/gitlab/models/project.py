@@ -35,6 +35,29 @@ logger = logging.getLogger(__name__)
 class GitLabProject(Project, CacheMixin):
     """Wrapper for GitLab Project objects."""
 
+    @classmethod
+    def from_listing(cls, gitlab, listed) -> "GitLabProject":
+        """Group listings carry every attribute but no sub-managers, so rebuild rather than refetch."""
+        return cls(GitLabProjectObject(gitlab.projects, listed.attributes))
+
+    @classmethod
+    def find(cls, gitlab, group_path: str, name: str, include_archived: bool = False) -> Optional["GitLabProject"]:
+        """The one project-by-name search; PackageService.get_package is the caching entry point."""
+        try:
+            group = gitlab.groups.get(group_path)
+            listed = group.projects.list(
+                search=name, order_by="similarity", include_subgroups=True, iterator=True
+            )
+            for item in listed:
+                if name not in (item.name, item.path):
+                    continue
+                project = cls.from_listing(gitlab, item)
+                if include_archived or not project.archived:
+                    return project
+        except GitlabError as error:
+            logger.debug("Failed to find project %s in %s: %s", name, group_path, error)
+        return None
+
     def __init__(self, gitlab_project: GitLabProjectObject):
         self._project = gitlab_project
         self._variables: Optional[Variables] = None
@@ -267,7 +290,7 @@ class GitLabProject(Project, CacheMixin):
             return self._project.create_fork_relation(parent_id)
         except GitlabError as e:
             raise ProjectFetchingError(
-                "Failed to create fork relation: {}".format(e)
+                f"Failed to create fork relation: {e}"
             ) from e
 
     def delete_fork_relation(self) -> None:
@@ -276,7 +299,7 @@ class GitLabProject(Project, CacheMixin):
             self._project.delete_fork_relation()
         except GitlabError as e:
             raise ProjectFetchingError(
-                "Failed to delete fork relation: {}".format(e)
+                f"Failed to delete fork relation: {e}"
             ) from e
 
     def set_force_push(self, branch: str, enabled: bool) -> bool:
@@ -371,8 +394,7 @@ class GitLabProject(Project, CacheMixin):
 
             target_namespace_id = target_group_id
 
-            target_projects = GitLabProjects(target_namespace, gitlab)
-            existing_package = target_projects.get(self.name)
+            existing_package = GitLabProject.find(gitlab, target_namespace, self.name)
             if existing_package:
                 logger.error(
                     "Package '%s' already exists in target hierarchy '%s'",
@@ -397,7 +419,7 @@ class GitLabProject(Project, CacheMixin):
 
             forked_package = None
             for _ in range(3):
-                forked_package = target_projects.get(self.name)
+                forked_package = GitLabProject.find(gitlab, target_namespace, self.name)
                 if forked_package:
                     break
                 time.sleep(1)
@@ -485,12 +507,12 @@ class GitLabProject(Project, CacheMixin):
             branches_with_push = []
             for pb in protected_branches:
                 push_access_levels = getattr(pb, 'push_access_levels', None)
-                
+
                 if not push_access_levels:
                     # No push_access_levels means push is allowed by default
                     branches_with_push.append(pb.name)
                     continue
-                
+
                 for access in push_access_levels:
                     access_level = access.get('access_level')
                     if access_level is None or access_level > 0:

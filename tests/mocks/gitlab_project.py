@@ -31,6 +31,14 @@ class MockGitLabProject:
         self.delete_permanently = Mock(return_value=True)
         self.is_marked_for_deletion = kwargs.get("is_marked_for_deletion", False)
 
+    @property
+    def attributes(self):
+        """python-gitlab exposes record data here; build_project rebuilds objects from it."""
+        return {
+            key: value for key, value in self.__dict__.items()
+            if not key.startswith("_") and not isinstance(value, Mock)
+        }
+
     def save(self):
         """Mock save method"""
         self._saved = True

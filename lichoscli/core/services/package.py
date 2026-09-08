@@ -16,12 +16,12 @@ class PackageService(ABC):
 
     @abstractmethod
     def get_package(
-        self, package_name: str, include_archived: bool = False
+        self, package_name: str, include_archived: bool = False, namespace: Optional[str] = None
     ) -> Optional[Project]:
         """Get a package by name, optionally including archived projects."""
 
     @abstractmethod
-    def get_all_packages(self, include_archived: bool = False) -> list[Project]:
+    def get_all_packages(self, with_cache: bool = True, include_archived: bool = False) -> list[Project]:
         """Get all packages, optionally including archived projects."""
 
     @abstractmethod

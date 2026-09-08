@@ -67,7 +67,7 @@ class ForkCommand(Command):
             return 1
 
         # Check if 00ci exists in destination namespace
-        destination_ci = destination_projects.get(CI_PKG)
+        destination_ci = self.package_service.get_package(CI_PKG, namespace=self.destination_namespace)
         if not destination_ci:
             logger.error(
                 "00ci package not found in destination hierarchy '%s'",
@@ -81,7 +81,7 @@ class ForkCommand(Command):
             logger.error("Cannot access source hierarchy '%s'", self.source_namespace)
             return 1
 
-        base_package = source_projects.get(self.args.package)
+        base_package = self.package_service.get_package(self.args.package, namespace=self.source_namespace)
         if not base_package:
             logger.error(
                 "Package '%s' not found in source hierarchy '%s'",
@@ -190,7 +190,7 @@ class ForkCommand(Command):
             self.output.error(f"ERROR: Cannot access source hierarchy '{self.source_namespace}'")
             return 1
 
-        base_package = source_projects.get(self.args.package)
+        base_package = self.package_service.get_package(self.args.package, namespace=self.source_namespace)
         if not base_package:
             self.output.error(
                 f"ERROR: Package '{self.args.package}' not found in source hierarchy '{self.source_namespace}'",

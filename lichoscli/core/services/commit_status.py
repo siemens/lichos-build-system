@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Siemens AG
 
-"""Abstract commit status service interface for reporting DAG node states to the VCS provider."""
+"""Abstract commit status service for reading and reporting DAG node states."""
 
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -26,7 +26,17 @@ __all__ = ["CommitNodeStatus", "WorkspaceStatus", "CommitStatusService"]
 
 
 class CommitStatusService(ABC):
-    """Abstract interface for posting DAG node build states as VCS commit statuses."""
+    """Abstract interface for reading and posting DAG node commit statuses."""
+
+    @abstractmethod
+    def is_pipeline_orphaned(
+        self,
+        project: "Project",
+        commit_sha: str,
+        pipeline_id: int,
+    ) -> bool:
+        """Return whether only the pipeline's workspace status is unfinished."""
+        raise NotImplementedError
 
     @abstractmethod
     def post_node_status(
@@ -34,6 +44,7 @@ class CommitStatusService(ABC):
         project: "Project",
         commit_sha: str,
         status: CommitNodeStatus,
+        pipeline_id: int,
         pipeline_url: Optional[str] = None,
     ) -> None:
         """Post or update the commit status for a single DAG node."""

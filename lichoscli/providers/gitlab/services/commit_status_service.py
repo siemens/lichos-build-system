@@ -8,18 +8,18 @@ from typing import TYPE_CHECKING, Optional
 
 from gitlab import GitlabError
 
+from lichoscli.core.models.pipeline_status import PipelineStatus
 from lichoscli.core.services.commit_status import (
     CommitNodeStatus,
     CommitStatusService,
     WorkspaceStatus,
 )
+from lichoscli.utils.constants import CI_WORKSPACE_JOB_NAME
 
 if TYPE_CHECKING:
     from lichoscli.core.models.project import Project
 
 logger = logging.getLogger(__name__)
-
-_CONTEXT_NAME = "workspace-scheduling"
 
 _MAX_DESCRIPTION_LENGTH = 255
 
@@ -39,16 +39,62 @@ _WORKSPACE_DESCRIPTIONS = {
 
 
 class GitLabCommitStatusService(CommitStatusService):
-    """Posts DAG node build states as GitLab commit statuses."""
+    """Reads and posts DAG node states as GitLab commit statuses."""
 
     def __init__(self) -> None:
         self._posted_statuses: set[tuple] = set()
+
+    def is_pipeline_orphaned(
+        self,
+        project: "Project",
+        commit_sha: str,
+        pipeline_id: int,
+    ) -> bool:
+        """Return whether only the pipeline's workspace status is unfinished."""
+        try:
+            statuses = project._project.commits.get(commit_sha).statuses.list(
+                pipeline_id=pipeline_id,
+                order_by="id",
+                sort="desc",
+                get_all=True,
+            )
+        except GitlabError as exc:
+            logger.warning(
+                "Failed to read workspace status for project %s pipeline %s: %s",
+                project.id,
+                pipeline_id,
+                exc,
+            )
+            return False
+
+        if not statuses:
+            return False
+
+        if any(status.pipeline_id != pipeline_id for status in statuses):
+            return False
+
+        workspace_is_running = any(
+            status.name == CI_WORKSPACE_JOB_NAME
+            and status.status == WorkspaceStatus.BUILDING.value
+            for status in statuses
+        )
+        final_statuses = frozenset(
+            status.value
+            for status in PipelineStatus.final_states()
+            if status != PipelineStatus.CANCELING
+        )
+        all_other_statuses_are_final = all(
+            status.name == CI_WORKSPACE_JOB_NAME or status.status in final_statuses
+            for status in statuses
+        )
+        return workspace_is_running and all_other_statuses_are_final
 
     def post_node_status(
         self,
         project: "Project",
         commit_sha: str,
         status: CommitNodeStatus,
+        pipeline_id: int,
         pipeline_url: Optional[str] = None,
     ) -> None:
         """Post or update a commit status for a single DAG node on GitLab."""
@@ -56,13 +102,14 @@ class GitLabCommitStatusService(CommitStatusService):
 
         payload = {
             "state": status.value,
-            "name": _CONTEXT_NAME,
+            "name": CI_WORKSPACE_JOB_NAME,
             "description": description,
+            "pipeline_id": pipeline_id,
         }
         if pipeline_url:
             payload["target_url"] = pipeline_url
 
-        cache_key = (project.id, commit_sha, status.value)
+        cache_key = (project.id, commit_sha, pipeline_id, status.value)
         if cache_key in self._posted_statuses:
             logger.debug(
                 "Skipping duplicate commit status for project %s @ %s",
@@ -130,7 +177,7 @@ class GitLabCommitStatusService(CommitStatusService):
 
             payload = {
                 "state": status.value,
-                "name": _CONTEXT_NAME,
+                "name": CI_WORKSPACE_JOB_NAME,
                 "description": description,
             }
 

@@ -155,5 +155,5 @@ class SchedulerService(ABC):
         packages: list["Project"],
         branch: str,
     ) -> list[str]:
-        """Cancel active pipelines orphaned by a previous interrupted scheduler run."""
+        """Cancel pipelines kept running only by an orphaned workspace status."""
         raise NotImplementedError

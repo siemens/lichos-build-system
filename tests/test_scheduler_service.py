@@ -542,6 +542,80 @@ class TestSendBuildNotification:
         assert "A" in notification_data.failed_packages
 
 
+class TestCancelOrphanPipelines:
+    @staticmethod
+    def _project_with_pipeline(pipeline):
+        project = Mock()
+        project.name = "package-a"
+        project.pipelines.list.return_value = [pipeline]
+        return project
+
+    @staticmethod
+    def _pipeline():
+        pipeline = Mock()
+        pipeline.id = 123
+        pipeline.sha = "sha-a"
+        pipeline.web_url = "https://example.com/pipelines/123"
+        pipeline.status.value = "running"
+        return pipeline
+
+    def test_non_orphaned_pipeline_remains_active(self):
+        """Scheduler cleanup must preserve a pipeline not classified as orphaned."""
+        pipeline = self._pipeline()
+        project = self._project_with_pipeline(pipeline)
+        commit_status_service = Mock(spec=CommitStatusService)
+        commit_status_service.is_pipeline_orphaned.return_value = False
+        service = _make_service(commit_status_service=commit_status_service)
+
+        cancelled = service.cancel_orphan_pipelines([project], "flocken")
+
+        expectation = "Expected a non-orphaned pipeline to remain active"
+        assert not cancelled, expectation
+        project.pipelines.list.assert_called_once_with(
+            "flocken", status="running", get_all=True
+        )
+        pipeline.cancel.assert_not_called()
+        commit_status_service.post_node_status.assert_not_called()
+
+    def test_orphaned_pipeline_is_cancelled(self):
+        """Scheduler cleanup must cancel a pipeline classified as orphaned."""
+        pipeline = self._pipeline()
+        pipeline.cancel.return_value = True
+        project = self._project_with_pipeline(pipeline)
+        commit_status_service = Mock(spec=CommitStatusService)
+        commit_status_service.is_pipeline_orphaned.return_value = True
+        service = _make_service(commit_status_service=commit_status_service)
+
+        cancelled = service.cancel_orphan_pipelines([project], "feature/flocken")
+
+        expectation = "Expected the orphaned package to be reported"
+        assert cancelled == ["package-a"], expectation
+        pipeline.cancel.assert_called_once_with()
+        commit_status_service.post_node_status.assert_called_once_with(
+            project,
+            "sha-a",
+            CommitNodeStatus.CANCELLED,
+            123,
+            "https://example.com/pipelines/123",
+        )
+
+    def test_failed_orphan_cancellation_is_not_reported_as_success(self):
+        """Scheduler cleanup must report cancellation only after GitLab accepts it."""
+        pipeline = self._pipeline()
+        pipeline.cancel.return_value = False
+        project = self._project_with_pipeline(pipeline)
+        commit_status_service = Mock(spec=CommitStatusService)
+        commit_status_service.is_pipeline_orphaned.return_value = True
+        service = _make_service(commit_status_service=commit_status_service)
+
+        cancelled = service.cancel_orphan_pipelines([project], "feature/flocken")
+
+        assert not cancelled
+        pipeline.cancel.assert_called_once_with()
+        commit_status_service.post_node_status.assert_not_called()
+        project.pipelines.invalidate.assert_not_called()
+
+
 # ── await_running_pipelines ──────────────────────────────────────────
 
 

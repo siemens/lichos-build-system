@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional
 
 from lichoscli.core.models.build_schedule_result import BuildScheduleResult
 from lichoscli.core.models.dag import DAGNodeStatus, DependencyGraph
+from lichoscli.core.models.pipeline_status import PipelineStatus
 from lichoscli.core.models.reverse_dependency_report import (
     ReverseDependencyEntry,
     ReverseDependencyReport,
@@ -436,16 +437,20 @@ class GitLabSchedulerService(SchedulerService):
         packages: list["Project"],
         branch: str,
     ) -> list[str]:
-        """Cancel active orphan pipelines for all workspace packages.
-
-        Inspects the last four pipelines per package so that an orphaned
-        pipeline is caught even when newer pipelines exist on the same branch.
-        """
+        """Cancel pipelines kept running only by an orphaned workspace status."""
         cancelled: list[str] = []
         for pkg in packages:
-            recent_pipelines = pkg.pipelines.list(branch, per_page=4, get_all=False)
-            for pipeline in recent_pipelines:
-                if pipeline.status.is_final:
+            running_pipelines = pkg.pipelines.list(
+                branch,
+                status=PipelineStatus.RUNNING.value,
+                get_all=True,
+            )
+            for pipeline in running_pipelines:
+                if not self._commit_status_service.is_pipeline_orphaned(
+                    pkg,
+                    pipeline.sha,
+                    pipeline.id,
+                ):
                     continue
                 logger.info(
                     "Cancelling orphan pipeline %s for %s (status: %s)",
@@ -453,11 +458,18 @@ class GitLabSchedulerService(SchedulerService):
                     pkg.name,
                     pipeline.status.value,
                 )
-                pipeline.cancel()
+                if not pipeline.cancel():
+                    logger.warning(
+                        "Failed to cancel orphan pipeline %s for %s",
+                        pipeline.id,
+                        pkg.name,
+                    )
+                    continue
                 self._commit_status_service.post_node_status(
                     pkg,
                     pipeline.sha,
                     CommitNodeStatus.CANCELLED,
+                    pipeline.id,
                     pipeline.web_url,
                 )
                 if pkg.name not in cancelled:

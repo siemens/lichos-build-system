@@ -38,11 +38,11 @@ Running with gitlab-runner 14.10.1 (HEAD)
   on salsa-runner.debian.net f0fdd533
 ```
 
-**Get started with a package:**
+**Get started with a package URL:**
 ```bash
-$ lichoscli --host salsa.debian.org --pkg-group systemd-team --branch master clone mkosi
-$ cd mkosi
-$ lichoscli status
+$ lichoscli clone https://salsa.debian.org/systemd-team/mkosi
+$ cd systemd-team/mkosi
+$ lichoscli status .
 Pipeline Details - mkosi
   Setting  Value
   -------  --------------------------------------------------------------
@@ -72,50 +72,55 @@ Pipeline Jobs
 
 ### Working with Packages
 
-```bash
-cat > .lichos <<EOF
-branch: flocken
-host: gitlab.example.com
-pkg_group: your-group
-EOF
-```
-
-**Clone a package:**
-```bash
-lichoscli clone u-boot
-```
-
 **Clone a package from a URL:**
 ```bash
-lichoscli clone https://gitlab.example.com/group/subgroup/u-boot
+lichoscli clone https://salsa.debian.org/systemd-team/mkosi
 ```
 
-URL-based clones preserve the repository hierarchy. The command creates:
+The URL supplies the GitLab host and package group automatically. URL-based
+clones preserve the repository hierarchy and create:
 
 ```text
-group/subgroup/.lichos
-group/subgroup/u-boot/
+systemd-team/.lichos
+systemd-team/mkosi/
 ```
 
 The `.lichos` file records the GitLab host, package group, and selected branch.
-URL-based clones also set up a `parent` remote for forked repositories and an
+Cloning also configures a `parent` remote for forked repositories and an
 `upstream` remote when `debian/upstream/metadata` contains a `Repository` URL.
 
-An optional destination directory places the package below that directory:
+Use an optional destination directory to place the package below a custom
+workspace root:
 
 ```bash
-lichoscli clone https://gitlab.example.com/group/subgroup/u-boot DEST
+lichoscli clone https://salsa.debian.org/systemd-team/mkosi ~/src
+cd ~/src/mkosi
 ```
 
-This creates `DEST/.lichos` and `DEST/u-boot/`. If the destination is omitted,
-the URL-derived hierarchy is used as shown above.
+This creates:
 
-> **Pro tip:** lichoscli automatically sets up useful remotes when cloning. If it's a fork, you get a `parent` remote for the `pdiff` command. If there's a `Repository` in `debian/upstream/metadata`, that becomes the `upstream` remote.
+```text
+~/src/.lichos
+~/src/mkosi/
+```
 
-Now the there's a local git checkout of the specified package. You
-can enter the directory and execute lichoscli commands from there.
-When in such a local git checkout, it's possible to specify `.` as
-package name to refer to the currently checkout one one.
+Using `.` as the destination creates `.lichos` and the package directory in
+the current directory:
+
+```bash
+lichoscli clone https://salsa.debian.org/systemd-team/mkosi .
+cd mkosi
+```
+
+For an already configured environment, cloning by package name remains
+available:
+
+```bash
+lichoscli clone mkosi
+```
+
+The repository is now checked out locally. When working inside a checkout, use
+`.` as the package name to refer to the current package.
 
 Also, lichoscli will operate on the checked out branch by default
 unless entering a workspace. See below.

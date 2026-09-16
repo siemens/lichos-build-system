@@ -85,6 +85,31 @@ EOF
 lichoscli clone u-boot
 ```
 
+**Clone a package from a URL:**
+```bash
+lichoscli clone https://gitlab.example.com/group/subgroup/u-boot
+```
+
+URL-based clones preserve the repository hierarchy. The command creates:
+
+```text
+group/subgroup/.lichos
+group/subgroup/u-boot/
+```
+
+The `.lichos` file records the GitLab host, package group, and selected branch.
+URL-based clones also set up a `parent` remote for forked repositories and an
+`upstream` remote when `debian/upstream/metadata` contains a `Repository` URL.
+
+An optional destination directory places the package below that directory:
+
+```bash
+lichoscli clone https://gitlab.example.com/group/subgroup/u-boot DEST
+```
+
+This creates `DEST/.lichos` and `DEST/u-boot/`. If the destination is omitted,
+the URL-derived hierarchy is used as shown above.
+
 > **Pro tip:** lichoscli automatically sets up useful remotes when cloning. If it's a fork, you get a `parent` remote for the `pdiff` command. If there's a `Repository` in `debian/upstream/metadata`, that becomes the `upstream` remote.
 
 Now the there's a local git checkout of the specified package. You
@@ -329,4 +354,3 @@ When you install the `lichoscli` `.deb` package, shell completions for **bash** 
 - `/usr/share/zsh/vendor-completions/_lichoscli`
 
 No manual configuration is needed — open a new shell and tab-completion works.
-

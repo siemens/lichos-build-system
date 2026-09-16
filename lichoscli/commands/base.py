@@ -26,6 +26,11 @@ class Command(ABC):
         """Validate command-specific arguments. Override in subclasses if needed."""
         return
 
+    @classmethod
+    def prepare_args(cls, args) -> None:
+        """Prepare command arguments before configuration is built."""
+        return
+
     @abstractmethod
     def execute(self) -> int:
         pass

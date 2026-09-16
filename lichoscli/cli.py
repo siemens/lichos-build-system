@@ -94,6 +94,10 @@ def main() -> int:
         root_logger.setLevel(logging.WARNING)
 
     try:
+        command_class = CommandRegister.get_command(args.command)
+        if command_class:
+            command_class.prepare_args(args)
+
         config_builder = ConfigBuilder(args)
         config = config_builder.build()
         logger.debug("Configuration: host=%s, pkg_group=%s, branch=%s, provider=%s",

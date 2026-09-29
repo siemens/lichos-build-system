@@ -12,6 +12,10 @@ class ProjectFetchingError(LichosCliError):
     """Exception raised for project-related errors."""
 
 
+class ProjectComparisonError(ProjectFetchingError):
+    """Exception raised when comparing project refs fails."""
+
+
 class PipelineError(LichosCliError):
     """Exception raised for pipeline-related errors."""
 

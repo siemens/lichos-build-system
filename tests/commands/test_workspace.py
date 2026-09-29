@@ -4,6 +4,7 @@
 from unittest.mock import Mock
 
 from lichoscli.commands.workspace import WorkspaceCommand
+from lichoscli.core.exceptions import ProjectComparisonError
 from lichoscli.core.models import DAGNode, DAGNodeStatus, DependencyGraph
 from lichoscli.core.services import VersionCheckResult
 from lichoscli.ui.models import Tree
@@ -45,6 +46,66 @@ def _dependency_dag(*package_names):
         nodes[dependent_name].add_dependency(nodes[dependency_name])
         nodes[dependency_name].add_dependent(nodes[dependent_name])
     return DependencyGraph(nodes=nodes)
+
+
+def test_workspace_changes_reports_diverged_branch_even_with_open_mr(mock_di_container):
+    args = create_mock_args(command="workspace", action="changes", branch="flocken")
+    merge_request = _merge_request(1)
+    merge_request.web_url = "https://gitlab.example/review/1"
+    package = _package("lichos-interfaces", [merge_request])
+    package.get_commits.side_effect = [
+        [{"id": "workspace-change"}],
+        [{"id": "default-branch-change"}],
+    ]
+    workspace = Mock(packages=[package])
+    mock_di_container.workspace_service.get_workspace.return_value = workspace
+
+    result = WorkspaceCommand(mock_di_container, args).action_changes()
+
+    assert result == 0
+    mock_di_container.user_interface.output.print.assert_any_call(
+        "  lichos-interfaces (diverged)",
+    )
+    mock_di_container.user_interface.output.print.assert_any_call(
+        "    https://gitlab.example/review/1",
+    )
+    package.get_commits.assert_any_call("main", "flocken")
+    package.get_commits.assert_any_call("flocken", "main")
+
+
+def test_workspace_changes_keeps_mr_link_when_branch_is_synced(mock_di_container):
+    args = create_mock_args(command="workspace", action="changes", branch="flocken")
+    merge_request = _merge_request(1)
+    merge_request.web_url = "https://gitlab.example/review/1"
+    package = _package("synced-package", [merge_request])
+    package.get_commits.side_effect = [[], []]
+    workspace = Mock(packages=[package])
+    mock_di_container.workspace_service.get_workspace.return_value = workspace
+
+    result = WorkspaceCommand(mock_di_container, args).action_changes()
+
+    assert result == 0
+    mock_di_container.user_interface.output.print.assert_any_call(
+        "  synced-package (ahead)",
+    )
+    mock_di_container.user_interface.output.print.assert_any_call(
+        "    https://gitlab.example/review/1",
+    )
+
+
+def test_workspace_changes_reports_comparison_failure(mock_di_container):
+    args = create_mock_args(command="workspace", action="changes", branch="flocken")
+    package = _package("broken-package", [])
+    package.get_commits.side_effect = ProjectComparisonError("compare failed")
+    workspace = Mock(packages=[package])
+    mock_di_container.workspace_service.get_workspace.return_value = workspace
+
+    result = WorkspaceCommand(mock_di_container, args).action_changes()
+
+    assert result == 0
+    mock_di_container.user_interface.output.print.assert_any_call(
+        "  broken-package (unknown)",
+    )
 
 
 def test_workspace_graph_passes_stale_packages_to_output_renderer(mock_di_container):

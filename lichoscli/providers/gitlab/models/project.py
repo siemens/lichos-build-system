@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from gitlab import GitlabError
 from gitlab.v4.objects import Project as GitLabProjectObject
 
-from lichoscli.core.exceptions import ProjectFetchingError
+from lichoscli.core.exceptions import ProjectComparisonError, ProjectFetchingError
 from lichoscli.core.models import Project
 from lichoscli.core.models.git import GitUrl
 from lichoscli.utils import CIConfigUtils
@@ -432,14 +432,12 @@ class GitLabProject(Project, CacheMixin):
             comparison = self._project.repository_compare(from_ref, to_ref)
             return comparison.get("commits", [])
         except GitlabError as e:
-            logger.debug(
-                "Failed to get commits between %s and %s for project %s: %s",
-                from_ref,
-                to_ref,
-                self.name,
-                str(e),
+            message = (
+                f"Failed to compare {self.name} refs "
+                f"'{from_ref}' and '{to_ref}': {e}"
             )
-            return []
+            logger.warning(message)
+            raise ProjectComparisonError(message) from e
 
     def compare_url(self, from_ref: str, to_ref: str) -> str:
         """Return a GitLab comparison URL between two refs."""

@@ -8,7 +8,7 @@ from typing import Optional
 
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
-from lichoscli.core.exceptions import MergeRequestError
+from lichoscli.core.exceptions import MergeRequestError, ProjectComparisonError
 from lichoscli.core.models.dag import DAGNodeStatus
 from lichoscli.core.services import DependencyService, PackageService, WorkspaceService
 from lichoscli.ui import Cell, Choice, Table
@@ -583,15 +583,34 @@ class WorkspaceCommand(Command):
     @staticmethod
     def _classify_branch_changes(package, branch: str) -> tuple[str, Optional[str]]:
         """Classify a workspace branch relative to its default branch."""
-        commits_ahead = package.get_commits(package.default_branch, branch)
-        commits_behind = package.get_commits(branch, package.default_branch)
+        default_branch = package.default_branch
+        try:
+            commits_ahead = package.get_commits(default_branch, branch)
+            commits_behind = package.get_commits(branch, default_branch)
+        except ProjectComparisonError as e:
+            logger.warning(
+                "Could not classify branch '%s' for package '%s': %s",
+                branch,
+                package.name,
+                e,
+            )
+            return "unknown", package.compare_url(default_branch, branch)
+
+        logger.debug(
+            "Branch comparison for %s: default=%s branch=%s ahead=%d behind=%d",
+            package.name,
+            default_branch,
+            branch,
+            len(commits_ahead),
+            len(commits_behind),
+        )
 
         if commits_ahead and commits_behind:
-            return "diverged", package.compare_url(package.default_branch, branch)
+            return "diverged", package.compare_url(default_branch, branch)
         if commits_ahead:
-            return "ahead", package.compare_url(package.default_branch, branch)
+            return "ahead", package.compare_url(default_branch, branch)
         if commits_behind:
-            return "stale", package.compare_url(branch, package.default_branch)
+            return "stale", package.compare_url(branch, default_branch)
         return "synced", None
 
     def action_merge(self):
@@ -633,7 +652,7 @@ class WorkspaceCommand(Command):
                     package,
                     self.args.branch,
                 )
-                if state in ("ahead", "diverged"):
+                if state in ("ahead", "diverged", "unknown"):
                     unreviewed_changes.append(
                         (package.name, state, comparison_url),
                     )
@@ -778,13 +797,15 @@ class WorkspaceCommand(Command):
                 branch_name=branch,
                 get_all=True,
             )
+            state, comparison_url = self._classify_branch_changes(package, branch)
+
+            # Compare even when an MR exists. An open MR does not mean the
+            # workspace branch is up to date with the default branch. Keep
+            # the MR URL as the actionable link whenever one is available.
             if merge_requests:
                 for mr in merge_requests:
-                    rows.append((package.name, "ahead", mr.web_url))
-                continue
-
-            state, comparison_url = self._classify_branch_changes(package, branch)
-            if state != "synced":
+                    rows.append((package.name, state if state != "synced" else "ahead", mr.web_url))
+            elif state != "synced":
                 rows.append((package.name, state, comparison_url))
             else:
                 synced.append(package.name)

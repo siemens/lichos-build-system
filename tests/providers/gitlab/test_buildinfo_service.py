@@ -19,11 +19,11 @@ class TestFindBuildInfoInArtifacts(unittest.TestCase):
         self.artifacts = tempfile.TemporaryDirectory()
         self.addCleanup(self.artifacts.cleanup)
 
-    def _write_artifact(self, relative_path):
+    def _write_artifact(self, relative_path, content=BUILDINFO):
         path = os.path.join(self.artifacts.name, relative_path)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as artifact:
-            artifact.write(BUILDINFO)
+            artifact.write(content)
 
     def test_oci_layout_is_found(self):
         """OCI projects must expose their buildinfo under oci/<arch>/."""
@@ -41,8 +41,41 @@ class TestFindBuildInfoInArtifacts(unittest.TestCase):
 
         self.assertIsNone(found)
 
-    def test_gbp_layout_still_wins_for_packages(self):
-        """The package layout must keep working next to the oci layout."""
+    def test_gbp_layout_is_found(self):
+        """Packages must expose their buildinfo under gbp/<arch>/."""
+        self._write_artifact("gbp/arm64/lichos-signtool_1.0_arm64.buildinfo")
+
+        found = self.service._find_buildinfo_in_artifacts(self.artifacts.name, "arm64")
+
+        self.assertEqual(found, BUILDINFO)
+
+    def test_gbp_buildinfo_of_other_architecture_is_ignored(self):
+        """Package buildinfo lookup must stay architecture specific."""
+        self._write_artifact("gbp/amd64/lichos-signtool_1.0_amd64.buildinfo")
+
+        found = self.service._find_buildinfo_in_artifacts(self.artifacts.name, "arm64")
+
+        self.assertIsNone(found)
+
+    def test_architecture_independent_buildinfo_is_the_fallback(self):
+        """An architecture-independent build must resolve for every architecture."""
+        self._write_artifact("gbp/all/lichos-signtool_1.0_all.buildinfo")
+
+        found = self.service._find_buildinfo_in_artifacts(self.artifacts.name, "arm64")
+
+        self.assertEqual(found, BUILDINFO)
+
+    def test_architecture_specific_buildinfo_wins_over_all(self):
+        """The buildinfo of the requested architecture must be preferred over the all/ one."""
+        self._write_artifact("gbp/all/lichos-signtool_1.0_all.buildinfo", "Source: all\n")
+        self._write_artifact("gbp/arm64/lichos-signtool_1.0_arm64.buildinfo")
+
+        found = self.service._find_buildinfo_in_artifacts(self.artifacts.name, "arm64")
+
+        self.assertEqual(found, BUILDINFO)
+
+    def test_legacy_gbp_layout_is_still_found(self):
+        """Pipelines published before the gbp/<arch>/ layout must still resolve."""
         self._write_artifact("gbp/lichos-signtool_1.0_arm64.buildinfo")
 
         found = self.service._find_buildinfo_in_artifacts(self.artifacts.name, "arm64")

@@ -1,3 +1,10 @@
+lichoscli (0.3.1) UNRELEASED; urgency=medium
+
+  * Read gbp buildinfo from gbp/<arch>/ like image and oci, falling back to
+    <type>/all/ and to the old gbp/*_<arch>.buildinfo layout
+
+ -- Sami Alzein <sami.alzein@siemens.com>  Thu, 08 Oct 2026 14:21:18 +0200
+
 lichoscli (0.3.0) UNRELEASED; urgency=medium
 
   * fix: add provider module to debian package

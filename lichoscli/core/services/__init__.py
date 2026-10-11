@@ -16,6 +16,7 @@ from .scheduler_listener import SchedulerListener
 from .scheduler_service import SchedulerService
 from .source_collection import SourceCollectionService
 from .storage import NoOpStorageService, StorageService
+from .submodule import SubmoduleService
 from .workspace import WorkspaceService
 
 __all__ = [
@@ -30,6 +31,7 @@ __all__ = [
     "StorageService",
     "RepoParserService",
     "SourceCollectionService",
+    "SubmoduleService",
     "NotifyService",
     "NotificationData",
     "ContainerService",

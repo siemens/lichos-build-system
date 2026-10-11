@@ -9,7 +9,8 @@ from git import GitCommandError
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
 from lichoscli.core.models.git import GitRepo
-from lichoscli.core.services import PackageService
+from lichoscli.core.exceptions import BranchError, ValidationError
+from lichoscli.core.services import SubmoduleService
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ class SnapshotCommand(Command):
 
     def __init__(self, di_container: DIContainer, args):
         super().__init__(di_container, args)
-        self.package_service = di_container.obtain_ref(PackageService)
+        self.submodule_service = di_container.obtain_ref(SubmoduleService)
 
     @classmethod
     def add_arguments(cls, sp):
@@ -50,52 +51,24 @@ class SnapshotCommand(Command):
         git_repo = GitRepo.get_or_clone(project_location, branch)
         if not git_repo:
             return 1
-            
-        updated_names = self._update_submodules(git_repo, branch)
-        
-        if not self._commit_tag_push(git_repo, updated_names, tag):
+
+        committed = False
+        if self.args.dry:
+            logger.info("DRY RUN: Would synchronize submodules with workspace %s", branch)
+        else:
+            try:
+                committed = bool(self.submodule_service.update(git_repo.path, branch))
+            except (BranchError, ValidationError) as e:
+                logger.error("%s", e)
+                return 1
+
+        if not self._tag_push(git_repo, committed, tag):
             return 1
-            
+
         logger.info("Snapshot completed successfully: %s", tag)
         return 0
 
-    def _update_submodules(self, git_repo: GitRepo, branch: str) -> list[str]:
-        updated_names = []
-        
-        if not git_repo.submodules:
-            logger.warning("No submodules found in repository")
-            return []
-
-        for submodule in git_repo.submodules:
-            package = self.package_service.get_package(submodule.name)
-            if not package:
-                logger.warning("Package '%s' not found in GitLab", submodule.name)
-                continue
-
-            branch_obj = self.package_service.get_package_branch(package, branch)
-            if not branch_obj:
-                logger.warning("Branch '%s' not found for package '%s'", branch, package.name)
-                continue
-
-            latest_sha = branch_obj.commit["id"]
-            current_sha = submodule.hexsha
-
-            if current_sha != latest_sha:
-                if git_repo.update_submodule_commit(submodule.path, latest_sha):
-                    logger.info("Updated submodule '%s': %s -> %s", submodule.name, current_sha[:8], latest_sha[:8])
-                    updated_names.append(submodule.name)
-        
-        return updated_names
-
-    def _commit_tag_push(self, git_repo: GitRepo, updated_names: list[str], tag: str) -> bool:
-        committed = False
-        if updated_names:
-            if self.args.dry:
-                logger.info("DRY RUN: Would commit submodule updates: %s", ", ".join(updated_names))
-            else:
-                commit_message = f"Snapshot update: {tag}"
-                committed = git_repo.commit(commit_message)
-
+    def _tag_push(self, git_repo: GitRepo, committed: bool, tag: str) -> bool:
         if self.args.dry:
              logger.info("DRY RUN: Would create tag %s", tag)
              if self.args.push:

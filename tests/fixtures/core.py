@@ -22,6 +22,7 @@ from lichoscli.core.services import (
     EnvironmentService,
     PackageService,
     PkgGroupDiscoveryService,
+    SubmoduleService,
     WorkspaceService,
 )
 from lichoscli.ui import UserInterface
@@ -36,6 +37,7 @@ def mock_di_container():
     dependency_service = Mock(spec=DependencyService)
     buildinfo_service = Mock(spec=BuildInfoService)
     workspace_service = Mock(spec=WorkspaceService)
+    submodule_service = Mock(spec=SubmoduleService)
     cache_service = Mock(spec=CacheService)
     container_service = Mock(spec=ContainerService)
     environment_service = Mock(spec=EnvironmentService)
@@ -72,6 +74,8 @@ def mock_di_container():
             return buildinfo_service
         elif service_type == WorkspaceService:
             return workspace_service
+        elif service_type == SubmoduleService:
+            return submodule_service
         elif service_type == CacheService:
             return cache_service
         elif service_type == ContainerService:

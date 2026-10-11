@@ -61,24 +61,6 @@ class GitRepo:
         except GitCommandError:
             return False
 
-    @property
-    def submodules(self) -> List[GitSubmodule]:
-        """Get list of submodules."""
-        if not self.is_valid:
-            return []
-        try:
-            return [
-                GitSubmodule(
-                    name=sub.name,
-                    path=sub.path,
-                    hexsha=sub.hexsha,
-                    url=sub.url
-                )
-                for sub in self.repo.submodules
-            ]
-        except (GitCommandError, ValueError, AttributeError):
-            return []
-
     @classmethod
     def clone_from(cls, url: str, to_path: Union[str, Path], branch: str = "main") -> "GitRepo":
         """Clone a repository."""
@@ -260,43 +242,6 @@ class GitRepo:
             return True
         except GitCommandError as e:
             logger.error("Failed to update submodules: %s", e)
-            return False
-
-    def add_submodule(self, name: str, url: str, path: str, branch: str) -> bool:
-        """Add a submodule."""
-        if not self.is_valid:
-            return False
-        try:
-            full_path = self.path / path
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-
-            self.repo.create_submodule(
-                name=name,
-                path=path,
-                url=url,
-                branch=branch,
-                no_checkout=True
-            )
-            return True
-        except GitCommandError as e:
-            logger.error("Failed to add submodule %s: %s", name, e)
-            return False
-
-    def update_submodule_commit(self, submodule_path: str, commit_sha: str) -> bool:
-        """Update a submodule to a specific commit SHA."""
-        if not self.is_valid:
-            return False
-        try:
-            self.repo.git.update_index(
-                "--add",
-                "--cacheinfo",
-                "160000",
-                commit_sha,
-                submodule_path
-            )
-            return True
-        except GitCommandError as e:
-            logger.error("Failed to update submodule %s index: %s", submodule_path, e)
             return False
 
     def get_tags(self) -> List[str]:

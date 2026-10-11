@@ -10,10 +10,10 @@ from pathlib import Path
 import requests
 
 from lichoscli.commands.base import Command
-from lichoscli.core.exceptions import ProviderAPIError
+from lichoscli.core.exceptions import BranchError, ProviderAPIError, ValidationError
 from lichoscli.core.di import DIContainer
 from lichoscli.core.models.git import GitRepo
-from lichoscli.core.services import PackageService
+from lichoscli.core.services import PackageService, SubmoduleService
 from lichoscli.utils import CI_PKG, CORE_PACKAGES
 from lichoscli.utils.constants import BUILD_IMAGE_PKG
 
@@ -26,6 +26,7 @@ class ReleaseCommand(Command):
     def __init__(self, di_container: DIContainer, args):
         super().__init__(di_container, args)
         self.package_service = di_container.obtain_ref(PackageService)
+        self.submodule_service = di_container.obtain_ref(SubmoduleService)
 
     def validate_args(self) -> None:
         """Validate that required arguments are provided"""
@@ -105,43 +106,15 @@ class ReleaseCommand(Command):
         if not git_repo:
             return False
 
-        updated_names = self._update_submodules(git_repo, branch)
-
-        return self._commit_and_push_submodule_project(git_repo, updated_names, tag)
-
-    def _update_submodules(self, git_repo: GitRepo, branch: str) -> list[str]:
-        """Update all submodules to the latest commit on the specified branch"""
-        updated_names = []
-        for submodule in git_repo.submodules:
-            package = self.package_service.get_package(submodule.name)
-            if not package:
-                logger.warning("Package '%s' not found", submodule.name)
-                continue
-
-            branch_obj = self.package_service.get_package_branch(package, branch)
-            if not branch_obj:
-                logger.warning("Branch '%s' not found for package '%s'", branch, package.name)
-                continue
-
-            latest_sha = branch_obj.commit["id"]
-            current_sha = submodule.hexsha
-
-            if current_sha != latest_sha:
-                if git_repo.update_submodule_commit(submodule.path, latest_sha):
-                    logger.info("Updated submodule '%s': %s -> %s", submodule.name, current_sha[:8], latest_sha[:8])
-                    updated_names.append(submodule.name)
-        
-        return updated_names
-
-    def _commit_and_push_submodule_project(self, git_repo: GitRepo, updated_names: list[str], tag: str) -> bool:
-        """Commit changes, tag, and push the submodule project"""
         committed = False
-        if updated_names:
-            if self.args.dry:
-                logger.info("DRY RUN: Would commit submodule updates: %s", ", ".join(updated_names))
-            else:
-                commit_message = f"Update submodules for release {tag}"
-                committed = git_repo.commit(commit_message)
+        if self.args.dry:
+            logger.info("DRY RUN: Would synchronize submodules with workspace %s", branch)
+        else:
+            try:
+                committed = bool(self.submodule_service.update(git_repo.path, branch))
+            except (BranchError, ValidationError) as e:
+                logger.error("%s", e)
+                return False
 
         if not git_repo.create_and_push_tag(tag, message=f"Release {tag}", dry_run=self.args.dry):
             logger.error("Failed to tag submodule project")

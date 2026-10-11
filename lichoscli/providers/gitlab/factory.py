@@ -11,6 +11,8 @@ from lichoscli.core.services import (
     PkgGroupDiscoveryService,
     RepoParserService,
     SourceCollectionService,
+    SubmoduleService,
+    WorkspaceService,
 )
 from lichoscli.core.services.commit_status import CommitStatusService
 from lichoscli.core.services.dependency import DependencyService
@@ -67,6 +69,9 @@ class GitLabServiceFactory:
 
     def create_workspace_service(self) -> GitLabWorkspaceService:
         return GitLabWorkspaceService(self.container.obtain_ref(PackageService))
+
+    def create_submodule_service(self) -> SubmoduleService:
+        return SubmoduleService(self.container.obtain_ref(WorkspaceService))
 
     def create_container_service(self) -> ContainerService:
         # Local imports break a circular dependency: lichoscli.core -> this

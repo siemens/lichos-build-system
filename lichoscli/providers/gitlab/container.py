@@ -24,6 +24,7 @@ from lichoscli.core.services import (
     PkgGroupDiscoveryService,
     RepoParserService,
     SourceCollectionService,
+    SubmoduleService,
     StorageService,
     WorkspaceService,
 )
@@ -79,6 +80,7 @@ class GitLabServiceContainer(DIContainer):
         self._factories[BuildInfoService] = factory.create_buildinfo_service
         self._factories[DependencyService] = factory.create_dependency_service
         self._factories[WorkspaceService] = factory.create_workspace_service
+        self._factories[SubmoduleService] = factory.create_submodule_service
         self._factories[ContainerService] = factory.create_container_service
         self._factories[EnvironmentService] = factory.create_environment_service
         self._factories[RepoParserService] = factory.create_repo_parser_service

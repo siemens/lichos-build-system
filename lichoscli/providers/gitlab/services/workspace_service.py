@@ -10,6 +10,8 @@ from typing import Optional
 
 from gitlab import GitlabError
 
+from lichoscli.core.exceptions import ProviderAPIError
+from lichoscli.core.models.project import Project
 from lichoscli.core.models.workspace import Workspace
 from lichoscli.core.services import PackageService, WorkspaceService
 from lichoscli.providers.gitlab.models.workspace import GitLabWorkspace
@@ -371,3 +373,18 @@ class GitLabWorkspaceService(WorkspaceService):
             workspaces.append(workspace)
 
         return sorted(workspaces, key=lambda w: w.name)
+
+    def get_workspace_heads(self, name: str) -> list[tuple[Project, str]]:
+        """Get every package and image with branch ``name`` and the commit that branch points to."""
+        heads = []
+        for project in self.package_service.get_all_packages():
+            if not (project.is_package or project.is_image):
+                continue
+            try:
+                branch = project.branches.get(name)
+            except GitlabError as e:
+                if e.response_code == 404:
+                    continue
+                raise ProviderAPIError(f"Failed to get branch '{name}' of '{project.name}': {e}") from e
+            heads.append((project, branch.commit["id"]))
+        return sorted(heads, key=lambda head: head[0].name)

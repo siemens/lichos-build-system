@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
+    from ..models.project import Project
     from ..models.workspace import Workspace
 
 
@@ -94,6 +95,14 @@ class WorkspaceService(ABC):
 
         Returns:
             List of Workspace objects that exist in this package
+        """
+
+    @abstractmethod
+    def get_workspace_heads(self, name: str) -> list[tuple["Project", str]]:
+        """Get every package and image with branch ``name`` and the commit that branch points to.
+
+        Raises:
+            ProviderAPIError: If any lookup fails, because a missing package would read as a removed one
         """
 
     def workspace_exists(self, name: str) -> bool:

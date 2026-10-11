@@ -9,6 +9,7 @@ from typing import Optional
 from lichoscli.commands.base import Command
 from lichoscli.core.di import DIContainer
 from lichoscli.core.models.git import GitRepo, GitUrl
+from lichoscli.core.services import SubmoduleService
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class ChangelogCommand(Command):
     def __init__(self, di_container: DIContainer, args):
         super().__init__(di_container, args)
         self.repo = GitRepo(Path.cwd())
+        self.submodule_service = di_container.obtain_ref(SubmoduleService)
 
     @classmethod
     def add_arguments(cls, parser):
@@ -122,20 +124,26 @@ class ChangelogCommand(Command):
                 changelog += f"{linked_commit}\n"
             changelog += "\n"
 
-        submodule_changes = self.repo.get_submodule_changes(from_ref, to_ref)
+        submodule_changes = self.submodule_service.diff(self.repo, from_ref, to_ref)
 
         if submodule_changes:
             changelog += "### Submodule Changes\n\n"
 
-            for submodule_path, old_commit, new_commit in submodule_changes:
-                changelog += f"#### {submodule_path}\n\n"
+            for change in submodule_changes:
+                changelog += f"#### {change.path}\n\n"
 
-                submodule_full_path = Path.cwd() / submodule_path
+                if change.kind != "updated":
+                    submodule = change.new or change.old
+                    url = GitUrl.to_web_url(submodule.url)
+                    changelog += f"*{change.kind.capitalize()} at [{submodule.hexsha[:8]}]({url}/-/tree/{submodule.hexsha})*\n\n"
+                    continue
+
+                submodule_full_path = Path.cwd() / change.path
                 if submodule_full_path.exists():
                     sub_repo = GitRepo(submodule_full_path)
                     submodule_commits = sub_repo.get_commit_log(
-                        old_commit,
-                        new_commit,
+                        change.old.hexsha,
+                        change.new.hexsha,
                         no_merges=False
                     )
                     

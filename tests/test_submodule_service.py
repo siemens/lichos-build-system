@@ -124,6 +124,16 @@ def test_update_fails_when_the_push_fails(service, workspace_service, repo, tmp_
         service.update(repo.path, BRANCH, push=True)
 
 
+def test_diff_compares_the_requested_references(service, workspace_service, repo):
+    update(service, workspace_service, repo, head("removed", "a"))
+    old = repo.repo.head.commit.hexsha
+    update(service, workspace_service, repo, head("added", "b"))
+    new = repo.repo.head.commit.hexsha
+    update(service, workspace_service, repo, head("unrelated", "c"))
+
+    assert [(c.path, c.kind) for c in service.diff(repo, old, new)] == [("added", "added"), ("removed", "removed")]
+
+
 def test_read_unquotes_gitmodules_values(service, repo):
     (repo.path / ".gitmodules").write_text(
         '[submodule "package-a"]\n\tpath = "package-a"\n\turl = "git@gitlab.example.com:group/package-a.git"\n'

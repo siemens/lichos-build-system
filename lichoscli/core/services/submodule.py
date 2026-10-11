@@ -42,6 +42,10 @@ class SubmoduleService:
             if fields.get("path") in gitlinks
         }
 
+    def diff(self, repo: GitRepo, from_ref: str, to_ref: str = "HEAD") -> list[SubmoduleChange]:
+        """Get the submodules added, removed, or updated between two references."""
+        return self._compare(self.read(repo, from_ref), self.read(repo, to_ref))
+
     def create(self, path: Path, branch: str, origin_url: str, push: bool = False) -> list[SubmoduleChange]:
         """Create a repository at ``path`` whose submodules are the packages and images of workspace ``branch``.
 

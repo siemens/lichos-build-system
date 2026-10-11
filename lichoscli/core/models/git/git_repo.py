@@ -304,32 +304,6 @@ class GitRepo:
         except (GitCommandError, ValueError):
             return []
 
-    def get_submodule_changes(self, from_ref: str, to_ref: str = "HEAD") -> List[Tuple[str, str, str]]:
-        """
-        Get submodules that changed between two references.
-        Returns list of (submodule_path, old_commit, new_commit).
-        """
-        if not self.is_valid:
-            return []
-        
-        changes = []
-        for submodule in self.submodules:
-            try:
-                old_commit = self.repo.git.ls_tree(from_ref, submodule.path)
-                new_commit = self.repo.git.ls_tree(to_ref, submodule.path)
-
-                if old_commit and new_commit:
-                    old_hash = old_commit.split()[2]
-                    new_hash = new_commit.split()[2]
-
-                    if old_hash != new_hash:
-                        changes.append((submodule.path, old_hash, new_hash))
-            except GitCommandError:
-                continue
-
-
-        return changes
-
     @property
     def remote_info(self) -> Optional[Tuple[str, str, str, str]]:
         """Get parsed remote info ``(host, group, package, branch)``."""

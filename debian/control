@@ -2,6 +2,8 @@ Source: lichoscli
 Section: devel
 Priority: optional
 Maintainer: Siemens eMobility Packaging Team <packages-emobility.infra@siemens.com>
+Uploaders: Ludwig Nussel <ludwig.nussel@siemens.com>,
+ Sami Alzein <sami.alzein@siemens.com>
 Build-Depends: 
  debhelper-compat (= 13),
  dh-python,
@@ -21,9 +23,9 @@ Build-Depends:
  python3-argcomplete,
  pybuild-plugin-pyproject
 Standards-Version: 4.7.0
-Homepage: https://github.com/samastek/lichoscli
-#Vcs-Browser: https://salsa.debian.org/debian/lichoscli
-#Vcs-Git: https://salsa.debian.org/debian/lichoscli.git
+Homepage: https://github.com/siemens/lichoscli
+Vcs-Browser: https://github.com/siemens/lichoscli
+Vcs-Git: https://github.com/siemens/lichoscli.git
 Rules-Requires-Root: no
 
 Package: lichoscli
@@ -39,5 +41,7 @@ Depends: ${python3:Depends}, ${misc:Depends},
  python3-cachetools,
  python3-xdg,
  python3-argcomplete
-Description: Manage LiChOS package builds
- Command-line tool to manage LiChOS package builds and related tasks.
+Description: Automate package workflows for Linux distribution development
+ lichoscli automates package creation, imports, local builds, workspace
+ management, dependency-ordered CI builds, and distribution releases across
+ interdependent Git repositories.

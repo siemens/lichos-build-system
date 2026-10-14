@@ -3,8 +3,8 @@ ignore = ["E501"]
 
 [project]
 name = "lichoscli"
-version = "0.1.0"
-description = "Manage LiChOS package builds"
+version = "0.3.1"
+description = "Automate package workflows for Linux distribution development"
 readme = "README.md"
 authors = [
     {name = "Ludwig Nussel", email = "ludwig.nussel@siemens.com"},
@@ -12,6 +12,8 @@ authors = [
     {name = "Siemens eMobility Packaging Team", email = "packages-emobility.infra@siemens.com"},
 ]
 maintainers = [
+    {name = "Ludwig Nussel", email = "ludwig.nussel@siemens.com"},
+    {name = "Sami Alzein", email = "sami.alzein@siemens.com"},
     {name = "Siemens eMobility Packaging Team", email = "packages-emobility.infra@siemens.com"},
 ]
 license = {text = "MIT"}
@@ -45,10 +47,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/samastek/lichoscli"
-Repository = "https://github.com/samastek/lichoscli"
-Documentation = "https://github.com/samastek/lichoscli"
-Issues = "https://github.com/samastek/lichoscli/issues"
+Homepage = "https://github.com/siemens/lichoscli"
+Repository = "https://github.com/siemens/lichoscli"
+Documentation = "https://github.com/siemens/lichoscli"
+Issues = "https://github.com/siemens/lichoscli/issues"
 
 [project.scripts]
 lichoscli = "lichoscli.cli:main"

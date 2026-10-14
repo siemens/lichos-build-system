@@ -35,9 +35,9 @@ class CustomFormatter(logging.Formatter):
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="lichoscli",
-        description="CLI tool to manage package builds in gitlab using the lichos framework",
+        description="Automate package workflows for Linux distribution development",
     )
-    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
+    parser.add_argument("--version", action="version", version="%(prog)s 0.3.1")
     parser.add_argument("--dry", action="store_true", help="dry run")
     parser.add_argument("--debug", action="store_true", help="debug output")
     parser.add_argument("--verbose", "-v", action="store_true", help="verbose")

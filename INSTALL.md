@@ -1,22 +1,21 @@
 # Installation
 
-## From Packages
+lichoscli needs Python 3.10 or newer and Git. Local builds also need Docker
+or Podman.
 
-If you have the lichos repos enabled, just call
+## From a Git repository with pipx
+
+Install the latest source version into an isolated environment using
+[pipx](https://pipx.pypa.io/). pipx accepts any Git URL, so this works for
+the upstream repository, a fork or a mirror:
 
 ```bash
-apt install lichoscli
+pipx install git+https://github.com/siemens/lichoscli.git
 ```
 
-## Directly from git
+Append `@<branch-or-tag>` to the URL to install a specific version.
 
-```bash
-ln -s $PWD/cli ~/bin/lichoscli
-```
-
-## Virtual environment
-
-Install system-wide into an isolated virtual environment using [pipx](https://pipx.pypa.io/):
+## From a local checkout
 
 ```bash
 pipx install .
@@ -28,4 +27,16 @@ To reinstall after updating the source:
 pipx install . --force
 ```
 
-The `lichoscli` and `lbs` commands will be available in `~/.local/bin`.
+The `lichoscli` and `lbs` commands will be available in the pipx environment,
+normally under `~/.local/bin`.
+
+## Shell completion
+
+lichoscli completes commands, options and package names through
+[argcomplete](https://github.com/kislyuk/argcomplete). Install argcomplete
+with `pipx install argcomplete` and add this to your bash or zsh startup file:
+
+```bash
+eval "$(register-python-argcomplete lichoscli)"
+eval "$(register-python-argcomplete lbs)"
+```

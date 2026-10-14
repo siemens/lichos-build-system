@@ -1,5 +1,8 @@
 #!/usr/bin/python3
 # PYTHON_ARGCOMPLETE_OK
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import sys
 
 from lichoscli.cli import main

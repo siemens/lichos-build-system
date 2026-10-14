@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Siemens AG
+
 import re
 from dataclasses import dataclass
 from typing import Optional, NamedTuple

@@ -10,6 +10,8 @@ from gitlab import GitlabError
 
 from lichoscli.core.models import Projects
 
+from .project import GitLabProject
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,6 +27,10 @@ class GitLabProjects(Projects):
     def path(self) -> str:
         """Get the group path of this project collection."""
         return self._group_path
+
+    def get(self, name: str) -> Optional[GitLabProject]:
+        """Find an active project by name or path, including subgroups."""
+        return GitLabProject.find(self._gitlab, self._group_path, name)
 
     @property
     def group(self):

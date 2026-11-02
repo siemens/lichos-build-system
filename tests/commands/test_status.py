@@ -8,6 +8,7 @@ Unit tests for StatusCommand
 from unittest.mock import patch
 
 from lichoscli.commands.status import StatusCommand
+from lichoscli.core.models.dag import WorkspaceStatus
 from tests.mocks import create_mock_args
 
 
@@ -58,3 +59,11 @@ def test_execute_without_package_calls_print_all_status(mock_di_container):
 
         mock_print.assert_called_once()
         assert result == 0
+
+
+def test_schedule_label_picks_most_important_state():
+    assert StatusCommand._schedule_label({WorkspaceStatus.STALE, WorkspaceStatus.FAILED, None}) == "failed"
+
+
+def test_schedule_label_is_empty_without_schedule():
+    assert StatusCommand._schedule_label({None, WorkspaceStatus.SUCCESS}) is None

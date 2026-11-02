@@ -214,7 +214,9 @@ class TerminalOutput(OutputWriter):
 
         lines: list[str] = []
         if table.title:
-            lines.append(table.title)
+            title = self._cell_text(table.title)
+            codes = _STYLE_MAP.get(self._cell_style(table.title), "")
+            lines.append("{0}{1}{2}".format(codes, title, _ansi.RESET) if codes else title)
 
         if headers:
             header_line = "  " + "  ".join(

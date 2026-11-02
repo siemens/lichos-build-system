@@ -5,7 +5,9 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
+    from .dag import WorkspaceStatus
     from .job import Job
+    from .pipeline_status import PipelineStatus
 
 
 class Jobs(ABC):
@@ -26,6 +28,14 @@ class Jobs(ABC):
     @abstractmethod
     def has_any_failed(self) -> bool:
         """Return True if any job in this pipeline has failed."""
+
+    @abstractmethod
+    def aggregate_status(self) -> Optional["PipelineStatus"]:
+        """Combined status of the pipeline's own jobs, ignoring external commit statuses."""
+
+    @abstractmethod
+    def workspace_status(self) -> Optional["WorkspaceStatus"]:
+        """The workspace-scheduling status the scheduler posted onto this pipeline, if any."""
 
     @abstractmethod
     def extract_log_from_job(self, job_name: str) -> Optional[str]:

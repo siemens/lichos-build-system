@@ -8,6 +8,7 @@ from .pipeline_status import PipelineStatus
 from lichoscli.utils.constants import CI_PUBLISH_JOB_NAME
 
 if TYPE_CHECKING:
+    from .dag import WorkspaceStatus
     from .jobs import Jobs
     from .project import Project
     from .user import User
@@ -73,6 +74,20 @@ class Pipeline(ABC):
     @abstractmethod
     def cancel(self) -> bool:
         """Cancel the pipeline."""
+
+    @property
+    def build_status(self) -> PipelineStatus:
+        """Status from the pipeline's jobs, so external statuses like workspace-scheduling don't mask it."""
+        if self.status.is_successful:
+            return self.status
+        return self.jobs.aggregate_status() or self.status
+
+    @property
+    def schedule_status(self) -> Optional["WorkspaceStatus"]:
+        """Workspace-scheduling status of this package; a green pipeline has nothing pending."""
+        if self.status.is_successful:
+            return None
+        return self.jobs.workspace_status()
 
     def is_publish_complete(self) -> bool:
         """Return True when the publish job has completed successfully."""

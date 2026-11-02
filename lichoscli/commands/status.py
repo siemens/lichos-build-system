@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 
 from lichoscli.commands.base import Command
+from lichoscli.core.models.dag import WorkspaceStatus
 from lichoscli.core.models.pipeline_status import PipelineStatus
 from lichoscli.core.services import PackageService
 from lichoscli.ui import Cell, Table
@@ -51,6 +52,7 @@ class StatusCommand(Command):
 
         all_successful = True
         failed_packages = []
+        schedule = set()
 
         table = Table(title="Status of workspace {}".format(self.args.branch))
         table.add_column("Name", no_wrap=True)
@@ -64,10 +66,12 @@ class StatusCommand(Command):
 
             pipeline = package.pipelines.get_latest(self.args.branch)
             if pipeline:
-                status_display = pipeline.status.to_string()
-                if not pipeline.status.is_successful:
+                status = pipeline.build_status
+                schedule.add(pipeline.schedule_status)
+                status_display = status.to_string()
+                if not status.is_successful:
                     all_successful = False
-                    if pipeline.status.is_failed:
+                    if status.is_failed:
                         failed_packages.append(self.package_service.get_display_name(package))
 
                 if pipeline.updated_at:
@@ -87,12 +91,29 @@ class StatusCommand(Command):
                 date,
             )
 
+        schedule_label = self._schedule_label(schedule)
+        if schedule_label:
+            table.title = Cell(
+                "{0}: {1}".format(table.title, schedule_label),
+                style="error" if schedule_label == "failed" else "warning",
+            )
         self.output.table(table)
 
         if not all_successful:
             return 1
 
         return 0
+
+    @staticmethod
+    def _schedule_label(schedule):
+        for state, label in (
+            (WorkspaceStatus.BUILDING, "in progress"),
+            (WorkspaceStatus.FAILED, "failed"),
+            (WorkspaceStatus.STALE, "needs rebuild"),
+        ):
+            if state in schedule:
+                return label
+        return None
 
     def print_package_status(self):
         package = self.package_service.get_package(self.package_name)
@@ -115,7 +136,7 @@ class StatusCommand(Command):
         details_table.add_column("Value")
         details_table.add_row("sha", latest_pipeline.sha or "-")
         details_table.add_row("ref", latest_pipeline.ref or "-")
-        details_table.add_row("status", latest_pipeline.status.to_string() if latest_pipeline else "-")
+        details_table.add_row("status", latest_pipeline.build_status.to_string())
         details_table.add_row("source", latest_pipeline.source or "-")
         details_table.add_row("web_url", latest_pipeline.web_url or "-")
         if latest_pipeline.user:

@@ -65,7 +65,7 @@ class Tree:
 class Table:
     """Fluent table builder consumed by output backends."""
 
-    def __init__(self, title: Optional[str] = None) -> None:
+    def __init__(self, title: Optional[Union[str, Cell]] = None) -> None:
         self.title = title
         self._columns: list[_ColumnDef] = []
         self._rows: list[list[TableValue]] = []

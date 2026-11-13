@@ -223,7 +223,7 @@ class DependencyService(ABC):
         - Number of packages
         - Dependencies between packages
         - Commit hashes of each package
-        - Status of each package (derived from pipeline status)
+        - Package versions
 
         Args:
             old_dag: Previous DAG state

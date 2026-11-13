@@ -162,8 +162,8 @@ class TestHasDagStateChanged(unittest.TestCase):
 
         self.assertTrue(self.service.has_dag_state_changed(old_dag, new_dag))
 
-    def test_status_change_returns_true(self):
-        """A pipeline status change should be detected."""
+    def test_status_change_alone_returns_false(self):
+        """A failed build with unchanged inputs must not trigger another rebuild."""
         old_node = _make_node("pkg-a", commit_sha="abc")
         old_node.status = DAGNodeStatus.SUCCESS
         new_node = _make_node("pkg-a", commit_sha="abc")
@@ -172,4 +172,4 @@ class TestHasDagStateChanged(unittest.TestCase):
         old_dag = _make_dag([old_node])
         new_dag = _make_dag([new_node])
 
-        self.assertTrue(self.service.has_dag_state_changed(old_dag, new_dag))
+        self.assertFalse(self.service.has_dag_state_changed(old_dag, new_dag))

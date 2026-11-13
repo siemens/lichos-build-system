@@ -258,7 +258,6 @@ class GitLabDependencyService(DependencyService):
         2. Dependencies between packages (direct and reverse)
         3. Commit hashes of each package
         4. Package versions (a new pipeline on the same commit produces a new version)
-        5. Status of each package (derived from pipeline status)
 
         Args:
             old_dag: Previous DAG state
@@ -283,7 +282,8 @@ class GitLabDependencyService(DependencyService):
                        added, removed)
             return True
 
-        # Check each package for changes in commit hash, version, dependencies, or status
+        # Check each package for changes in commit hash, version or dependencies; status is not
+        # compared, so a failed build with unchanged inputs is not retried on every run
         for package_name in old_packages:
             old_node = old_dag.nodes[package_name]
             new_node = new_dag.nodes[package_name]
@@ -311,11 +311,6 @@ class GitLabDependencyService(DependencyService):
             new_rev_deps = set(new_node.reverse_dependencies.keys())
             if old_rev_deps != new_rev_deps:
                 logger.info("DAG state changed: %s reverse dependencies changed", package_name)
-                return True
-
-            if old_node.status != new_node.status:
-                logger.info("DAG state changed: %s status changed (%s -> %s)",
-                           package_name, old_node.status.value, new_node.status.value)
                 return True
 
         logger.info("DAG state unchanged: no differences detected")

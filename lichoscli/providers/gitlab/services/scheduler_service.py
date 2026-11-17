@@ -318,14 +318,14 @@ class GitLabSchedulerService(SchedulerService):
             node.status == DAGNodeStatus.FAILED for node in dag.nodes.values()
         )
 
-        groups: dict[WorkspaceStatus, tuple[dict, dict]] = {
-            WorkspaceStatus.FAILED: ({}, {}),
-            WorkspaceStatus.STALE: ({}, {}),
-            WorkspaceStatus.BUILDING: ({}, {}),
-            WorkspaceStatus.SUCCESS: ({}, {}),
+        groups: dict[WorkspaceStatus, list["DAGNode"]] = {
+            WorkspaceStatus.FAILED: [],
+            WorkspaceStatus.STALE: [],
+            WorkspaceStatus.BUILDING: [],
+            WorkspaceStatus.SUCCESS: [],
         }
 
-        for name, node in dag.nodes.items():
+        for node in dag.nodes.values():
             if not node.commit_sha or not node.project:
                 logger.warning(
                     "Skipping commit status for %s: missing commit_sha or project",
@@ -336,19 +336,13 @@ class GitLabSchedulerService(SchedulerService):
             ws = self._resolve_node_workspace_status(
                 node.status, scheduling_complete, has_failures,
             )
+            groups[ws].append(node)
 
-            projs, shas = groups[ws]
-            projs[name] = node.project
-            shas[name] = node.commit_sha
-
-        for ws, (projs, shas) in groups.items():
-            if projs:
-                if extra_description:
-                    self._commit_status_service.post_workspace_status(
-                        projs, shas, ws, extra_description
-                    )
-                else:
-                    self._commit_status_service.post_workspace_status(projs, shas, ws)
+        for ws, nodes in groups.items():
+            if nodes:
+                self._commit_status_service.post_workspace_status(
+                    nodes, ws, workspace.name, extra_description
+                )
 
     @staticmethod
     def _resolve_node_workspace_status(

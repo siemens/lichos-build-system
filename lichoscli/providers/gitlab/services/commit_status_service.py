@@ -17,6 +17,7 @@ from lichoscli.core.services.commit_status import (
 from lichoscli.utils.constants import CI_WORKSPACE_JOB_NAME
 
 if TYPE_CHECKING:
+    from lichoscli.core.models.dag import DAGNode
     from lichoscli.core.models.project import Project
 
 logger = logging.getLogger(__name__)
@@ -140,12 +141,12 @@ class GitLabCommitStatusService(CommitStatusService):
 
     def post_workspace_status(
         self,
-        nodes: dict[str, "Project"],
-        commit_shas: dict[str, str],
+        nodes: list["DAGNode"],
         status: WorkspaceStatus,
+        ref: str,
         extra_description: Optional[str] = None,
     ) -> None:
-        """Post the same workspace-level status to all packages.
+        """Post the same workspace-level status on ``ref`` to the commit of every node.
 
         ``extra_description`` is appended to the status description for
         informational purposes without affecting the reported state.
@@ -156,15 +157,8 @@ class GitLabCommitStatusService(CommitStatusService):
         if len(description) > _MAX_DESCRIPTION_LENGTH:
             description = description[: _MAX_DESCRIPTION_LENGTH - 1] + "\u2026"
 
-        for package_name, project in nodes.items():
-            commit_sha = commit_shas.get(package_name)
-            if not commit_sha:
-                logger.warning(
-                    "Skipping workspace status for %s: missing commit_sha",
-                    package_name,
-                )
-                continue
-
+        for node in nodes:
+            project, commit_sha = node.project, node.commit_sha
             cache_key = (project.id, commit_sha, status.value)
             if cache_key in self._posted_statuses:
                 logger.debug(
@@ -179,6 +173,7 @@ class GitLabCommitStatusService(CommitStatusService):
                 "state": status.value,
                 "name": CI_WORKSPACE_JOB_NAME,
                 "description": description,
+                "ref": ref,
             }
 
             logger.debug(

@@ -240,7 +240,7 @@ class TestExecuteSchedule:
         svc.execute_schedule(dag=dag, workspace=_workspace(), poll_interval=0, listener=Mock(spec=SchedulerListener))
 
         commit_svc.post_workspace_status.assert_called()
-        last_call_status = commit_svc.post_workspace_status.call_args[0][2]
+        last_call_status = commit_svc.post_workspace_status.call_args[0][1]
         assert last_call_status == WorkspaceStatus.FAILED
 
     def test_node_success_posts_building_during_scheduling(self):
@@ -271,7 +271,7 @@ class TestExecuteSchedule:
         # During execute_schedule, scheduling is in-progress so SUCCESS
         # nodes get BUILDING to block merges workspace-wide
         commit_svc.post_workspace_status.assert_called()
-        last_call_status = commit_svc.post_workspace_status.call_args[0][2]
+        last_call_status = commit_svc.post_workspace_status.call_args[0][1]
         assert last_call_status == WorkspaceStatus.BUILDING
 
     def test_blocked_nodes_reported(self):
@@ -316,9 +316,8 @@ class TestExecuteSchedule:
                 dag=dag, workspace=_workspace(), poll_interval=0, listener=Mock(spec=SchedulerListener)
             )
         # post_dag_statuses should have been called with the new SHA
-        last_call = commit_svc.post_workspace_status.call_args
-        commit_shas_arg = last_call[0][1]
-        assert commit_shas_arg["A"] == "new-sha-from-pipeline"
+        posted_nodes = commit_svc.post_workspace_status.call_args[0][0]
+        assert posted_nodes[0].commit_sha == "new-sha-from-pipeline"
 
 
 # ── post_dag_statuses ────────────────────────────────────────────────
@@ -338,9 +337,7 @@ class TestPostDagStatuses:
         svc.post_dag_statuses(dag, _workspace(), scheduling_complete=True)
 
         commit_svc.post_workspace_status.assert_called_once_with(
-            {"A": proj_a, "B": proj_b},
-            {"A": "sha-a", "B": "sha-b"},
-            WorkspaceStatus.SUCCESS,
+            [node_a, node_b], WorkspaceStatus.SUCCESS, "main", None
         )
 
     def test_success_nodes_get_building_during_scheduling(self):
@@ -356,9 +353,7 @@ class TestPostDagStatuses:
         svc.post_dag_statuses(dag, _workspace())
 
         commit_svc.post_workspace_status.assert_called_once_with(
-            {"A": proj_a, "B": proj_b},
-            {"A": "sha-a", "B": "sha-b"},
-            WorkspaceStatus.BUILDING,
+            [node_a, node_b], WorkspaceStatus.BUILDING, "main", None
         )
 
     def test_failure_marks_others_stale_when_complete(self):
@@ -373,11 +368,11 @@ class TestPostDagStatuses:
         svc = _make_service(commit_status_service=commit_svc)
         svc.post_dag_statuses(dag, _workspace(), scheduling_complete=True)
 
-        calls = {call[0][2]: call[0] for call in commit_svc.post_workspace_status.call_args_list}
+        calls = {call[0][1]: call[0] for call in commit_svc.post_workspace_status.call_args_list}
         assert WorkspaceStatus.FAILED in calls
         assert WorkspaceStatus.STALE in calls
-        assert calls[WorkspaceStatus.FAILED][0] == {"A": proj_a}
-        assert calls[WorkspaceStatus.STALE][0] == {"B": proj_b}
+        assert calls[WorkspaceStatus.FAILED][0] == [node_a]
+        assert calls[WorkspaceStatus.STALE][0] == [node_b]
 
     def test_failed_node_posts_workspace_failed(self):
         proj = Mock()
@@ -389,9 +384,7 @@ class TestPostDagStatuses:
         svc.post_dag_statuses(dag, _workspace())
 
         commit_svc.post_workspace_status.assert_called_once_with(
-            {"A": proj},
-            {"A": "sha"},
-            WorkspaceStatus.FAILED,
+            [node], WorkspaceStatus.FAILED, "main", None
         )
 
     def test_building_node_posts_workspace_building(self):
@@ -404,9 +397,7 @@ class TestPostDagStatuses:
         svc.post_dag_statuses(dag, _workspace())
 
         commit_svc.post_workspace_status.assert_called_once_with(
-            {"A": proj},
-            {"A": "sha"},
-            WorkspaceStatus.BUILDING,
+            [node], WorkspaceStatus.BUILDING, "main", None
         )
 
     def test_missing_commit_sha_skipped(self):
@@ -434,11 +425,11 @@ class TestPostDagStatuses:
         svc = _make_service(commit_status_service=commit_svc)
         svc.post_dag_statuses(dag, _workspace())
 
-        calls = {call[0][2]: call[0] for call in commit_svc.post_workspace_status.call_args_list}
+        calls = {call[0][1]: call[0] for call in commit_svc.post_workspace_status.call_args_list}
         assert WorkspaceStatus.FAILED in calls
         assert WorkspaceStatus.STALE in calls
-        assert calls[WorkspaceStatus.FAILED][0] == {"A": proj_a}
-        assert calls[WorkspaceStatus.STALE][0] == {"B": proj_b}
+        assert calls[WorkspaceStatus.FAILED][0] == [node_a]
+        assert calls[WorkspaceStatus.STALE][0] == [node_b]
 
     def test_pending_node_gets_stale_not_building(self):
         proj = Mock()
@@ -450,9 +441,7 @@ class TestPostDagStatuses:
         svc.post_dag_statuses(dag, _workspace())
 
         commit_svc.post_workspace_status.assert_called_once_with(
-            {"A": proj},
-            {"A": "sha"},
-            WorkspaceStatus.STALE,
+            [node], WorkspaceStatus.STALE, "main", None
         )
 
     def test_mixed_states_during_scheduling(self):
@@ -469,13 +458,13 @@ class TestPostDagStatuses:
         svc = _make_service(commit_status_service=commit_svc)
         svc.post_dag_statuses(dag, _workspace())
 
-        calls = {call[0][2]: call[0] for call in commit_svc.post_workspace_status.call_args_list}
+        calls = {call[0][1]: call[0] for call in commit_svc.post_workspace_status.call_args_list}
         # BUILDING and SUCCESS both get BUILDING during scheduling
         assert WorkspaceStatus.BUILDING in calls
-        assert calls[WorkspaceStatus.BUILDING][0] == {"A": proj_a, "C": proj_c}
+        assert calls[WorkspaceStatus.BUILDING][0] == [node_a, node_c]
         # PENDING gets STALE
         assert WorkspaceStatus.STALE in calls
-        assert calls[WorkspaceStatus.STALE][0] == {"B": proj_b}
+        assert calls[WorkspaceStatus.STALE][0] == [node_b]
 
     def test_protected_workspace_skips_all_posting(self):
         proj = Mock()
@@ -882,10 +871,9 @@ class TestPostDagStatusesMissingDependencies:
         )
 
         args = commit_svc.post_workspace_status.call_args[0]
-        assert args[0] == {"A": proj_a}
-        assert args[1] == {"A": "sha-a"}
-        assert args[2] == WorkspaceStatus.SUCCESS
-        assert args[3] == "build deps not in workspace: ext-a, ext-b"
+        assert args == (
+            [node_a], WorkspaceStatus.SUCCESS, "main", "build deps not in workspace: ext-a, ext-b"
+        )
 
     def test_no_missing_dependencies_posts_without_extra_description(self):
         proj_a = Mock()
@@ -898,5 +886,5 @@ class TestPostDagStatusesMissingDependencies:
         svc.post_dag_statuses(dag, _workspace(), scheduling_complete=True)
 
         commit_svc.post_workspace_status.assert_called_once_with(
-            {"A": proj_a}, {"A": "sha-a"}, WorkspaceStatus.SUCCESS
+            [node_a], WorkspaceStatus.SUCCESS, "main", None
         )

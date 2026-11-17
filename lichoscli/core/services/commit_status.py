@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Optional
 from lichoscli.core.models.dag import WorkspaceStatus
 
 if TYPE_CHECKING:
+    from lichoscli.core.models.dag import DAGNode
     from lichoscli.core.models.project import Project
 
 
@@ -53,12 +54,12 @@ class CommitStatusService(ABC):
     @abstractmethod
     def post_workspace_status(
         self,
-        nodes: dict[str, "Project"],
-        commit_shas: dict[str, str],
+        nodes: list["DAGNode"],
         status: "WorkspaceStatus",
+        ref: str,
         extra_description: Optional[str] = None,
     ) -> None:
-        """Post the same workspace-level status to all packages in the workspace.
+        """Post the same workspace-level status on ``ref`` to the commit of every node.
 
         ``extra_description`` is appended to the status description for
         informational purposes only and does not affect the reported state.

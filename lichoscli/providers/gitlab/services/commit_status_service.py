@@ -169,11 +169,17 @@ class GitLabCommitStatusService(CommitStatusService):
                 )
                 continue
 
+            # by id, not ref: with an open MR the build is an MR pipeline, which the branch ref does not match
+            pipeline = project.pipelines.get_latest(ref, use_cache=False)
+            if not pipeline:
+                logger.debug("Skipping workspace status for project %s: no pipeline on %s", project.id, ref)
+                continue
+
             payload = {
                 "state": status.value,
                 "name": CI_WORKSPACE_JOB_NAME,
                 "description": description,
-                "ref": ref,
+                "pipeline_id": pipeline.id,
             }
 
             logger.debug(

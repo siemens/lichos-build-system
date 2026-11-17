@@ -54,9 +54,20 @@ def test_workspace_status_appends_extra_description():
     payload = _created_payload(project)
     assert payload["state"] == "success"
     assert payload["name"] == "workspace-scheduling"
-    assert payload["ref"] == "feature/x"
+    assert payload["pipeline_id"] == project.pipelines.get_latest.return_value.id
+    assert "ref" not in payload
     assert "workspace build succeeded" in payload["description"]
     assert "build deps not in workspace: ext-a, ext-b" in payload["description"]
+
+
+def test_workspace_status_is_not_posted_without_a_pipeline_on_the_branch():
+    """The scheduler must never make GitLab create a jobless pipeline for its status."""
+    project = _project()
+    project.pipelines.get_latest.return_value = None
+
+    GitLabCommitStatusService().post_workspace_status(_nodes(project), WorkspaceStatus.SUCCESS, "feature/x")
+
+    project._project.commits.get.return_value.statuses.create.assert_not_called()
 
 
 def test_workspace_status_without_extra_description():

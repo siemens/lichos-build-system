@@ -99,5 +99,5 @@ lichoscli was written and is maintained by:
 - Sami Alzein <sami.alzein@siemens.com>
 
 Report bugs and propose changes through
-[issues](https://github.com/siemens/lichoscli/issues); see
+[issues](https://github.com/siemens/lichos-build-system/issues); see
 [CONTRIBUTING.md](CONTRIBUTING.md).

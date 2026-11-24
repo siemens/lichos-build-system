@@ -24,9 +24,9 @@ Build-Depends:
  python3-argcomplete:native,
  pybuild-plugin-pyproject
 Standards-Version: 4.7.0
-Homepage: https://github.com/siemens/lichoscli
-Vcs-Browser: https://github.com/siemens/lichoscli
-Vcs-Git: https://github.com/siemens/lichoscli.git
+Homepage: https://github.com/siemens/lichos-build-system
+Vcs-Browser: https://github.com/siemens/lichos-build-system
+Vcs-Git: https://github.com/siemens/lichos-build-system.git
 Rules-Requires-Root: no
 
 Package: lichoscli

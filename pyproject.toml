@@ -47,10 +47,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/siemens/lichoscli"
-Repository = "https://github.com/siemens/lichoscli"
-Documentation = "https://github.com/siemens/lichoscli"
-Issues = "https://github.com/siemens/lichoscli/issues"
+Homepage = "https://github.com/siemens/lichos-build-system"
+Repository = "https://github.com/siemens/lichos-build-system"
+Documentation = "https://github.com/siemens/lichos-build-system"
+Issues = "https://github.com/siemens/lichos-build-system/issues"
 
 [project.scripts]
 lichoscli = "lichoscli.cli:main"

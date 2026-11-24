@@ -10,7 +10,7 @@ Install the latest source version into an isolated environment using
 the upstream repository, a fork or a mirror:
 
 ```bash
-pipx install git+https://github.com/siemens/lichoscli.git
+pipx install git+https://github.com/siemens/lichos-build-system.git
 ```
 
 Append `@<branch-or-tag>` to the URL to install a specific version.

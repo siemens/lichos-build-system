@@ -2,7 +2,7 @@ Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: lichoscli
 Upstream-Contact: Ludwig Nussel <ludwig.nussel@siemens.com>
  Sami Alzein <sami.alzein@siemens.com>
-Source: <https://github.com/siemens/lichoscli>
+Source: <https://github.com/siemens/lichos-build-system>
 
 Files: *
 Copyright: 2025, 2026 Siemens AG

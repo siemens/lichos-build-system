@@ -2,7 +2,7 @@
 
 Thank you for helping improve `lichoscli`. Contributions are welcome through
 issues and pull requests on
-[github.com/siemens/lichoscli](https://github.com/siemens/lichoscli).
+[github.com/siemens/lichos-build-system](https://github.com/siemens/lichos-build-system).
 
 ## Maintainers
 
